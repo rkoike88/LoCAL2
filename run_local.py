@@ -11,6 +11,7 @@ Starts in order: ZMQ proxy → GeneratorAgent → API (if --api) → UI (if not 
 from __future__ import annotations
 
 import argparse
+import signal
 import sys
 import time
 import threading
@@ -67,6 +68,7 @@ def main() -> None:
 
     # -- UI ------------------------------------------------------------------
     if not args.headless:
+        from PySide6.QtCore import QTimer
         from PySide6.QtWidgets import QApplication
         from local.transport.bus_config import PROXY_FRONTEND_ADDR
         from local.transport.zmq_pubsub import ZmqPublisher
@@ -75,7 +77,14 @@ def main() -> None:
         app_qt = QApplication(sys.argv)
         publisher = ZmqPublisher(PROXY_FRONTEND_ADDR, bind=False)
         window = MainWindow(publisher=publisher, model=args.model)
+        signal.signal(signal.SIGINT, lambda *_: app_qt.quit())
+        # Wake Python every 200ms so the SIGINT handler can fire while Qt owns the loop.
+        _sigint_timer = QTimer()
+        _sigint_timer.start(200)
+        _sigint_timer.timeout.connect(lambda: None)
         window.show()
+        window.raise_()
+        window.activateWindow()
         sys.exit(app_qt.exec())
     else:
         print("[local] Running headless. Press Ctrl+C to stop.")

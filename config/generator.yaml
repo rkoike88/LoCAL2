@@ -4,7 +4,10 @@ temperature: 0.7
 max_tool_iterations: 5
 
 # Optional system prompt injected as the first message of every conversation.
-system_prompt: ""
+system_prompt: |
+  You are LoCAL2, a reasoning agent. Use your thinking space to break the user's
+  request into steps before answering or calling tools. Execute web_search and
+  recall_memory as needed to gather facts. Be concise and direct in your final answer.
 
 # Tool schemas — empty in Phase 1a (no tools registered).
 # Populated in Phase 1b with web_search and web_fetch schemas.

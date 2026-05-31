@@ -1,8 +1,8 @@
 """Session-scoped conversation history for multi-turn Ollama chat calls.
 
 History is stored as a messages array in Ollama chat format.
-Callers must pass clean assistant text — thinking tokens must be stripped
-before calling append_turn().
+Callers must strip thinking tokens before storing — either pass clean text
+to append_turn() or pass pre-cleaned dicts to append_messages().
 """
 
 from __future__ import annotations
@@ -43,6 +43,26 @@ class ConversationService:
         turns = self._sessions[session_id]
         turns.append({"role": "user", "content": user})
         turns.append({"role": "assistant", "content": assistant})
+        max_entries = _MAX_TURNS_PER_SESSION * 2
+        if len(turns) > max_entries:
+            self._sessions[session_id] = turns[-max_entries:]
+        self._sessions.move_to_end(session_id)
+
+    def append_messages(self, session_id: str | None, messages: list[dict]) -> None:
+        """Append a pre-cleaned list of messages (user/assistant/tool) to session history.
+
+        messages must already have thinking tokens stripped. Use this when saving
+        a full generation turn including intermediate tool calls and results.
+        """
+        if not session_id or not messages:
+            return
+        if session_id not in self._sessions:
+            if len(self._sessions) >= _MAX_SESSIONS:
+                self._sessions.popitem(last=False)
+            self._sessions[session_id] = []
+
+        turns = self._sessions[session_id]
+        turns.extend(messages)
         max_entries = _MAX_TURNS_PER_SESSION * 2
         if len(turns) > max_entries:
             self._sessions[session_id] = turns[-max_entries:]

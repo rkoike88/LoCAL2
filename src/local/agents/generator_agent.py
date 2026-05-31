@@ -17,7 +17,7 @@ from local.agents.generator_states import GeneratorState
 from local.agents.generator_transitions import GeneratorStateMachine
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
-from local.protocol.subjects import ANSWER_DIALOG, QUERY_RECEIVED, RESPONSE_GENERATION
+from local.protocol.subjects import ANSWER_DIALOG, GENERATION_THINKING, QUERY_RECEIVED, RESPONSE_GENERATION
 from local.services.conversation_service import ConversationService
 from local.transport.bus_config import make_participant_bus
 
@@ -75,10 +75,13 @@ class GeneratorAgent:
         self._sm.transition(GeneratorAction.RECEIVE)
 
         messages = self._build_messages(query, session_id)
+        initial_len = len(messages)
         self._sm.transition(GeneratorAction.START_GENERATION)
 
         try:
-            answer, thinking, tool_call_log = self._generate(messages, correlation_id)
+            answer, thinking, tool_call_log = self._generate(
+                messages, correlation_id, session_id, query_id
+            )
         except Exception as exc:
             logger.error("GeneratorAgent: generation failed: %s", exc, exc_info=True)
             self._sm.transition(GeneratorAction.FAIL)
@@ -92,7 +95,10 @@ class GeneratorAgent:
             self._sm.transition(GeneratorAction.RESET)
             return
 
-        self._conv.append_turn(session_id, query, answer)
+        # Save user message + all new assistant/tool messages from this turn.
+        # Slice from initial_len-1 to include the user query at the tail of _build_messages.
+        new_messages = [self._clean_for_history(m) for m in messages[initial_len - 1:]]
+        self._conv.append_messages(session_id, new_messages)
         self._sm.transition(GeneratorAction.PUBLISH)
 
         self._pub.publish(self._make_envelope(
@@ -121,27 +127,55 @@ class GeneratorAgent:
         return messages
 
     def _generate(
-        self, messages: list[dict], correlation_id: str
+        self,
+        messages: list[dict],
+        correlation_id: str,
+        session_id: str | None = None,
+        query_id: str = "",
     ) -> tuple[str, str, list[dict]]:
-        """Run the ollama.chat() tool loop; return (answer, thinking, tool_call_log)."""
+        """Stream ollama.chat(); publish thinking chunks; return (answer, thinking, tool_call_log)."""
         import ollama
 
         raw_msg: dict = {}
-        response = None
         tool_call_log: list[dict] = []
+        accumulated_thinking: str = ""
 
         for _ in range(self._max_tool_iters):
-            response = ollama.chat(
+            iter_content = ""
+            iter_thinking = ""
+            iter_tool_calls = None
+
+            for chunk in ollama.chat(
                 model=self._model,
                 messages=messages,
                 tools=self._tool_schemas or None,
                 think=True,
+                stream=True,
                 options=self._options,
-            )
-            raw_msg = response.message.model_dump()
+            ):
+                if chunk.message.thinking:
+                    iter_thinking += chunk.message.thinking
+                    accumulated_thinking += chunk.message.thinking
+                    self._pub.publish(self._make_envelope(
+                        GENERATION_THINKING, "thinking",
+                        {"chunk": chunk.message.thinking,
+                         "session_id": session_id, "query_id": query_id},
+                        correlation_id, session_id,
+                    ))
+                if chunk.message.content:
+                    iter_content += chunk.message.content
+                if chunk.message.tool_calls:
+                    iter_tool_calls = chunk.message.tool_calls
+
+            raw_msg = {
+                "role": "assistant",
+                "content": iter_content,
+                "thinking": iter_thinking or None,
+                "tool_calls": iter_tool_calls,
+            }
             messages.append(raw_msg)
 
-            tool_calls: list = raw_msg.get("tool_calls") or []
+            tool_calls: list = iter_tool_calls or []
             if not tool_calls:
                 break
 
@@ -156,8 +190,7 @@ class GeneratorAgent:
             self._sm.transition(GeneratorAction.TOOL_RESULT)
 
         answer = (raw_msg.get("content") or "").strip()
-        # thinking is on response.message (not response) for the chat endpoint
-        thinking = (raw_msg.get("thinking") or "").strip()
+        thinking = accumulated_thinking.strip()
         if not answer and tool_call_log:
             logger.warning(
                 "GeneratorAgent: max_tool_iterations (%d) exhausted without a final text answer",
@@ -168,6 +201,14 @@ class GeneratorAgent:
     def _execute_tool(self, name: str, args: dict, correlation_id: str) -> str:
         """Execute a tool call. Phase 1b wires this to the bus; Phase 1a returns a stub."""
         return f"[tool not available in Phase 1a: {name!r}]"
+
+    @staticmethod
+    def _clean_for_history(m: dict) -> dict:
+        """Strip thinking and empty tool_calls from a message dict before saving to history."""
+        result = {k: v for k, v in m.items() if k != "thinking"}
+        if not result.get("tool_calls"):
+            result.pop("tool_calls", None)
+        return result
 
     # ------------------------------------------------------------------
     # Helpers

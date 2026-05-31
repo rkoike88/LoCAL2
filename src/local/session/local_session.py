@@ -20,6 +20,7 @@ from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     ANSWER_DIALOG,
     CRITIQUE,
+    GENERATION_THINKING,
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
     TOOL_REQUEST_WEB_FETCH,
@@ -33,6 +34,7 @@ from local.transport.zmq_pubsub import ZmqPublisher, ZmqSubscriber
 # All bus subjects the session observes.
 OBSERVE = [
     QUERY_RECEIVED,
+    GENERATION_THINKING,
     TOOL_REQUEST_WEB_SEARCH,
     TOOL_RESULT_WEB_SEARCH,
     TOOL_REQUEST_WEB_FETCH,

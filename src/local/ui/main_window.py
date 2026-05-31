@@ -1,26 +1,28 @@
 """LoCAL2 main window — bus log + query input.
 
 Layout:
-  52px icon strip  |  log view (fills remaining space)
-  ─────────────────────────────────────────────────────
+  52px icon strip  |  scroll area (log items stack vertically)
+  ─────────────────────────────────────────────────────────────
                    |  query input row (bottom)
 
-BusMonitorWorker runs in a background QThread and emits all bus envelopes.
-BusLogger formats them and pushes strings to the log view via Qt signals.
+RESPONSE events use StreamingResponseWidget: thinking streams in live as
+generation.thinking chunks arrive, then collapses when the answer lands.
+All other events use plain QLabel rows.
 """
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Optional
 
 try:
     from PySide6.QtCore import QObject, QThread, Qt, Signal
     from PySide6.QtWidgets import (
         QHBoxLayout,
+        QLabel,
         QLineEdit,
         QMainWindow,
         QPushButton,
+        QScrollArea,
         QSizePolicy,
         QTextEdit,
         QVBoxLayout,
@@ -33,6 +35,7 @@ from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     ANSWER_DIALOG,
     CRITIQUE,
+    GENERATION_THINKING,
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
     TOOL_REQUEST_WEB_FETCH,
@@ -46,13 +49,86 @@ from local.transport.zmq_pubsub import ZmqPublisher, ZmqSubscriber
 
 
 # ---------------------------------------------------------------------------
+# Streaming response widget
+# ---------------------------------------------------------------------------
+
+class StreamingResponseWidget(QWidget):
+    """Response card that fills in live: thinking streams first, answer finalizes it."""
+
+    def __init__(self, ts: str) -> None:
+        super().__init__()
+        self.setObjectName("responseItem")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 10, 16, 10)
+        layout.setSpacing(6)
+
+        self._header = QLabel(f"[{ts}] RESPONSE  ⟳")
+        self._header.setObjectName("logHeader")
+        layout.addWidget(self._header)
+
+        self._toggle_btn = QPushButton("◈ thinking  ▼")
+        self._toggle_btn.setObjectName("thinkingToggle")
+        self._toggle_btn.setFlat(True)
+        self._toggle_btn.setCursor(Qt.PointingHandCursor)
+        self._toggle_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._toggle_btn.setVisible(False)
+        layout.addWidget(self._toggle_btn)
+
+        self._thinking_box = QTextEdit()
+        self._thinking_box.setObjectName("thinkingBox")
+        self._thinking_box.setReadOnly(True)
+        self._thinking_box.setMaximumHeight(280)
+        self._thinking_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._thinking_box.setVisible(False)
+        layout.addWidget(self._thinking_box)
+
+        self._answer_label = QLabel()
+        self._answer_label.setObjectName("logAnswer")
+        self._answer_label.setWordWrap(True)
+        self._answer_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._answer_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self._answer_label.setVisible(False)
+        layout.addWidget(self._answer_label)
+
+        self._thinking_visible = True
+        self._toggle_btn.clicked.connect(self._toggle)
+
+    def append_thinking_chunk(self, chunk: str) -> None:
+        if not self._toggle_btn.isVisible():
+            self._toggle_btn.setVisible(True)
+            self._thinking_box.setVisible(True)
+        cursor = self._thinking_box.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.insertText(chunk)
+        self._thinking_box.setTextCursor(cursor)
+        self._thinking_box.verticalScrollBar().setValue(
+            self._thinking_box.verticalScrollBar().maximum()
+        )
+
+    def finalize(self, ts: str, answer: str, tool_calls: list) -> None:
+        tool_ind = f"  ⚙ {len(tool_calls)} tool call(s)" if tool_calls else ""
+        self._header.setText(f"[{ts}] RESPONSE{tool_ind}")
+        if self._toggle_btn.isVisible():
+            self._thinking_visible = False
+            self._thinking_box.setVisible(False)
+            self._toggle_btn.setText("◈ thinking  ▶")
+        self._answer_label.setText(answer or "(empty)")
+        self._answer_label.setVisible(True)
+
+    def _toggle(self) -> None:
+        self._thinking_visible = not self._thinking_visible
+        self._thinking_box.setVisible(self._thinking_visible)
+        self._toggle_btn.setText(
+            "◈ thinking  ▼" if self._thinking_visible else "◈ thinking  ▶"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Background bus monitor
 # ---------------------------------------------------------------------------
 
 class BusMonitorWorker(QObject):
-    """Subscribes to the bus in a background thread; emits one signal per envelope."""
-
-    envelope_received = Signal(object)  # MessageEnvelope
+    envelope_received = Signal(object)
 
     def __init__(self, address: str, subscriptions: list[str]) -> None:
         super().__init__()
@@ -79,9 +155,9 @@ class BusMonitorWorker(QObject):
 # ---------------------------------------------------------------------------
 
 class BusLogger(QObject):
-    """Thread-safe formatter: receives envelopes, emits styled log strings."""
-
     message = Signal(str)
+    thinking_chunk = Signal(dict)   # {ts, chunk, query_id}
+    response = Signal(dict)         # {ts, answer, thinking, tool_calls, query_id}
 
     def log_envelope(self, envelope: MessageEnvelope) -> None:
         now = datetime.now()
@@ -89,42 +165,48 @@ class BusLogger(QObject):
         raw = envelope.payload or {}
         subject = envelope.subject
 
+        if subject == GENERATION_THINKING:
+            self.thinking_chunk.emit({
+                "ts": ts,
+                "chunk": raw.get("chunk") or "",
+                "query_id": raw.get("query_id") or "",
+            })
+            return
+
+        if subject == RESPONSE_GENERATION:
+            self.response.emit({
+                "ts": ts,
+                "answer": (raw.get("answer") or "").strip(),
+                "thinking": (raw.get("thinking") or "").strip(),
+                "tool_calls": raw.get("tool_calls") or [],
+                "query_id": raw.get("query_id") or "",
+            })
+            return
+
         if subject == QUERY_RECEIVED:
             query = (raw.get("query") or "")[:100].replace("\n", " ")
-            text = f"\n[{ts}] QUERY\n  {query}"
-
-        elif subject == RESPONSE_GENERATION:
-            answer = (raw.get("answer") or "")[:80].replace("\n", " ")
-            truncated = len(raw.get("answer") or "") > 80
-            thinking = raw.get("thinking") or ""
-            tool_calls = raw.get("tool_calls") or []
-            think_ind = "◈ thinking" if thinking else ""
-            tool_ind = f"⚙ {len(tool_calls)} tool call(s)" if tool_calls else ""
-            flags = "  ".join(x for x in [think_ind, tool_ind] if x)
-            text = f"\n[{ts}] RESPONSE\n  Answer:  {answer}{'…' if truncated else ''}"
-            if flags:
-                text += f"\n  Flags:   {flags}"
+            text = f"[{ts}] QUERY\n  {query}"
 
         elif subject == ANSWER_DIALOG:
-            text = f"\n[{ts}] DIALOG  (conversation recorded)"
+            text = f"[{ts}] DIALOG  (conversation recorded)"
 
         elif subject == CRITIQUE:
             score = raw.get("score", "")
             verdict = raw.get("verdict", "")
-            text = f"\n[{ts}] CRITIQUE  score={score}  verdict={verdict}"
+            text = f"[{ts}] CRITIQUE  score={score}  verdict={verdict}"
 
         elif subject in (TOOL_REQUEST_WEB_SEARCH, TOOL_REQUEST_WEB_FETCH):
-            tool_name = subject.split(".")[-1]   # "web_search" or "web_fetch"
+            tool_name = subject.split(".")[-1]
             args = raw.get("args") or {}
-            text = f"\n[{ts}] TOOL REQUEST  {tool_name}\n  args: {args}"
+            text = f"[{ts}] TOOL REQUEST  {tool_name}\n  args: {args}"
 
         elif subject in (TOOL_RESULT_WEB_SEARCH, TOOL_RESULT_WEB_FETCH):
             tool_name = subject.split(".")[-1]
             snippet = str(raw.get("result") or "")[:80].replace("\n", " ")
-            text = f"\n[{ts}] TOOL RESULT  {tool_name}\n  {snippet}"
+            text = f"[{ts}] TOOL RESULT  {tool_name}\n  {snippet}"
 
         else:
-            text = f"\n[{ts}] {subject.upper()}\n  sender={envelope.sender_id}"
+            text = f"[{ts}] {subject.upper()}\n  sender={envelope.sender_id}"
 
         self.message.emit(text)
 
@@ -134,13 +216,13 @@ class BusLogger(QObject):
 # ---------------------------------------------------------------------------
 
 class MainWindow(QMainWindow):
-    """LoCAL2 participant window: bus log + query submission."""
 
     def __init__(self, publisher: ZmqPublisher, model: str = "") -> None:
         super().__init__()
         self._publisher = publisher
         self._session_id = str(uuid.uuid4())
-        title = "LoCAL2 Generator"
+        self._pending: dict[str, StreamingResponseWidget] = {}
+        title = "LoCAL2"
         if model:
             title += f"  [{model}]"
         self.setWindowTitle(title)
@@ -151,7 +233,7 @@ class MainWindow(QMainWindow):
         clear_btn.setObjectName("sidebarBtn")
         clear_btn.setToolTip("Clear log")
         clear_btn.setFixedSize(36, 36)
-        clear_btn.clicked.connect(lambda: self._log_view.clear())
+        clear_btn.clicked.connect(self._clear_log)
 
         new_session_btn = QPushButton("⟳")
         new_session_btn.setObjectName("sidebarBtn")
@@ -169,11 +251,19 @@ class MainWindow(QMainWindow):
         strip_layout.addWidget(new_session_btn, alignment=Qt.AlignHCenter)
         strip_layout.addStretch()
 
-        # ── Log view ──────────────────────────────────────────────────
-        self._log_view = QTextEdit()
-        self._log_view.setReadOnly(True)
-        self._log_view.setObjectName("conversationLog")
-        self._log_view.setPlaceholderText("Bus events will appear here…")
+        # ── Scroll area log ───────────────────────────────────────────
+        self._log_widget = QWidget()
+        self._log_widget.setObjectName("logWidget")
+        self._log_layout = QVBoxLayout(self._log_widget)
+        self._log_layout.setContentsMargins(0, 8, 0, 8)
+        self._log_layout.setSpacing(0)
+        self._log_layout.addStretch()
+
+        self._log_scroll = QScrollArea()
+        self._log_scroll.setObjectName("logScroll")
+        self._log_scroll.setWidget(self._log_widget)
+        self._log_scroll.setWidgetResizable(True)
+        self._log_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
         # ── Query input row ───────────────────────────────────────────
         self._query_input = QLineEdit()
@@ -192,19 +282,17 @@ class MainWindow(QMainWindow):
         input_row.addWidget(self._query_input)
         input_row.addWidget(send_btn)
 
-        # ── Main content area (log + input) ───────────────────────────
-        content_layout = QVBoxLayout()
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(0)
-        content_layout.addWidget(self._log_view, 1)
-
         input_container = QWidget()
         input_container.setObjectName("inputContainer")
         input_container.setLayout(input_row)
         input_container.setContentsMargins(12, 8, 12, 12)
+
+        content_layout = QVBoxLayout()
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        content_layout.addWidget(self._log_scroll, 1)
         content_layout.addWidget(input_container)
 
-        # ── Root layout ───────────────────────────────────────────────
         root = QHBoxLayout()
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -224,6 +312,8 @@ class MainWindow(QMainWindow):
     def _start_bus_monitor(self) -> None:
         self._bus_logger = BusLogger()
         self._bus_logger.message.connect(self.append_log)
+        self._bus_logger.thinking_chunk.connect(self._on_thinking_chunk)
+        self._bus_logger.response.connect(self._on_response)
 
         self._monitor_worker = BusMonitorWorker(PROXY_BACKEND_ADDR, subscriptions=OBSERVE)
         self._monitor_worker.envelope_received.connect(self._bus_logger.log_envelope)
@@ -255,12 +345,49 @@ class MainWindow(QMainWindow):
 
     def _new_session(self) -> None:
         self._session_id = str(uuid.uuid4())
-        self.append_log(f"\n── new conversation  session={self._session_id[:8]}… ──")
+        self.append_log(f"── new conversation  session={self._session_id[:8]}… ──")
+
+    def _clear_log(self) -> None:
+        self._pending.clear()
+        while self._log_layout.count() > 1:
+            item = self._log_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def _on_thinking_chunk(self, data: dict) -> None:
+        query_id = data["query_id"]
+        if query_id not in self._pending:
+            widget = StreamingResponseWidget(data["ts"])
+            self._insert_log_widget(widget)
+            self._pending[query_id] = widget
+            self._scroll_to_bottom()
+        self._pending[query_id].append_thinking_chunk(data["chunk"])
+        self._scroll_to_bottom()
+
+    def _on_response(self, data: dict) -> None:
+        query_id = data["query_id"]
+        widget = self._pending.pop(query_id, None)
+        if widget is None:
+            widget = StreamingResponseWidget(data["ts"])
+            self._insert_log_widget(widget)
+        widget.finalize(data["ts"], data["answer"], data["tool_calls"])
+        self._scroll_to_bottom()
 
     def append_log(self, text: str) -> None:
-        self._log_view.append(text)
-        self._log_view.verticalScrollBar().setValue(
-            self._log_view.verticalScrollBar().maximum()
+        label = QLabel(text)
+        label.setObjectName("logItem")
+        label.setWordWrap(True)
+        label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self._insert_log_widget(label)
+        self._scroll_to_bottom()
+
+    def _insert_log_widget(self, widget: QWidget) -> None:
+        self._log_layout.insertWidget(self._log_layout.count() - 1, widget)
+
+    def _scroll_to_bottom(self) -> None:
+        self._log_scroll.verticalScrollBar().setValue(
+            self._log_scroll.verticalScrollBar().maximum()
         )
 
     def closeEvent(self, event) -> None:
@@ -293,14 +420,56 @@ class MainWindow(QMainWindow):
                 background: #2a2a2a;
                 color: #ececec;
             }
-            QTextEdit#conversationLog {
+            QScrollArea#logScroll {
                 background: #0d0d0d;
-                color: #ececec;
                 border: none;
-                padding: 16px 24px;
+            }
+            QWidget#logWidget {
+                background: #0d0d0d;
+            }
+            QLabel#logItem {
+                background: transparent;
+                color: #666666;
+                font-family: monospace;
+                font-size: 12px;
+                padding: 2px 24px;
+            }
+            QWidget#responseItem {
+                background: #111111;
+                border-top: 1px solid #1e1e1e;
+                border-bottom: 1px solid #1e1e1e;
+            }
+            QLabel#logHeader {
+                color: #555555;
+                font-family: monospace;
+                font-size: 12px;
+            }
+            QLabel#logAnswer {
+                color: #ececec;
                 font-family: monospace;
                 font-size: 13px;
-                selection-background-color: #2a2a2a;
+                padding: 4px 0px;
+            }
+            QPushButton#thinkingToggle {
+                background: transparent;
+                color: #555555;
+                border: none;
+                font-family: monospace;
+                font-size: 12px;
+                padding: 2px 0px;
+                text-align: left;
+            }
+            QPushButton#thinkingToggle:hover {
+                color: #888888;
+            }
+            QTextEdit#thinkingBox {
+                background: #0a0a0a;
+                color: #555555;
+                border: 1px solid #1e1e1e;
+                border-radius: 4px;
+                font-family: monospace;
+                font-size: 12px;
+                padding: 8px;
             }
             QWidget#inputContainer {
                 background: #111111;

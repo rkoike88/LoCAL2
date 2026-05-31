@@ -2,6 +2,7 @@
 
 # Core conversation flow
 QUERY_RECEIVED = "query.received"
+GENERATION_THINKING = "generation.thinking"   # streaming thinking chunks
 RESPONSE_GENERATION = "response.generation"
 ANSWER_DIALOG = "answer.dialog"
 

@@ -13,27 +13,17 @@ from local.services.conversation_service import ConversationService
 # ---------------------------------------------------------------------------
 
 def _make_ollama_response(content: str, thinking: str = "", tool_calls=None):
-    """Build a minimal mock that mimics ollama.ChatResponse.
+    """Return a one-item iterable that mimics ollama.chat(stream=True).
 
-    thinking is placed on message (not on response) to match the real
-    Ollama chat API where thinking lives at response.message.thinking.
-    model_dump() includes thinking so raw_msg.get("thinking") works.
+    Each item is a chunk with .message.content, .message.thinking,
+    .message.tool_calls matching what the streaming API yields.
+    A single chunk with all content simulates a complete response.
     """
-    msg = MagicMock()
-    msg.model_dump.return_value = {
-        "role": "assistant",
-        "content": content,
-        "tool_calls": tool_calls,
-        "thinking": thinking or None,
-    }
-    msg.content = content
-    msg.thinking = thinking or None
-    msg.tool_calls = tool_calls or []
-
-    response = MagicMock()
-    response.message = msg
-    # response.thinking intentionally NOT set — it doesn't exist on ChatResponse
-    return response
+    chunk = MagicMock()
+    chunk.message.content = content
+    chunk.message.thinking = thinking or None
+    chunk.message.tool_calls = tool_calls or None
+    return [chunk]
 
 
 def _make_agent(model="test-model", system_prompt="", tool_schemas=None) -> GeneratorAgent:
@@ -182,6 +172,24 @@ class TestHandleQuery:
         history = agent._conv.get_history("s-hist")
         assert history[0] == {"role": "user", "content": "Who wrote Pride and Prejudice?"}
         assert history[1] == {"role": "assistant", "content": "Jane Austen"}
+
+    def test_tool_call_exchange_saved_in_history(self):
+        """Tool calls and results from turn 1 must appear in history for turn 2."""
+        agent = _make_agent()
+        tc = [{"function": {"name": "web_search", "arguments": {"query": "Jane Austen"}}}]
+        tool_resp = _make_ollama_response("", tool_calls=tc)
+        final_resp = _make_ollama_response("Jane Austen was born in 1775.")
+        with patch("ollama.chat", side_effect=[tool_resp, final_resp]):
+            with patch.object(agent, "_execute_tool", return_value="result: Jane Austen born 1775"):
+                agent._handle_query(self._make_query_envelope("When was Jane Austen born?", session_id="s-tool"))
+        history = agent._conv.get_history("s-tool")
+        roles = [m["role"] for m in history]
+        # Must contain: user, assistant (tool call), tool result, assistant (final answer)
+        assert roles == ["user", "assistant", "tool", "assistant"]
+        assert history[0]["content"] == "When was Jane Austen born?"
+        assert history[-1]["content"] == "Jane Austen was born in 1775."
+        # Thinking must be stripped from stored assistant turns
+        assert all("thinking" not in m for m in history)
 
     def test_state_machine_returns_to_idle(self):
         agent = _make_agent()

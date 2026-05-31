@@ -75,6 +75,15 @@ When asked to describe or diagnose a problem, give a direct concise answer first
 - `collective.knowledge` — cross-agent elevated patterns
 - `collective.sessions` — summarized Q&A exchanges
 
+## Testing
+
+Stories are the acceptance criteria. Unit tests verify isolated logic; stories verify that the full system produces the right behavior end-to-end across conversation turns.
+
+- Stories live in `tests/stories/*.yaml` — YAML files defining multi-turn conversations with expected bus events and answer content
+- Before declaring a feature done, there must be a story covering it
+- Story structure: `story_id`, `title`, `turns` (query + assertions), `expected` (subjects present/absent), `critic`, `notes`
+- Run stories against the live stack after any significant change
+
 ## Verification Before Claiming Done
 
 - Always run `git status` and `git log --oneline -10` before claiming work is incomplete

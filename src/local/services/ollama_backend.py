@@ -92,7 +92,8 @@ class OllamaBackend:
             return "", ""
 
         text = (getattr(response.message, "content", None) or "").strip()
-        thinking = (getattr(response, "thinking", None) or "").strip()
+        # thinking is on response.message, not response, for the chat endpoint
+        thinking = (getattr(response.message, "thinking", None) or "").strip()
         return text, thinking
 
     def _make_client(self):

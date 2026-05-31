@@ -59,6 +59,7 @@ async def post_query(body: QueryRequest, request: Request):
         thinking = ""
         tool_calls: list = []
         query_id = str(uuid.uuid4())
+        got_response = False
         for envelope in session.stream(body.query, query_id=query_id, timeout=body.timeout):
             if envelope.subject == RESPONSE_GENERATION:
                 p = envelope.payload
@@ -66,6 +67,12 @@ async def post_query(body: QueryRequest, request: Request):
                 thinking = p.get("thinking") or ""
                 tool_calls = p.get("tool_calls") or []
                 query_id = p.get("query_id") or query_id
+                got_response = True
+        if not got_response:
+            raise HTTPException(
+                status_code=504,
+                detail=f"Generator did not respond within {body.timeout}s timeout",
+            )
         return QueryResponse(
             answer=answer,
             thinking=thinking,

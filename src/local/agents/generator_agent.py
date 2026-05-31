@@ -114,7 +114,7 @@ class GeneratorAgent:
         """Construct the messages array for ollama.chat() from history + new query."""
         history = self._conv.get_history(session_id)
         messages: list[dict] = []
-        if self._system_prompt and not history:
+        if self._system_prompt:
             messages.append({"role": "system", "content": self._system_prompt})
         messages.extend(history)
         messages.append({"role": "user", "content": query})
@@ -156,7 +156,13 @@ class GeneratorAgent:
             self._sm.transition(GeneratorAction.TOOL_RESULT)
 
         answer = (raw_msg.get("content") or "").strip()
-        thinking = (getattr(response, "thinking", None) or "").strip()
+        # thinking is on response.message (not response) for the chat endpoint
+        thinking = (raw_msg.get("thinking") or "").strip()
+        if not answer and tool_call_log:
+            logger.warning(
+                "GeneratorAgent: max_tool_iterations (%d) exhausted without a final text answer",
+                self._max_tool_iters,
+            )
         return answer, thinking, tool_call_log
 
     def _execute_tool(self, name: str, args: dict, correlation_id: str) -> str:

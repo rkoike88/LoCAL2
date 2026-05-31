@@ -13,19 +13,26 @@ from local.services.conversation_service import ConversationService
 # ---------------------------------------------------------------------------
 
 def _make_ollama_response(content: str, thinking: str = "", tool_calls=None):
-    """Build a minimal mock that mimics ollama.ChatResponse."""
+    """Build a minimal mock that mimics ollama.ChatResponse.
+
+    thinking is placed on message (not on response) to match the real
+    Ollama chat API where thinking lives at response.message.thinking.
+    model_dump() includes thinking so raw_msg.get("thinking") works.
+    """
     msg = MagicMock()
     msg.model_dump.return_value = {
         "role": "assistant",
         "content": content,
         "tool_calls": tool_calls,
+        "thinking": thinking or None,
     }
     msg.content = content
+    msg.thinking = thinking or None
     msg.tool_calls = tool_calls or []
 
     response = MagicMock()
     response.message = msg
-    response.thinking = thinking
+    # response.thinking intentionally NOT set — it doesn't exist on ChatResponse
     return response
 
 
@@ -74,11 +81,13 @@ class TestBuildMessages:
         assert msgs[1] == {"role": "assistant", "content": "4"}
         assert msgs[-1] == {"role": "user", "content": "and times 3?"}
 
-    def test_system_prompt_not_added_when_history_present(self):
+    def test_system_prompt_added_even_with_history(self):
         agent = _make_agent(system_prompt="You are helpful.")
         agent._conv.append_turn("s1", "prior", "answer")
         msgs = agent._build_messages("follow-up", session_id="s1")
-        assert msgs[0]["role"] != "system"
+        assert msgs[0] == {"role": "system", "content": "You are helpful."}
+        assert msgs[1] == {"role": "user", "content": "prior"}
+        assert msgs[-1] == {"role": "user", "content": "follow-up"}
 
     def test_no_session_id_no_history(self):
         agent = _make_agent()
@@ -104,8 +113,8 @@ class TestGenerate:
 
     def test_thinking_empty_when_none(self):
         agent = _make_agent()
-        mock_resp = _make_ollama_response("42")
-        mock_resp.thinking = None
+        # thinking=None in model_dump() — raw_msg.get("thinking") returns None
+        mock_resp = _make_ollama_response("42", thinking="")
         with patch("ollama.chat", return_value=mock_resp):
             _, thinking, _ = agent._generate(
                 [{"role": "user", "content": "?"}], "corr-2"

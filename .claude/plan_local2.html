@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LoCAL2 — Architecture Plan</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f1117; color: #e2e8f0; line-height: 1.6; padding: 2rem; }
+  h1 { font-size: 1.8rem; color: #7dd3fc; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.2rem; color: #94a3b8; font-weight: 500; margin-bottom: 2rem; }
+  h3 { font-size: 1rem; color: #7dd3fc; margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  h4 { font-size: 0.95rem; color: #e2e8f0; margin-bottom: 0.5rem; }
+  .section { background: #1e2330; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; border-left: 3px solid #334155; }
+  .section.blue { border-left-color: #3b82f6; }
+  .section.green { border-left-color: #22c55e; }
+  .section.amber { border-left-color: #f59e0b; }
+  .section.purple { border-left-color: #a855f7; }
+  .section.red { border-left-color: #ef4444; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+  .card { background: #252d3d; border-radius: 6px; padding: 1rem; }
+  .card h4 { color: #7dd3fc; }
+  .tag { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-right: 0.25rem; }
+  .tag.new { background: #14532d; color: #86efac; }
+  .tag.carry { background: #1e3a5f; color: #93c5fd; }
+  .tag.gone { background: #3b0f0f; color: #fca5a5; }
+  table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; font-size: 0.9rem; }
+  th { text-align: left; padding: 0.5rem 0.75rem; background: #252d3d; color: #94a3b8; font-weight: 600; }
+  td { padding: 0.5rem 0.75rem; border-top: 1px solid #2d3748; vertical-align: top; }
+  td:first-child { color: #7dd3fc; font-family: monospace; white-space: nowrap; }
+  .pill { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.75rem; }
+  .pill.sync { background: #1e3a5f; color: #93c5fd; }
+  .pill.bus { background: #2d1b69; color: #c4b5fd; }
+  .pill.obs { background: #14532d; color: #86efac; }
+  ul { padding-left: 1.25rem; }
+  ul li { margin-bottom: 0.35rem; color: #cbd5e1; font-size: 0.9rem; }
+  .phase { display: flex; gap: 1rem; margin-bottom: 0.75rem; align-items: flex-start; }
+  .phase-num { background: #3b82f6; color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem; flex-shrink: 0; margin-top: 0.1rem; }
+  .phase-num.done { background: #22c55e; }
+  .phase-num.later { background: #475569; }
+  .phase-content h4 { margin-bottom: 0.25rem; }
+  .arch-box { background: #252d3d; border: 1px solid #334155; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.75rem; }
+  .arch-box .label { color: #7dd3fc; font-weight: 600; font-size: 0.9rem; min-width: 180px; }
+  .arch-box .desc { color: #94a3b8; font-size: 0.85rem; }
+  .arrow { text-align: center; color: #475569; font-size: 1.2rem; margin: 0.25rem 0; }
+  .vs { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .vs-col h4 { margin-bottom: 0.5rem; padding: 0.35rem 0.75rem; border-radius: 4px; font-size: 0.85rem; }
+  .vs-col.v1 h4 { background: #2d1b1b; color: #fca5a5; }
+  .vs-col.v2 h4 { background: #14532d; color: #86efac; }
+  .vs-col ul { font-size: 0.85rem; }
+  .constraint { background: #1a1a2e; border: 1px solid #f59e0b44; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 0.5rem; }
+  .constraint .title { color: #fbbf24; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.25rem; }
+  .constraint .body { color: #94a3b8; font-size: 0.85rem; }
+  code { background: #1a2035; color: #86efac; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.85rem; font-family: monospace; }
+  .objective { background: #1a2035; border-radius: 6px; padding: 1rem; margin-bottom: 0.75rem; border-left: 3px solid #7dd3fc; }
+  .objective .num { color: #7dd3fc; font-weight: 700; }
+  .objective .title { color: #e2e8f0; font-weight: 600; }
+  .objective .body { color: #94a3b8; font-size: 0.875rem; margin-top: 0.25rem; }
+</style>
+</head>
+<body>
+
+<h1>LoCAL2</h1>
+<h2>Loosely Coupled Agent Language model — Second Generation</h2>
+
+<!-- Objectives -->
+<div class="section blue">
+  <h3>Going-In Objectives</h3>
+
+  <div class="objective">
+    <div><span class="num">1 </span><span class="title">Native Conversation History</span></div>
+    <div class="body">The generator receives the full conversation messages array. Gemma handles followup detection, pronoun resolution, contradiction detection, and multi-turn reasoning natively — without preprocessing or query rewriting. LoCAL1's resolve_query() suppressed these native capabilities; LoCAL2 restores them.</div>
+  </div>
+
+  <div class="objective">
+    <div><span class="num">2 </span><span class="title">Tool-Native Architecture</span></div>
+    <div class="body">Web search and memory recall are surfaced as tools Gemma calls when it decides they're needed. No explicit task decomposition, no Synthesizer aggregation, no Gateway classification. Gemma is the orchestrator; LoCAL2 provides the capabilities.</div>
+  </div>
+
+  <div class="objective">
+    <div><span class="num">3 </span><span class="title">Externalized LLM Workings</span></div>
+    <div class="body">Thinking tokens, tool calls, memory retrievals, and conversation state are first-class visible artifacts surfaced in the UI — not debug side channels. The goal is to make the model's internal reasoning process transparent and observable.</div>
+  </div>
+</div>
+
+<!-- What changed -->
+<div class="section amber">
+  <h3>LoCAL1 vs LoCAL2</h3>
+  <div class="vs">
+    <div class="vs-col v1">
+      <h4>LoCAL1 — Explicit Orchestration</h4>
+      <ul>
+        <li>Analyst rewrites query before generator sees it</li>
+        <li>Analyst classifies depth, decomposes into task DAG</li>
+        <li>Gateway classifies realtime need, routes to web search</li>
+        <li>Synthesizer aggregates task results, arbitrates</li>
+        <li>Generator receives transformed query, not conversation</li>
+        <li>Thinking tokens stripped from history, debug side channel</li>
+        <li>4k context default (often silently truncated)</li>
+        <li>Many agents, complex pub/sub surface</li>
+      </ul>
+    </div>
+    <div class="vs-col v2">
+      <h4>LoCAL2 — LLM as Orchestrator</h4>
+      <ul>
+        <li>Generator receives raw query + full conversation history</li>
+        <li>Gemma decides when to decompose, go deep, use tools</li>
+        <li>web_search is a tool Gemma calls when it needs it</li>
+        <li>No Synthesizer — single coherent generation turn</li>
+        <li>Generator sees the full conversation natively</li>
+        <li>Thinking tokens surfaced in UI as first-class output</li>
+        <li>num_ctx set explicitly (32k+)</li>
+        <li>Fewer agents, minimal bus surface</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- Architecture -->
+<div class="section blue">
+  <h3>Architecture — Message Flow</h3>
+
+  <div class="arch-box">
+    <div class="label">UI / API</div>
+    <div class="desc">User submits query → publishes <code>query.received</code></div>
+  </div>
+  <div class="arrow">↓</div>
+  <div class="arch-box">
+    <div class="label">GeneratorAgent</div>
+    <div class="desc">Receives query + conversation history → calls Ollama chat endpoint with messages array + tools</div>
+  </div>
+  <div class="arrow">↓ (within generation turn — synchronous)</div>
+  <div class="arch-box">
+    <div class="label">Tool: web_search</div>
+    <div class="desc">Gemma calls when it needs real-time data → result appended to messages → generation continues</div>
+  </div>
+  <div class="arch-box">
+    <div class="label">Tool: recall_memory</div>
+    <div class="desc">Gemma calls when it wants prior context → ChromaDB retrieval → result appended to messages</div>
+  </div>
+  <div class="arrow">↓</div>
+  <div class="arch-box">
+    <div class="label">GeneratorAgent</div>
+    <div class="desc">Publishes <code>response.generation</code> — answer text + thinking tokens + tool call log</div>
+  </div>
+  <div class="arrow">↓ (async bus observers)</div>
+  <div class="arch-box">
+    <div class="label">Critic</div>
+    <div class="desc">Observes <code>response.generation</code> → evaluates quality → publishes <code>critique.result</code></div>
+  </div>
+  <div class="arch-box">
+    <div class="label">MemoryService</div>
+    <div class="desc">Observes <code>response.generation</code> → ingests answer to episodic memory</div>
+  </div>
+  <div class="arch-box">
+    <div class="label">RewardService</div>
+    <div class="desc">Observes <code>user.feedback</code> → routes <code>reward.event</code> to generator</div>
+  </div>
+</div>
+
+<!-- Gemma constraints -->
+<div class="section red">
+  <h3>Gemma 4 + Ollama Constraints</h3>
+
+  <div class="constraint">
+    <div class="title">Strip thinking tokens from history</div>
+    <div class="body">Gemma 4 wraps reasoning in <code>&lt;|think|&gt;...&lt;|/think|&gt;</code> tokens. Before appending an assistant turn to conversation history, strip these tokens. Only the final clean response goes into the messages array. Exception: do not strip mid-sequence during multi-step tool calls — only strip before the turn is archived.</div>
+  </div>
+
+  <div class="constraint">
+    <div class="title">Set num_ctx explicitly</div>
+    <div class="body">Ollama defaults to 4k context on hardware with &lt;24GB VRAM. Always set <code>num_ctx: 32000</code> (or higher) in config options. Native Gemma 4 supports up to 128k–256k tokens depending on variant; Ollama clips unless told otherwise.</div>
+  </div>
+
+  <div class="constraint">
+    <div class="title">Use the chat endpoint, not generate</div>
+    <div class="body">The Ollama <code>/api/chat</code> endpoint (or OpenAI-compatible <code>/v1/chat/completions</code>) accepts a messages array and supports tool/function calling. The <code>/api/generate</code> endpoint is single-shot and stateless. LoCAL2 always uses the chat endpoint.</div>
+  </div>
+
+  <div class="constraint">
+    <div class="title">Tool calling reliability scales with model size</div>
+    <div class="body"><code>gemma4:e2b</code> (2B) may be unreliable for tool calling. The larger variants (27b, 31b) are more consistent. If tool calling is flaky, the signal is to upgrade the local model or use the Google GenAI API (which supports larger Gemma variants via <code>client.chats.create()</code>).</div>
+  </div>
+</div>
+
+<!-- Components -->
+<div class="section green">
+  <h3>Core Components</h3>
+  <table>
+    <tr><th>Component</th><th>Responsibility</th><th>Type</th></tr>
+    <tr>
+      <td>GeneratorAgent</td>
+      <td>Receives queries, maintains conversation, calls tools, publishes answers. The primary agent — everything else is enrichment.</td>
+      <td><span class="pill bus">bus agent</span></td>
+    </tr>
+    <tr>
+      <td>web_search tool</td>
+      <td>Executes a web search query and returns synthesized text. Called synchronously by the generator when Gemma requests it.</td>
+      <td><span class="pill sync">sync tool</span></td>
+    </tr>
+    <tr>
+      <td>recall_memory tool</td>
+      <td>Retrieves relevant episodic engrams from ChromaDB by embedding similarity. Called synchronously by the generator.</td>
+      <td><span class="pill sync">sync tool</span></td>
+    </tr>
+    <tr>
+      <td>MemoryService</td>
+      <td>Ingests answers to episodic memory. Observes response.generation. Also backs the recall_memory tool.</td>
+      <td><span class="pill bus">bus observer</span></td>
+    </tr>
+    <tr>
+      <td>Critic</td>
+      <td>Post-generation quality evaluation. Observes response.generation, scores the answer, publishes critique.result.</td>
+      <td><span class="pill bus">bus observer</span></td>
+    </tr>
+    <tr>
+      <td>RewardService</td>
+      <td>Routes user.feedback → reward.event to the generator. Carries over from LoCAL1 largely unchanged.</td>
+      <td><span class="pill bus">bus observer</span></td>
+    </tr>
+    <tr>
+      <td>ConversationService</td>
+      <td>Maintains per-session message history. Owned by the generator. Strips thinking tokens before archiving assistant turns.</td>
+      <td><span class="pill sync">internal</span></td>
+    </tr>
+  </table>
+</div>
+
+<!-- Observability -->
+<div class="section purple">
+  <h3>Observability — Externalizing LLM Workings</h3>
+  <p style="color:#94a3b8; font-size:0.9rem; margin-bottom:1rem;">A going-in objective: make the model's internal reasoning process visible, not just the final answer.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h4>Thinking Tokens</h4>
+      <p style="color:#94a3b8; font-size:0.85rem;">Gemma 4's <code>&lt;|think|&gt;</code> content is displayed in the UI as a collapsible reasoning section — shown before the final answer. Stripped from history after display but visible to the user in real time.</p>
+    </div>
+    <div class="card">
+      <h4>Tool Call Log</h4>
+      <p style="color:#94a3b8; font-size:0.85rem;">Each tool invocation is surfaced: which tool was called, the query/parameters sent, and what was returned. Gives the user visibility into when and why Gemma decided to search or recall.</p>
+    </div>
+    <div class="card">
+      <h4>Memory Recalls</h4>
+      <p style="color:#94a3b8; font-size:0.85rem;">When recall_memory is called, the retrieved engrams are shown: content, similarity score, age, and reward status. User can see what prior context influenced the answer.</p>
+    </div>
+    <div class="card">
+      <h4>Conversation State</h4>
+      <p style="color:#94a3b8; font-size:0.85rem;">The active messages array (minus thinking tokens) is inspectable. Shows how context has accumulated across the session and what the model is working with.</p>
+    </div>
+  </div>
+</div>
+
+<!-- What carries over -->
+<div class="section">
+  <h3>What Carries Over from LoCAL1</h3>
+  <table>
+    <tr><th>Component</th><th>Status</th><th>Notes</th></tr>
+    <tr><td>ZMQ bus / proxy</td><td><span class="tag carry">carry</span></td><td>Reuse as-is. Subjects change but the infrastructure is sound.</td></tr>
+    <tr><td>EngramService / Engram</td><td><span class="tag carry">carry</span></td><td>ChromaDB data layer carries over directly.</td></tr>
+    <tr><td>EmbeddingService</td><td><span class="tag carry">carry</span></td><td>nomic-embed-text asymmetric RAG pattern unchanged.</td></tr>
+    <tr><td>PersonalMemoryService</td><td><span class="tag carry">carry</span></td><td>Adapt: remove bus wiring, expose as tool interface.</td></tr>
+    <tr><td>RewardService</td><td><span class="tag carry">carry</span></td><td>Carries over largely unchanged.</td></tr>
+    <tr><td>Critic evaluation logic</td><td><span class="tag carry">carry</span></td><td>Strip pub/sub scaffolding, keep scoring policy.</td></tr>
+    <tr><td>ConversationService</td><td><span class="tag carry">carry</span></td><td>Add thinking token stripping before archiving assistant turns.</td></tr>
+    <tr><td>OllamaBackend.chat()</td><td><span class="tag carry">carry</span></td><td>Already exists — just not used by the generator today.</td></tr>
+    <tr><td>Web search execution</td><td><span class="tag carry">carry</span></td><td>Extract fetch/synthesize logic from GatewayAgent, wrap as tool.</td></tr>
+    <tr><td>GatewayAgent (as agent)</td><td><span class="tag gone">gone</span></td><td>Replaced by web_search tool called natively by generator.</td></tr>
+    <tr><td>AnalystAgent</td><td><span class="tag gone">gone</span></td><td>Decomposition and depth classification handled by Gemma natively.</td></tr>
+    <tr><td>SynthesizerAgent</td><td><span class="tag gone">gone</span></td><td>No task aggregation needed in tool-native architecture.</td></tr>
+    <tr><td>task.available / task.result subjects</td><td><span class="tag gone">gone</span></td><td>No task pipeline — tool calls are synchronous within generation.</td></tr>
+  </table>
+</div>
+
+<!-- Implementation phases -->
+<div class="section green">
+  <h3>Implementation Phases</h3>
+
+  <div class="phase">
+    <div class="phase-num">1</div>
+    <div class="phase-content">
+      <h4>Generator with conversation history + web_search tool</h4>
+      <ul>
+        <li>GeneratorAgent using Ollama chat endpoint with messages array</li>
+        <li>ConversationService with thinking token stripping</li>
+        <li>web_search as a callable tool (Gemma decides when to invoke it)</li>
+        <li>num_ctx: 32000 in config</li>
+        <li>Thinking tokens surfaced in response payload</li>
+        <li>Basic bus: query.received → response.generation</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-num">2</div>
+    <div class="phase-content">
+      <h4>Memory as tool</h4>
+      <ul>
+        <li>recall_memory tool backed by ChromaDB / EmbeddingService</li>
+        <li>MemoryService ingesting answers on response.generation</li>
+        <li>Memory recall surfaced in observability output</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-num">3</div>
+    <div class="phase-content">
+      <h4>Critic as post-generation observer</h4>
+      <ul>
+        <li>Critic observes response.generation</li>
+        <li>Publishes critique.result with score and feedback</li>
+        <li>Critique surfaced in UI</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-num">4</div>
+    <div class="phase-content">
+      <h4>Reward and feedback signals</h4>
+      <ul>
+        <li>user.feedback → RewardService → reward.event to generator</li>
+        <li>Generator updates episodic memory reward status on reward.event</li>
+        <li>Calibration stats for memory recall quality</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-num later">5</div>
+    <div class="phase-content">
+      <h4>Observability UI</h4>
+      <ul>
+        <li>Full thinking token display (collapsible)</li>
+        <li>Tool call log in UI (query sent, result received)</li>
+        <li>Memory recall inspector (engrams, scores, age)</li>
+        <li>Conversation state inspector (messages array view)</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:2rem; color:#475569; font-size:0.8rem; text-align:center;">
+  LoCAL2 Initial Architecture Plan · 2026-05-30
+</div>
+
+</body>
+</html>

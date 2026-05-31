@@ -136,7 +136,11 @@
   </div>
   <div class="arch-box">
     <div class="label">Tool: recall_memory</div>
-    <div class="desc">Gemma calls when it wants prior context → ChromaDB retrieval → result appended to messages</div>
+    <div class="desc">Gemma calls when it wants prior context → backend prepends <code>search_query:</code> → ChromaDB similarity search → result appended to messages. Gemma passes raw text; prefix injected by orchestration layer.</div>
+  </div>
+  <div class="arch-box">
+    <div class="label">Tool: save_memory</div>
+    <div class="desc">Gemma calls to explicitly save a high-signal fact → backend prepends <code>search_document:</code> → embed → write to ChromaDB. Selective, Gemma-driven. Complements automatic MemoryService ingestion.</div>
   </div>
   <div class="arrow">↓</div>
   <div class="arch-box">
@@ -150,7 +154,7 @@
   </div>
   <div class="arch-box">
     <div class="label">MemoryService</div>
-    <div class="desc">Observes <code>response.generation</code> → ingests answer to episodic memory</div>
+    <div class="desc">Observes <code>response.generation</code> → automatically ingests every answer to episodic memory. Gemma's save_memory saves what it judges important; MemoryService saves everything.</div>
   </div>
   <div class="arch-box">
     <div class="label">RewardService</div>
@@ -163,8 +167,8 @@
   <h3>Gemma 4 + Ollama Constraints</h3>
 
   <div class="constraint">
-    <div class="title">Strip thinking tokens from history</div>
-    <div class="body">Gemma 4 wraps reasoning in <code>&lt;|think|&gt;...&lt;|/think|&gt;</code> tokens. Before appending an assistant turn to conversation history, strip these tokens. Only the final clean response goes into the messages array. Exception: do not strip mid-sequence during multi-step tool calls — only strip before the turn is archived.</div>
+    <div class="title">Thinking tokens — separated by OllamaBackend</div>
+    <div class="body">OllamaBackend already separates thinking from the response: <code>response.text</code> is the clean answer, <code>response.thinking_text</code> is the think block. Use <code>response.text</code> for conversation history; surface <code>response.thinking_text</code> to the UI via the <code>response.generation</code> payload. No explicit stripping code needed. (Note: regex fallback in ConversationService deferred — only if think tags are observed leaking through in practice.)</div>
   </div>
 
   <div class="constraint">

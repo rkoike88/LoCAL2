@@ -1,0 +1,42 @@
+story_id: S2
+title: "Multi-turn conversation — pronoun resolution"
+description: >
+  Two-turn conversation. Turn 2 uses a pronoun that refers to the subject
+  of Turn 1. Verifies that native conversation history is carried across
+  turns and that Gemma resolves the reference without an explicit repeat
+  of the subject.
+
+turns:
+  - query: "Who wrote Pride and Prejudice?"
+    expected_content:
+      - "Austen"
+    must_not_contain: []
+
+  - query: "When was she born?"
+    expected_content:
+      - "1775"
+    must_not_contain:
+      - "unclear"
+      - "who are you referring to"
+
+expected_bus_events:
+  present:
+    - "response.generation"
+    - "answer.dialog"
+  absent:
+    - "tool.request.web_search"
+    - "tool.request.web_fetch"
+
+response_generation_checks:
+  answer_not_empty: true
+  tool_calls_empty: true
+
+critic:
+  should_fire: false
+
+notes: >
+  Both turns must share the same session_id. The test runner must carry
+  the session_id from turn 1 to turn 2. If turn 2 does not resolve "she"
+  to Jane Austen, ConversationService history may not be reaching the
+  generator — check that get_history() returns the prior turn and that
+  the messages array is built correctly in _build_messages().

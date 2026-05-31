@@ -1,0 +1,11 @@
+model: "gemma4:e2b"
+num_ctx: 32000
+temperature: 0.7
+max_tool_iterations: 5
+
+# Optional system prompt injected as the first message of every conversation.
+system_prompt: ""
+
+# Tool schemas — empty in Phase 1a (no tools registered).
+# Populated in Phase 1b with web_search and web_fetch schemas.
+tools: []

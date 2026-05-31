@@ -1,0 +1,33 @@
+story_id: S1
+title: "Basic Q&A — thinking surfaced"
+description: >
+  Single-turn query. Verifies the generator produces a non-empty answer,
+  that thinking tokens appear in the response payload, and that no tool
+  calls fire (web_search/web_fetch should be absent).
+
+turns:
+  - query: "What is the capital of France?"
+    expected_content:
+      - "Paris"
+    must_not_contain: []
+
+expected_bus_events:
+  present:
+    - "response.generation"
+    - "answer.dialog"
+  absent:
+    - "tool.request.web_search"
+    - "tool.request.web_fetch"
+
+response_generation_checks:
+  answer_not_empty: true
+  thinking_not_empty: true   # think=True; Gemma should produce thinking tokens
+  tool_calls_empty: true
+
+critic:
+  should_fire: false
+
+notes: >
+  gemma4:e2b may produce minimal thinking. If thinking is empty, check
+  that think=True is being passed to ollama.chat() and that the model
+  supports extended thinking. Upgrade to a larger model if needed.

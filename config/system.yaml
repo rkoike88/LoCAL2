@@ -1,0 +1,2 @@
+# Set to true to print Ollama request/response timing to stdout.
+ollama_debug: false

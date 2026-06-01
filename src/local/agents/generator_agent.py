@@ -36,6 +36,7 @@ class GeneratorAgent:
         }
         self._system_prompt: str = cfg.get("system_prompt", "") or ""
         self._max_tool_iters: int = cfg.get("max_tool_iterations", 5)
+        self._tool_timeout: float = cfg.get("tool_timeout", 20)
         self._tool_schemas: list = cfg.get("tools", [])
         self._conv = ConversationService()
         self._sm = GeneratorStateMachine()

@@ -1,7 +1,8 @@
-model: "gemma4:e2b"
+model: "gemma4:e4b"
 num_ctx: 32000
 temperature: 0.7
 max_tool_iterations: 5
+tool_timeout: 20          # seconds to wait for a tool result before returning error
 
 # Optional system prompt injected as the first message of every conversation.
 system_prompt: |

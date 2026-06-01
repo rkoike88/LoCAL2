@@ -1,0 +1,39 @@
+use_default_settings: true
+
+server:
+  port: 8080
+  bind_address: "0.0.0.0"
+  limiter: false          # disable rate limiting for local LLM use
+  image_proxy: true
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json                # required for Python API access
+
+engines:
+  - name: google
+    engine: google
+    disabled: true        # Docker IPs are frequently blocked by Google
+
+  - name: duckduckgo
+    engine: duckduckgo
+    disabled: false
+    weight: 1.5
+
+  - name: bing
+    engine: bing
+    disabled: false
+    weight: 1.0
+
+  - name: wikipedia
+    engine: wikipedia
+    disabled: false
+    weight: 1.0
+
+  - name: brave
+    engine: brave
+    disabled: false
+    weight: 1.0

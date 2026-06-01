@@ -1,0 +1,16 @@
+services:
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_HOSTNAME=http://localhost:8080
+      - SEARXNG_SECRET=change-this-to-a-long-random-string
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"

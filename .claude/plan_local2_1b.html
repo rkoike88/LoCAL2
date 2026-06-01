@@ -498,8 +498,8 @@ response_generation_checks:
   <h3>Known Constraints &amp; Gotchas</h3>
 
   <div class="constraint">
-    <div class="title">gemma4:e2b tool calling reliability</div>
-    <div class="body">The 2B model may not reliably call tools for every query that warrants them. If S3 consistently fails to trigger web_search, upgrade to gemma4:e4b or gemma4:26b via <code>--model</code> flag. Tool calling reliability scales strongly with model size.</div>
+    <div class="title">gemma4:e4b tool calling reliability</div>
+    <div class="body">Default model is gemma4:e4b (Google's recommendation). Tool calling reliability scales with model size — if S3 consistently fails to trigger web_search, upgrade to gemma4:26b via the <code>--model</code> flag or by editing <code>config/generator.yaml</code>.</div>
   </div>
 
   <div class="constraint">

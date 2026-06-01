@@ -4,17 +4,42 @@ Loosely Coupled Agent Language model — Second Generation.
 
 LLM-native tool calling with Gemma 4 as the orchestrator. Web search, memory recall, and feedback loops augment Gemma's native reasoning — the model decides when to use them.
 
+**Reference hardware:** Mac Mini M4 Pro, 64GB memory. Performance on lower-spec hardware will vary — tool calling and thinking tokens work best with sufficient VRAM/unified memory.
+
 ## Prerequisites
 
-- Python 3.11+ with packages from `requirements.txt`
-- [Ollama](https://ollama.com) running locally with `gemma4:e4b` pulled
-- Docker (for SearXNG web search)
+- Python 3.11+
+- [Ollama](https://ollama.com)
+- Docker Desktop (for SearXNG web search)
 
 ## Setup
 
-### 1. Install Docker Desktop
+### 1. Install Ollama
 
-Download from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/). Choose the right version for your chip:
+Download from [ollama.com](https://ollama.com) and install. Verify it's running:
+
+```bash
+curl http://127.0.0.1:11434/api/tags
+```
+
+### 2. Pull the model
+
+```bash
+ollama pull gemma4:e4b
+```
+
+`gemma4:e4b` is the default. For stronger tool calling reliability, `gemma4:26b` is also supported — configure in `config/generator.yaml`. After pulling, do a quick sanity check:
+
+```bash
+ollama run gemma4:e4b
+>>> hello
+```
+
+Type `/bye` to exit.
+
+### 3. Install Docker Desktop
+
+Download from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/). Check your chip first:
 
 ```bash
 uname -m   # arm64 = Apple Silicon, x86_64 = Intel
@@ -26,13 +51,28 @@ After installing, launch Docker Desktop and verify:
 docker --version
 ```
 
-### 2. Python dependencies
+### 4. Set up Python environment
+
+Create and activate a virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+You should see `(.venv)` on the left of your prompt. Upgrade pip first:
+
+```bash
+python3 -m pip install --upgrade pip
+```
+
+Then install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Configure secrets
+### 5. Configure secrets
 
 ```bash
 cp .env.example .env
@@ -48,7 +88,7 @@ Paste the output as `MY_SEARX_SECRET=<value>` in `.env`. You only need to do thi
 
 `BRAVE_API_KEY` and `TAVILY_API_KEY` are only needed if you switch the search provider in `config/web_search.yaml` away from the default SearXNG.
 
-### 4. Start SearXNG
+### 6. Start SearXNG
 
 ```bash
 docker compose up -d
@@ -60,13 +100,9 @@ SearXNG will be available at `http://localhost:8080`. Verify it's running:
 curl "http://localhost:8080/search?q=test&format=json" | head -c 200
 ```
 
-### 5. Pull the model
+Once started, SearXNG runs in the background and restarts automatically with Docker Desktop on login.
 
-```bash
-ollama pull gemma4:e4b
-```
-
-### 6. Run LoCAL2
+### 7. Run LoCAL2
 
 ```bash
 # UI only
@@ -77,6 +113,9 @@ python run_local.py --api
 
 # Headless (API only)
 python run_local.py --headless --api
+
+# Use a different model
+python run_local.py --model gemma4:26b
 ```
 
 ## Configuration

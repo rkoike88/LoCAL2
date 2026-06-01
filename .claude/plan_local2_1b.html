@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LoCAL2 — Phase 1b Detailed Plan</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f1117; color: #e2e8f0; line-height: 1.6; padding: 2rem; }
+  h1 { font-size: 1.8rem; color: #7dd3fc; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.2rem; color: #94a3b8; font-weight: 500; margin-bottom: 2rem; }
+  h3 { font-size: 1rem; color: #7dd3fc; margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  h4 { font-size: 0.95rem; color: #e2e8f0; margin-bottom: 0.5rem; }
+  .section { background: #1e2330; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; border-left: 3px solid #334155; }
+  .section.blue { border-left-color: #3b82f6; }
+  .section.green { border-left-color: #22c55e; }
+  .section.amber { border-left-color: #f59e0b; }
+  .section.purple { border-left-color: #a855f7; }
+  .section.red { border-left-color: #ef4444; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+  .card { background: #252d3d; border-radius: 6px; padding: 1rem; }
+  .card h4 { color: #7dd3fc; }
+  table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; font-size: 0.9rem; }
+  th { text-align: left; padding: 0.5rem 0.75rem; background: #252d3d; color: #94a3b8; font-weight: 600; }
+  td { padding: 0.5rem 0.75rem; border-top: 1px solid #2d3748; vertical-align: top; }
+  td:first-child { color: #7dd3fc; font-family: monospace; white-space: nowrap; }
+  ul { padding-left: 1.25rem; }
+  ul li { margin-bottom: 0.35rem; color: #cbd5e1; font-size: 0.9rem; }
+  .phase { display: flex; gap: 1rem; margin-bottom: 0.75rem; align-items: flex-start; }
+  .phase-num { background: #3b82f6; color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem; flex-shrink: 0; margin-top: 0.1rem; }
+  .phase-num.done { background: #22c55e; }
+  .phase-content h4 { margin-bottom: 0.25rem; }
+  code { background: #1a2035; color: #86efac; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.85rem; font-family: monospace; }
+  pre { background: #0f1117; color: #86efac; font-size: 0.82rem; padding: 0.75rem; border-radius: 4px; line-height: 1.7; overflow-x: auto; margin-top: 0.5rem; }
+  .constraint { background: #1a1a2e; border: 1px solid #f59e0b44; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 0.5rem; }
+  .constraint .title { color: #fbbf24; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.25rem; }
+  .constraint .body { color: #94a3b8; font-size: 0.85rem; }
+  .back { display: inline-block; margin-bottom: 1.5rem; color: #7dd3fc; font-size: 0.85rem; text-decoration: none; }
+  .back:hover { text-decoration: underline; }
+  .tag { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-right: 0.25rem; }
+  .tag.new { background: #14532d; color: #86efac; }
+  .tag.mod { background: #1e3a5f; color: #93c5fd; }
+</style>
+</head>
+<body>
+
+<a class="back" href="plan_local2.html">← Back to main plan</a>
+
+<h1>LoCAL2 — Phase 1b</h1>
+<h2>Tool Bus: WebSearchAgent · WebFetchAgent · GeneratorAgent tool loop</h2>
+
+<!-- Scope -->
+<div class="section blue">
+  <h3>Scope &amp; Deliverables</h3>
+  <p style="color:#94a3b8; font-size:0.9rem; margin-bottom:1rem;">Phase 1b wires Gemma's native tool calling to real capabilities. GeneratorAgent publishes tool requests to the bus and blocks on results. WebSearchAgent and WebFetchAgent are independent bus participants. Phase 1b is complete when Stories S3 and S4 pass against the live stack.</p>
+  <div class="grid">
+    <div class="card">
+      <h4>New files</h4>
+      <ul>
+        <li><code>src/local/agents/web_search_agent.py</code> <span class="tag new">new</span></li>
+        <li><code>src/local/agents/web_fetch_agent.py</code> <span class="tag new">new</span></li>
+        <li><code>config/web_search.yaml</code> <span class="tag new">new</span></li>
+        <li><code>config/web_fetch.yaml</code> <span class="tag new">new</span></li>
+        <li><code>tests/test_web_search_agent.py</code> <span class="tag new">new</span></li>
+        <li><code>tests/test_web_fetch_agent.py</code> <span class="tag new">new</span></li>
+        <li><code>tests/stories/s3_web_search.yaml</code> <span class="tag new">new</span></li>
+        <li><code>tests/stories/s4_web_fetch.yaml</code> <span class="tag new">new</span></li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Modified files</h4>
+      <ul>
+        <li><code>config/generator.yaml</code> — add tool schemas <span class="tag mod">mod</span></li>
+        <li><code>src/local/agents/generator_agent.py</code> — wire <code>_execute_tool()</code> <span class="tag mod">mod</span></li>
+        <li><code>src/local/agents/generator_transitions.py</code> — add AWAIT_TOOL action + transition <span class="tag mod">mod</span></li>
+        <li><code>run_local.py</code> — start tool agents <span class="tag mod">mod</span></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- Build order -->
+<div class="section">
+  <h3>Build Order — Steps 6–8</h3>
+  <p style="color:#94a3b8; font-size:0.85rem; margin-bottom:1rem;">Each step must be independently testable before moving on.</p>
+
+  <div class="phase">
+    <div class="phase-num">6</div>
+    <div class="phase-content">
+      <h4>WebSearchAgent</h4>
+      <p style="color:#94a3b8; font-size:0.85rem;">Implement <code>web_search_agent.py</code> with mock + SearXNG/Brave/Tavily providers. Write <code>config/web_search.yaml</code>. Unit test: publish a <code>tool.request.web_search</code> envelope directly, assert <code>tool.result.web_search</code> arrives with correct <code>correlation_id</code> and non-empty result.</p>
+    </div>
+  </div>
+  <div class="phase">
+    <div class="phase-num">7</div>
+    <div class="phase-content">
+      <h4>WebFetchAgent</h4>
+      <p style="color:#94a3b8; font-size:0.85rem;">Implement <code>web_fetch_agent.py</code> with httpx + BeautifulSoup extraction. Write <code>config/web_fetch.yaml</code>. Unit test: publish <code>tool.request.web_fetch</code> with a live URL, assert extracted text arrives and is truncated to <code>max_chars</code>. Test error path: invalid URL → result contains error string.</p>
+    </div>
+  </div>
+  <div class="phase">
+    <div class="phase-num">8</div>
+    <div class="phase-content">
+      <h4>GeneratorAgent tool loop + Stories S3 + S4 ✓ Phase 1b</h4>
+      <p style="color:#94a3b8; font-size:0.85rem;">Wire <code>_execute_tool()</code> to the bus (short-lived subscriber pattern). Add tool schemas to <code>generator.yaml</code>. Update state machine with AWAIT_TOOL transition. Start full stack. Stories S3 (web_search fires, answer grounded in search results) and S4 (web_fetch fires, answer grounded in page content) pass. Phase 1b complete.</p>
+    </div>
+  </div>
+</div>
+
+<!-- WebSearchAgent -->
+<div class="section amber">
+  <h3>Step 6 — WebSearchAgent</h3>
+
+  <div class="card" style="margin-bottom:1rem;">
+    <h4>Behaviour</h4>
+    <ul>
+      <li>Subscribes to <code>tool.request.web_search</code></li>
+      <li>Reads <code>envelope.payload.args.query</code> and <code>envelope.correlation_id</code></li>
+      <li>Executes search via configured provider</li>
+      <li>Publishes <code>tool.result.web_search</code> with the same <code>correlation_id</code></li>
+      <li>Never raises — on any error, publishes result with <code>error</code> field set</li>
+    </ul>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h4>config/web_search.yaml</h4>
+      <pre>provider: searxng        # searxng | brave | tavily | mock
+searxng_url: "http://localhost:8080"
+max_results: 5
+timeout: 10              # seconds per search request
+# brave_api_key read from env BRAVE_API_KEY
+# tavily_api_key read from env TAVILY_API_KEY</pre>
+    </div>
+    <div class="card">
+      <h4>Result payload</h4>
+      <pre>{
+  "result": "Today's date: 2026-05-31\n\n[1] Title: ...\n    Snippet: ...\n    URL: https://...\n\n[2] ...",
+  "error": null,
+  "query_id": "...",
+  "session_id": "..."
+}</pre>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:1rem;">
+    <h4>Output format — exact string Gemma reads</h4>
+    <pre>Today's date: 2026-05-31
+
+[1] Title: Bitcoin price today — CoinMarketCap
+    Snippet: Bitcoin is currently trading at $103,450 USD...
+    URL: https://coinmarketcap.com/currencies/bitcoin/
+
+[2] Title: BTC/USD — Bloomberg
+    Snippet: Bitcoin (BTC) hit a new high of $105,000 this week...
+    URL: https://bloomberg.com/...</pre>
+    <p style="color:#94a3b8; font-size:0.82rem; margin-top:0.5rem;">Date prefix grounds time-sensitive answers. URLs included so Gemma can pass one to <code>web_fetch</code> if it needs full page content.</p>
+  </div>
+
+  <div class="card" style="margin-top:1rem;">
+    <h4>Provider abstraction</h4>
+    <pre>class SearchProvider(Protocol):
+    def search(self, query: str, max_results: int) -> list[dict]:
+        # returns [{"title": ..., "snippet": ..., "url": ...}, ...]
+
+class SearXNGProvider:   # default for dev — self-hosted, free
+class BraveProvider:     # BRAVE_API_KEY env var
+class TavilyProvider:    # TAVILY_API_KEY — returns extracted content directly
+class MockProvider:      # canned results — use in unit tests</pre>
+    <p style="color:#94a3b8; font-size:0.82rem; margin-top:0.5rem;">Tavily returns extracted page content in snippets — Gemma may not need to call <code>web_fetch</code> separately when using Tavily. SearXNG is the default for local dev (no API key required).</p>
+  </div>
+
+  <div class="card" style="margin-top:1rem;">
+    <h4>Error cases</h4>
+    <ul>
+      <li>No results → <code>result: "No results found for: {query}"</code>, <code>error: null</code> (not an error — Gemma handles gracefully)</li>
+      <li>Provider timeout → <code>result: ""</code>, <code>error: "search timeout after 10s"</code></li>
+      <li>Provider HTTP error → <code>result: ""</code>, <code>error: "search failed: 503"</code></li>
+      <li>Missing <code>args.query</code> → <code>result: ""</code>, <code>error: "missing query argument"</code></li>
+    </ul>
+  </div>
+
+  <div class="card" style="margin-top:1rem;">
+    <h4>Unit test sketch</h4>
+    <pre># tests/test_web_search_agent.py
+def test_mock_search_publishes_result():
+    # Start agent with mock provider in a thread
+    # Publish tool.request.web_search directly to bus
+    # Subscribe to tool.result.web_search
+    # Assert result arrives within 2s with matching correlation_id
+    # Assert "Today's date" prefix present in result
+
+def test_no_results_is_not_an_error():
+    # Mock provider returns []
+    # Assert error field is null, result contains "No results found"
+
+def test_provider_timeout_sets_error():
+    # Mock provider raises httpx.TimeoutException
+    # Assert error field is set</pre>
+  </div>
+</div>
+
+<!-- WebFetchAgent -->
+<div class="section green">
+  <h3>Step 7 — WebFetchAgent</h3>
+
+  <div class="card" style="margin-bottom:1rem;">
+    <h4>Behaviour</h4>
+    <ul>
+      <li>Subscribes to <code>tool.request.web_fetch</code></li>
+      <li>Reads <code>envelope.payload.args.url</code> and <code>envelope.correlation_id</code></li>
+      <li>Fetches URL via <code>httpx</code>, extracts body text with BeautifulSoup</li>
+      <li>Truncates to <code>max_chars</code> (default 3000)</li>
+      <li>Publishes <code>tool.result.web_fetch</code> with the same <code>correlation_id</code></li>
+      <li>Never raises — on any error, publishes result with <code>error</code> field set</li>
+    </ul>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h4>config/web_fetch.yaml</h4>
+      <pre>max_chars: 3000
+timeout: 15              # seconds per fetch
+user_agent: "LoCAL2/1.0 (research agent)"</pre>
+    </div>
+    <div class="card">
+      <h4>Result payload</h4>
+      <pre>{
+  "result": "URL: https://...\nExtracted text:\n[first 3000 chars of body]",
+  "error": null,
+  "query_id": "...",
+  "session_id": "..."
+}</pre>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:1rem;">
+    <h4>Extraction logic</h4>
+    <pre>resp = httpx.get(url, timeout=cfg["timeout"], headers={"User-Agent": ...})
+resp.raise_for_status()
+soup = BeautifulSoup(resp.text, "html.parser")
+# Remove script, style, nav, footer, header tags
+for tag in soup(["script", "style", "nav", "footer", "header"]):
+    tag.decompose()
+text = soup.get_text(separator="\n", strip=True)
+text = "\n".join(line for line in text.splitlines() if line.strip())
+result = f"URL: {url}\nExtracted text:\n{text[:cfg['max_chars']]}"</pre>
+  </div>
+
+  <div class="card" style="margin-top:1rem;">
+    <h4>Error cases</h4>
+    <ul>
+      <li>HTTP 4xx/5xx → <code>error: "fetch failed: 404"</code></li>
+      <li>Timeout → <code>error: "fetch timeout after 15s: {url}"</code></li>
+      <li>Invalid URL / connection error → <code>error: "fetch error: {exc}"</code></li>
+      <li>Missing <code>args.url</code> → <code>error: "missing url argument"</code></li>
+    </ul>
+    <p style="color:#94a3b8; font-size:0.82rem; margin-top:0.5rem;">Gemma reads the error string and can decide to try a different URL or acknowledge the failure. No retry logic in WebFetchAgent — that is Gemma's decision.</p>
+  </div>
+
+  <div class="card" style="margin-top:1rem;">
+    <h4>Unit test sketch</h4>
+    <pre># tests/test_web_fetch_agent.py
+def test_fetch_extracts_body_text():
+    # httpx.get patched to return known HTML
+    # Assert result contains expected extracted text
+    # Assert truncated to max_chars
+
+def test_fetch_error_sets_error_field():
+    # httpx.get raises HTTPStatusError(404)
+    # Assert error field contains "fetch failed: 404"
+
+def test_missing_url_sets_error():
+    # Publish request with no url in args
+    # Assert error: "missing url argument"</pre>
+  </div>
+</div>
+
+<!-- _execute_tool() design -->
+<div class="section blue">
+  <h3>Step 8 — GeneratorAgent Tool Loop</h3>
+
+  <div class="constraint">
+    <div class="title">Key design decision: short-lived subscriber per tool call</div>
+    <div class="body">GeneratorAgent's main subscriber listens only to <code>query.received</code>. To receive tool results, <code>_execute_tool()</code> opens a dedicated <code>ZmqSubscriber</code> for that specific <code>tool.result.*</code> subject, polls until <code>correlation_id</code> matches (or timeout), then closes it. This avoids mixing incoming queries with tool results on the same socket, and requires no shared state or threading.</div>
+  </div>
+
+  <div class="card" style="margin-top:1rem; margin-bottom:1rem;">
+    <h4>_execute_tool() implementation</h4>
+    <pre>_TOOL_REQUEST = {
+    "web_search": TOOL_REQUEST_WEB_SEARCH,
+    "web_fetch":  TOOL_REQUEST_WEB_FETCH,
+}
+_TOOL_RESULT = {
+    "web_search": TOOL_RESULT_WEB_SEARCH,
+    "web_fetch":  TOOL_RESULT_WEB_FETCH,
+}
+
+def _execute_tool(self, name: str, args: dict, correlation_id: str) -> str:
+    req_subject = _TOOL_REQUEST.get(name)
+    res_subject = _TOOL_RESULT.get(name)
+    if not req_subject:
+        return f"[unknown tool: {name!r}]"
+
+    self._sm.transition(GeneratorAction.AWAIT_TOOL)   # DISPATCHING_TOOL → WAITING_FOR_TOOL
+
+    sub = ZmqSubscriber(PROXY_BACKEND_ADDR, subscriptions=[res_subject], bind=False)
+    try:
+        self._pub.publish(self._make_envelope(
+            req_subject, "tool_request",
+            {"tool": name, "args": args,
+             "session_id": None, "query_id": correlation_id},
+            correlation_id, None,
+        ))
+        deadline = time.time() + self._tool_timeout
+        while time.time() < deadline:
+            msg = sub.receive_with_timeout(200)
+            if msg and msg.correlation_id == correlation_id:
+                p = msg.payload
+                if p.get("error"):
+                    self._sm.transition(GeneratorAction.TOOL_RESULT)
+                    return f"[tool error: {p['error']}]"
+                self._sm.transition(GeneratorAction.TOOL_RESULT)
+                return p.get("result") or ""
+    finally:
+        sub.close()
+
+    self._sm.transition(GeneratorAction.TOOL_TIMEOUT)
+    logger.warning("tool %r timed out after %ss", name, self._tool_timeout)
+    return f"[tool timeout after {self._tool_timeout}s]"</pre>
+  </div>
+
+  <div class="card" style="margin-bottom:1rem;">
+    <h4>State machine update — add AWAIT_TOOL action + transition</h4>
+    <pre># generator_actions.py — add:
+AWAIT_TOOL = "await_tool"   # DISPATCHING_TOOL → WAITING_FOR_TOOL
+
+# generator_transitions.py — add:
+(S.DISPATCHING_TOOL, A.AWAIT_TOOL):   S.WAITING_FOR_TOOL,
+
+# Existing transitions already cover result/timeout back to GENERATING:
+# (S.WAITING_FOR_TOOL, A.TOOL_RESULT):  S.GENERATING  ← already present
+# (S.WAITING_FOR_TOOL, A.TOOL_TIMEOUT): S.GENERATING  ← already present
+# (S.WAITING_FOR_TOOL, A.FAIL):         S.ERROR        ← already present (via FAIL loop)</pre>
+    <p style="color:#94a3b8; font-size:0.82rem; margin-top:0.5rem;">For <em>multiple</em> tool calls in one response, the outer loop re-enters DISPATCHING_TOOL between each call. The <code>_generate()</code> outer loop transitions back to DISPATCHING_TOOL before calling <code>_execute_tool()</code> for the next tool.</p>
+  </div>
+
+  <div class="card" style="margin-bottom:1rem;">
+    <h4>_generate() outer loop — updated transitions</h4>
+    <pre>self._sm.transition(GeneratorAction.DISPATCH_TOOL)   # GENERATING → DISPATCHING_TOOL
+for tc in tool_calls:
+    fn = tc.get("function") or {}
+    name = fn.get("name", "")
+    args = fn.get("arguments") or {}
+    result = self._execute_tool(name, args, correlation_id)
+    # _execute_tool handles DISPATCHING_TOOL → WAITING_FOR_TOOL → GENERATING internally
+    # After return, state is GENERATING — re-enter DISPATCHING_TOOL for next tc
+    if len(tool_calls) > 1 and tc is not tool_calls[-1]:
+        self._sm.transition(GeneratorAction.DISPATCH_TOOL)  # loop: GENERATING → DISPATCHING_TOOL
+    tool_call_log.append({"tool": name, "args": args, "result": str(result)})
+    messages.append({"role": "tool", "content": str(result), "name": name})
+# State is GENERATING after last tool — ready for next ollama.chat() iteration</pre>
+  </div>
+
+  <div class="card" style="margin-bottom:1rem;">
+    <h4>Tool schemas — add to config/generator.yaml</h4>
+    <pre>tools:
+  - name: web_search
+    description: >
+      Search the web for current information, news, prices, or recent events.
+      Use when the answer requires up-to-date facts not in your training data.
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Concise search query (English preferred)
+      required: [query]
+
+  - name: web_fetch
+    description: >
+      Fetch and extract the full text content of a specific URL.
+      Use after web_search when snippets are insufficient and you need
+      the complete page content. Requires a known URL.
+    parameters:
+      type: object
+      properties:
+        url:
+          type: string
+          description: Full URL to fetch (must start with http:// or https://)
+      required: [url]</pre>
+  </div>
+
+  <div class="card">
+    <h4>run_local.py — start tool agents</h4>
+    <pre>def _start_web_search(model: str) -> None:
+    from local.agents.web_search_agent import WebSearchAgent
+    WebSearchAgent().run()
+
+def _start_web_fetch() -> None:
+    from local.agents.web_fetch_agent import WebFetchAgent
+    WebFetchAgent().run()
+
+# In main(), after generator thread:
+ws_thread = threading.Thread(target=_start_web_search, daemon=True, name="web_search")
+ws_thread.start()
+wf_thread = threading.Thread(target=_start_web_fetch, daemon=True, name="web_fetch")
+wf_thread.start()
+time.sleep(0.2)  # let tool agents subscribe before generator accepts queries</pre>
+  </div>
+</div>
+
+<!-- State machine summary -->
+<div class="section purple">
+  <h3>State Machine — Complete Phase 1b Transitions</h3>
+  <table>
+    <tr><th>From</th><th>Action</th><th>To</th><th>When</th></tr>
+    <tr><td>IDLE</td><td>RECEIVE</td><td>RECEIVING</td><td>query.received arrives</td></tr>
+    <tr><td>RECEIVING</td><td>START_GENERATION</td><td>GENERATING</td><td>messages built, ollama.chat() starting</td></tr>
+    <tr><td>GENERATING</td><td>DISPATCH_TOOL</td><td>DISPATCHING_TOOL</td><td>tool_calls detected in response</td></tr>
+    <tr><td>DISPATCHING_TOOL</td><td>AWAIT_TOOL</td><td>WAITING_FOR_TOOL</td><td>tool.request.* published, now polling for result</td></tr>
+    <tr><td>WAITING_FOR_TOOL</td><td>TOOL_RESULT</td><td>GENERATING</td><td>tool.result.* received with matching correlation_id</td></tr>
+    <tr><td>WAITING_FOR_TOOL</td><td>TOOL_TIMEOUT</td><td>GENERATING</td><td>no tool.result.* within tool_timeout seconds</td></tr>
+    <tr><td>GENERATING</td><td>PUBLISH</td><td>PUBLISHING</td><td>final text response, no tool calls</td></tr>
+    <tr><td>PUBLISHING</td><td>RESET</td><td>IDLE</td><td>response.generation published</td></tr>
+    <tr><td>ERROR</td><td>RESET</td><td>IDLE</td><td>error path cleanup</td></tr>
+    <tr><td>any non-IDLE</td><td>FAIL</td><td>ERROR</td><td>unhandled exception</td></tr>
+  </table>
+  <p style="color:#94a3b8; font-size:0.82rem; margin-top:0.75rem;">For multiple tool calls in one response: after WAITING_FOR_TOOL → GENERATING, if there are remaining tool calls in the list, transition GENERATING → DISPATCHING_TOOL again for the next one. The loop is in <code>_generate()</code>.</p>
+</div>
+
+<!-- Stories -->
+<div class="section amber">
+  <h3>Stories S3 &amp; S4</h3>
+
+  <div class="grid">
+    <div class="card">
+      <h4>S3 — Web search fires</h4>
+      <pre style="color:#94a3b8; font-size:0.82rem;">story_id: S3
+title: "Web search — current data query"
+turns:
+  - query: "What is the current price of Bitcoin in USD?"
+    expected_content:
+      - "$"          # any price figure
+    must_not_contain:
+      - "I don't have access"
+      - "I cannot browse"
+
+expected_bus_events:
+  present:
+    - "tool.request.web_search"
+    - "tool.result.web_search"
+    - "response.generation"
+  absent:
+    - "tool.request.web_fetch"
+
+response_generation_checks:
+  answer_not_empty: true
+  tool_calls_not_empty: true  # at least one tool call logged</pre>
+    </div>
+    <div class="card">
+      <h4>S4 — Web fetch fires</h4>
+      <pre style="color:#94a3b8; font-size:0.82rem;">story_id: S4
+title: "Web fetch — URL content extraction"
+turns:
+  - query: "Fetch and summarize the content at https://example.com"
+    expected_content:
+      - "Example Domain"   # known h1 on example.com
+    must_not_contain:
+      - "I cannot access"
+      - "I don't have the ability"
+
+expected_bus_events:
+  present:
+    - "tool.request.web_fetch"
+    - "tool.result.web_fetch"
+    - "response.generation"
+
+response_generation_checks:
+  answer_not_empty: true
+  tool_calls_not_empty: true</pre>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:1rem;">
+    <h4>Notes on story reliability</h4>
+    <ul>
+      <li><strong>S3</strong>: Bitcoin price is highly time-sensitive — Gemma should reliably call web_search. If it doesn't, check that the tool schema description mentions "current" and "up-to-date". The provider must be live (not mock) for S3 to pass end-to-end.</li>
+      <li><strong>S4</strong>: example.com is stable and returns known content. Directly mentioning a URL in the query nudges Gemma to call web_fetch. If Gemma calls web_search instead, add "do not search, just fetch the URL directly" to the query.</li>
+      <li><strong>S4 stretch</strong>: A chained search→fetch test (search for a Wikipedia article URL then fetch it) is more realistic but harder to assert reliably. Defer to manual verification for now.</li>
+      <li><strong>Story runner</strong>: <code>tests/run_story.py</code> now needs to check <code>tool_calls_not_empty</code> and <code>expected_bus_events.present/absent</code>. Bus event checking requires subscribing to the bus during the run — add a <code>--check-bus</code> flag or use the tool_calls in the API response as a proxy for bus events.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- Gotchas -->
+<div class="section red">
+  <h3>Known Constraints &amp; Gotchas</h3>
+
+  <div class="constraint">
+    <div class="title">gemma4:e2b tool calling reliability</div>
+    <div class="body">The 2B model may not reliably call tools for every query that warrants them. If S3 consistently fails to trigger web_search, upgrade to gemma4:e4b or gemma4:26b via <code>--model</code> flag. Tool calling reliability scales strongly with model size.</div>
+  </div>
+
+  <div class="constraint">
+    <div class="title">Tool result race condition</div>
+    <div class="body">The short-lived subscriber in <code>_execute_tool()</code> must be created BEFORE publishing the request, otherwise the result may arrive on the bus before the subscriber is bound and the message is missed. The implementation above does this correctly — <code>sub = ZmqSubscriber(...)</code> before <code>self._pub.publish(...)</code>.</div>
+  </div>
+
+  <div class="constraint">
+    <div class="title">Streaming + tool calls</div>
+    <div class="body">With <code>stream=True</code>, tool calls are assembled from stream chunks. In the current implementation <code>iter_tool_calls</code> takes the last non-None <code>chunk.message.tool_calls</code> value. Verify that the Ollama Python library delivers complete tool call objects in the final stream chunk — if tool call args are partial in intermediate chunks, intermediate values must not be used. If streaming tool calls prove unreliable, fall back to <code>stream=False</code> only when tool schemas are active.</div>
+  </div>
+
+  <div class="constraint">
+    <div class="title">SearXNG must be running locally</div>
+    <div class="body">The default provider is SearXNG at <code>http://localhost:8080</code>. If it's not running, web_search will timeout and Gemma will receive a tool error. For initial testing, set <code>provider: brave</code> or <code>provider: tavily</code> with the relevant API key, or use a live SearXNG instance.</div>
+  </div>
+
+  <div class="constraint">
+    <div class="title">Tool timeout must be long enough for slow search providers</div>
+    <div class="body">Default <code>tool_timeout</code> in generator config should be ≥ 15s to allow for slow search providers. SearXNG aggregates multiple search engines and can be slow. Tavily is typically faster (&lt;3s). Set per-provider expectations in tests using mocks.</div>
+  </div>
+</div>
+
+<div style="margin-top:2rem; color:#475569; font-size:0.8rem; text-align:center;">
+  LoCAL2 Phase 1b Detailed Plan · 2026-05-31
+</div>
+
+</body>
+</html>

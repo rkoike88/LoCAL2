@@ -13,6 +13,12 @@ TOOL_RESULT_WEB_SEARCH = "tool.result.web_search"
 TOOL_REQUEST_WEB_FETCH = "tool.request.web_fetch"
 TOOL_RESULT_WEB_FETCH = "tool.result.web_fetch"
 
+# Memory tool bus — Phase 2
+TOOL_REQUEST_RECALL_MEMORY = "tool.request.recall_memory"
+TOOL_RESULT_RECALL_MEMORY = "tool.result.recall_memory"
+TOOL_REQUEST_SAVE_MEMORY = "tool.request.save_memory"
+TOOL_RESULT_SAVE_MEMORY = "tool.result.save_memory"
+
 # Phase 2+
 CRITIQUE = "critique.result"
 USER_FEEDBACK = "user.feedback"

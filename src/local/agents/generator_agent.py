@@ -111,7 +111,8 @@ class GeneratorAgent:
 
         self._pub.publish(self._make_envelope(
             RESPONSE_GENERATION, "response",
-            {"answer": answer, "thinking": thinking, "tool_calls": tool_call_log,
+            {"query": query, "answer": answer, "thinking": thinking,
+             "tool_calls": tool_call_log,
              "session_id": session_id, "query_id": query_id},
             correlation_id, session_id,
         ))

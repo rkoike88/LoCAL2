@@ -1,0 +1,39 @@
+story_id: S5
+title: "Episodic recall — cross-session memory of a stated fact"
+description: >
+  Two-turn story across separate sessions. Turn 1 states a personal fact.
+  Turn 2 starts a fresh session and asks about it — Gemma must call
+  recall_memory(query=...) to retrieve the episodic engram written by
+  MemoryAgent after turn 1.
+
+inter_turn_delay_secs: 8   # allow MemoryAgent LLM classification + ChromaDB write
+
+turns:
+  - query: >
+      My favorite programming language is Rust. I use it for all my systems work.
+    expected_content:
+      - "Rust"
+    must_not_contain:
+      - "tool not available"
+      - "tool timeout"
+
+  - new_session: true
+    query: >
+      What programming language did I tell you I use for systems work?
+      Check your memory if you are not sure.
+    expected_content:
+      - "Rust"
+    must_not_contain:
+      - "tool not available"
+      - "tool timeout"
+      - "don't have access"
+      - "no information"
+
+response_generation_checks:
+  answer_not_empty: true
+
+notes: >
+  Turn 2 starts a new session (no shared conversation history) so Gemma
+  must rely on recall_memory to answer correctly. inter_turn_delay_secs
+  gives MemoryAgent time to classify and write the turn 1 engram.
+  Requires nomic-embed-text pulled: ollama pull nomic-embed-text.

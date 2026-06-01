@@ -9,3 +9,4 @@ build/
 .env
 *.log
 chroma_db/
+.chroma/

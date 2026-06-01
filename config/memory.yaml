@@ -1,0 +1,5 @@
+collection: "local_memory"
+chroma_path: ".chroma"
+embed_model: "nomic-embed-text"
+n_results: 5
+model: "gemma4:e4b"        # used by MemoryAgent for intent/entity classification

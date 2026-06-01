@@ -42,6 +42,21 @@ def _start_web_fetch() -> None:
     WebFetchTool().run()
 
 
+def _start_memory_recall(memory_service) -> None:
+    from local.tools.memory_recall_tool import MemoryRecallTool
+    MemoryRecallTool(memory_service=memory_service).run()
+
+
+def _start_memory_save(memory_service) -> None:
+    from local.tools.memory_save_tool import MemorySaveTool
+    MemorySaveTool(memory_service=memory_service).run()
+
+
+def _start_memory_agent(memory_service) -> None:
+    from local.agents.memory_agent import MemoryAgent
+    MemoryAgent(memory_service=memory_service).run()
+
+
 def _start_api(port: int) -> None:
     import uvicorn
     from local.api.gateway import app
@@ -69,9 +84,19 @@ def main() -> None:
     time.sleep(0.2)   # let PUB/SUB connections settle
 
     # -- Tools ---------------------------------------------------------------
+    # MemoryService created once in main thread — ChromaDB init is not thread-safe
+    # under concurrent construction on the same path.
+    from local.services.memory_service import MemoryService
+    shared_memory = MemoryService()
+
     threading.Thread(target=_start_web_search, daemon=True, name="web_search").start()
     threading.Thread(target=_start_web_fetch, daemon=True, name="web_fetch").start()
+    threading.Thread(target=_start_memory_recall, args=(shared_memory,), daemon=True, name="memory_recall").start()
+    threading.Thread(target=_start_memory_save, args=(shared_memory,), daemon=True, name="memory_save").start()
     time.sleep(0.2)   # let tools connect and announce schemas to generator
+
+    # -- Memory Agent --------------------------------------------------------
+    threading.Thread(target=_start_memory_agent, args=(shared_memory,), daemon=True, name="memory_agent").start()
 
     # -- API -----------------------------------------------------------------
     if args.api:

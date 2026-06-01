@@ -12,13 +12,27 @@ LLM-native tool calling with Gemma 4 as the orchestrator. Web search, memory rec
 
 ## Setup
 
-### 1. Python dependencies
+### 1. Install Docker Desktop
+
+Download from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/). Choose the right version for your chip:
+
+```bash
+uname -m   # arm64 = Apple Silicon, x86_64 = Intel
+```
+
+After installing, launch Docker Desktop and verify:
+
+```bash
+docker --version
+```
+
+### 2. Python dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configure secrets
+### 3. Configure secrets
 
 ```bash
 cp .env.example .env
@@ -34,7 +48,7 @@ Paste the output as `MY_SEARX_SECRET=<value>` in `.env`. You only need to do thi
 
 `BRAVE_API_KEY` and `TAVILY_API_KEY` are only needed if you switch the search provider in `config/web_search.yaml` away from the default SearXNG.
 
-### 3. Start SearXNG
+### 4. Start SearXNG
 
 ```bash
 docker compose up -d
@@ -46,13 +60,13 @@ SearXNG will be available at `http://localhost:8080`. Verify it's running:
 curl "http://localhost:8080/search?q=test&format=json" | head -c 200
 ```
 
-### 4. Pull the model
+### 5. Pull the model
 
 ```bash
 ollama pull gemma4:e4b
 ```
 
-### 5. Run LoCAL2
+### 6. Run LoCAL2
 
 ```bash
 # UI only

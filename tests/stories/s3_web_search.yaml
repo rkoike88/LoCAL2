@@ -1,0 +1,33 @@
+story_id: S3
+title: "Web search — current data triggers web_search tool"
+description: >
+  Single-turn query for current/real-time data that Gemma cannot answer from training.
+  Verifies that web_search fires, the tool result is incorporated into the answer,
+  and the answer is non-empty.
+
+turns:
+  - query: "What is the current price of Bitcoin in USD today?"
+    expected_content: []      # price changes; just verify non-empty answer
+    must_not_contain:
+      - "tool not available"
+      - "tool timeout"
+
+expected_bus_events:
+  present:
+    - "response.generation"
+    - "tool.request.web_search"
+    - "tool.result.web_search"
+  absent: []
+
+response_generation_checks:
+  answer_not_empty: true
+  thinking_not_empty: true
+  tool_calls_not_empty: true
+  tool_names_include:
+    - web_search
+
+notes: >
+  Requires SearXNG running on localhost:8080 (docker compose up -d).
+  Gemma should recognise that current price data requires a web search.
+  If this story fails with "tool timeout", check that SearXNG is running
+  and that config/web_search.yaml has provider: searxng.

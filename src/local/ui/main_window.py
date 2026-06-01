@@ -430,7 +430,7 @@ class MainWindow(QMainWindow):
             QLabel#logItem {
                 background: transparent;
                 color: #666666;
-                font-family: monospace;
+                font-family: "Menlo", "Monaco", "Courier New", monospace;
                 font-size: 12px;
                 padding: 2px 24px;
             }
@@ -441,12 +441,12 @@ class MainWindow(QMainWindow):
             }
             QLabel#logHeader {
                 color: #555555;
-                font-family: monospace;
+                font-family: "Menlo", "Monaco", "Courier New", monospace;
                 font-size: 12px;
             }
             QLabel#logAnswer {
                 color: #ececec;
-                font-family: monospace;
+                font-family: "Menlo", "Monaco", "Courier New", monospace;
                 font-size: 13px;
                 padding: 4px 0px;
             }
@@ -454,7 +454,7 @@ class MainWindow(QMainWindow):
                 background: transparent;
                 color: #555555;
                 border: none;
-                font-family: monospace;
+                font-family: "Menlo", "Monaco", "Courier New", monospace;
                 font-size: 12px;
                 padding: 2px 0px;
                 text-align: left;
@@ -467,7 +467,7 @@ class MainWindow(QMainWindow):
                 color: #555555;
                 border: 1px solid #1e1e1e;
                 border-radius: 4px;
-                font-family: monospace;
+                font-family: "Menlo", "Monaco", "Courier New", monospace;
                 font-size: 12px;
                 padding: 8px;
             }

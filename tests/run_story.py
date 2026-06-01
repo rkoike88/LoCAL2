@@ -87,6 +87,16 @@ def run_story(story_path: str, api_base: str) -> bool:
             ok = _check("no tool calls", len(tool_calls) == 0, str(tool_calls) if tool_calls else "")
             all_passed = all_passed and ok
 
+        if rg_checks.get("tool_calls_not_empty"):
+            ok = _check("at least one tool called", len(tool_calls) > 0)
+            all_passed = all_passed and ok
+
+        called_names = {tc.get("tool") for tc in tool_calls}
+        for required_tool in rg_checks.get("tool_names_include", []):
+            ok = _check(f"tool {required_tool!r} called", required_tool in called_names,
+                        f"called: {sorted(called_names)}" if called_names else "no tools fired")
+            all_passed = all_passed and ok
+
     print(f"\n{'='*60}")
     verdict = "PASS" if all_passed else "FAIL"
     print(f"Story {story_id}: {verdict}")

@@ -1,0 +1,37 @@
+story_id: S4
+title: "Web fetch — deep content retrieval after search"
+description: >
+  Single-turn query designed to prompt a search followed by fetching full page content.
+  Asks for detailed technical content that snippets are unlikely to satisfy.
+  Verifies web_search fires; web_fetch firing is a bonus assertion (Gemma decides).
+
+turns:
+  - query: >
+      Search the web and find what Python version introduced the match statement
+      (structural pattern matching). Fetch the full details from one of the results.
+    expected_content:
+      - "3.10"
+    must_not_contain:
+      - "tool not available"
+      - "tool timeout"
+
+expected_bus_events:
+  present:
+    - "response.generation"
+    - "tool.request.web_search"
+    - "tool.result.web_search"
+  absent: []
+
+response_generation_checks:
+  answer_not_empty: true
+  thinking_not_empty: true
+  tool_calls_not_empty: true
+  tool_names_include:
+    - web_search
+
+notes: >
+  Requires SearXNG running on localhost:8080 (docker compose up -d).
+  web_fetch firing is desirable but not required — Gemma decides based on snippets.
+  If web_fetch does not fire, check that the web_fetch tool schema is registered
+  and that config/generator.yaml includes the web_fetch tool schema.
+  The answer must contain "3.10" confirming the search result was used.

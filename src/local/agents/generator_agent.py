@@ -1,15 +1,17 @@
 """GeneratorAgent — core LLM agent for LoCAL2.
 
-Subscribes to query.received. Maintains per-session conversation history.
+Subscribes to query.received and tool.schema. Maintains per-session conversation history.
 Calls ollama.chat() directly (not via OllamaBackend) so response["message"]
 is accessible for history appending and tool call inspection.
 
-Phase 1a: no tools — tool loop always exits on first iteration.
-Phase 1b: _execute_tool() will be wired to the bus.
+Tool schemas are populated dynamically as tools announce themselves on tool.schema.
+_execute_tool() opens a short-lived ZmqSubscriber for tool.result.* BEFORE publishing
+the tool.request.*, then polls until correlation_id matches or timeout expires.
 """
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 
 from local.agents.generator_actions import GeneratorAction
@@ -17,9 +19,12 @@ from local.agents.generator_states import GeneratorState
 from local.agents.generator_transitions import GeneratorStateMachine
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
-from local.protocol.subjects import ANSWER_DIALOG, GENERATION_THINKING, QUERY_RECEIVED, RESPONSE_GENERATION
+from local.protocol.subjects import (
+    ANSWER_DIALOG, GENERATION_THINKING, QUERY_RECEIVED, RESPONSE_GENERATION, TOOL_SCHEMA,
+)
 from local.services.conversation_service import ConversationService
-from local.transport.bus_config import make_participant_bus
+from local.transport.bus_config import PROXY_BACKEND_ADDR, make_participant_bus
+from local.transport.zmq_pubsub import ZmqSubscriber
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +45,7 @@ class GeneratorAgent:
         self._tool_schemas: list = cfg.get("tools", [])
         self._conv = ConversationService()
         self._sm = GeneratorStateMachine()
-        self._pub, self._sub = make_participant_bus([QUERY_RECEIVED])
+        self._pub, self._sub = make_participant_bus([QUERY_RECEIVED, TOOL_SCHEMA])
 
     # ------------------------------------------------------------------
     # Main loop
@@ -61,6 +66,8 @@ class GeneratorAgent:
                     logger.error("GeneratorAgent: unhandled error: %s", exc, exc_info=True)
                     if self._sm.state != GeneratorState.IDLE:
                         self._sm.reset()
+            elif envelope.subject == TOOL_SCHEMA:
+                self._register_tool_schema(envelope.payload.get("schema", {}))
 
     # ------------------------------------------------------------------
     # Query handling
@@ -200,8 +207,46 @@ class GeneratorAgent:
         return answer, thinking, tool_call_log
 
     def _execute_tool(self, name: str, args: dict, correlation_id: str) -> str:
-        """Execute a tool call. Phase 1b wires this to the bus; Phase 1a returns a stub."""
-        return f"[tool not available in Phase 1a: {name!r}]"
+        """Dispatch a tool call over the bus and block until the result arrives or timeout.
+
+        Opens a short-lived ZmqSubscriber for tool.result.<name> BEFORE publishing
+        tool.request.<name> to avoid a race between publish and subscribe.
+        """
+        req_subject = f"tool.request.{name}"
+        res_subject = f"tool.result.{name}"
+
+        result_sub = ZmqSubscriber(PROXY_BACKEND_ADDR, subscriptions=[res_subject])
+        try:
+            self._pub.publish(self._make_envelope(
+                req_subject, "tool_request",
+                {"tool": name, "args": args},
+                correlation_id, None,
+            ))
+            deadline = time.monotonic() + self._tool_timeout
+            while time.monotonic() < deadline:
+                remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
+                msg = result_sub.receive_with_timeout(remaining_ms)
+                if msg is None:
+                    break
+                if msg.correlation_id == correlation_id:
+                    return msg.payload.get("result", "")
+        finally:
+            result_sub.close()
+
+        logger.warning("GeneratorAgent: tool %r timed out after %ss", name, self._tool_timeout)
+        return f"[tool timeout: {name!r} did not respond within {self._tool_timeout}s]"
+
+    def _register_tool_schema(self, schema: dict) -> None:
+        """Add or replace a tool schema received from tool.schema announcement."""
+        name = schema.get("function", {}).get("name", "")
+        if not name:
+            return
+        self._tool_schemas = [
+            s for s in self._tool_schemas
+            if s.get("function", {}).get("name") != name
+        ]
+        self._tool_schemas.append(schema)
+        logger.info("GeneratorAgent: registered tool %r (total: %d)", name, len(self._tool_schemas))
 
     @staticmethod
     def _clean_for_history(m: dict) -> dict:

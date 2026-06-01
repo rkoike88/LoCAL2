@@ -32,6 +32,16 @@ def _start_generator(model: str) -> None:
     agent.run()
 
 
+def _start_web_search() -> None:
+    from local.tools.web_search_tool import WebSearchTool
+    WebSearchTool().run()
+
+
+def _start_web_fetch() -> None:
+    from local.tools.web_fetch_tool import WebFetchTool
+    WebFetchTool().run()
+
+
 def _start_api(port: int) -> None:
     import uvicorn
     from local.api.gateway import app
@@ -57,6 +67,11 @@ def main() -> None:
     )
     gen_thread.start()
     time.sleep(0.2)   # let PUB/SUB connections settle
+
+    # -- Tools ---------------------------------------------------------------
+    threading.Thread(target=_start_web_search, daemon=True, name="web_search").start()
+    threading.Thread(target=_start_web_fetch, daemon=True, name="web_fetch").start()
+    time.sleep(0.2)   # let tools connect and announce schemas to generator
 
     # -- API -----------------------------------------------------------------
     if args.api:

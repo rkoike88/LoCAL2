@@ -40,24 +40,38 @@ When asked to describe or diagnose a problem, give a direct concise answer first
 
 **Generalize, don't patch.** When you encounter a one-off problem, ask: "Is this a symptom of a broader design issue?" Add the general solution, not a workaround.
 
+## Participant Naming Convention
+
+| Suffix | LLM? | Triggered by | Output destination |
+|---|---|---|---|
+| `*Agent` | Yes | System (bus event) | Bus subject (not Gemma) |
+| `*Tool` | No | Gemma (`tool.request.*`) | Back to Gemma via `tool.result.*` |
+| `*AgentTool` | Yes | Gemma (`tool.request.*`) | Back to Gemma via `tool.result.*` |
+
 ## Key Participants
 
 | Participant | Role |
 |---|---|
-| `generator_agent.py` | Core agent: receives `query.received`, maintains conversation history, calls tools (web_search, recall_memory), publishes `response.generation` |
-| `memory_service.py` | Episodic memory store (ChromaDB); surfaced as the `recall_memory` tool |
-| `web_search_service.py` | Web search execution; surfaced as the `web_search` tool |
-| `critic.py` | Post-generation observer; evaluates answer quality; publishes `critique.result` |
-| `reward_service.py` | Routes `user.feedback` → `reward.event` to producing agents |
+| `generator_agent.py` | Core LLM agent: receives `query.received`, maintains conversation history, natively orchestrates tool calls (web_search, web_fetch, recall_memory), publishes `response.generation` |
+| `web_search_tool.py` | Executes `web_search` tool call — configurable provider (SearXNG / Brave / Tavily); publishes tool schema on startup |
+| `web_fetch_tool.py` | Executes `web_fetch` tool call — httpx + BeautifulSoup extraction; Gemma decides which URL to fetch after web_search |
+| `critic_agent.py` | System-triggered post-generation observer; Prometheus absolute grading (1–5); fires on `response.generation`; publishes `critique.result` |
+| `critic_agent_tool.py` | Gemma-callable pairwise comparison; Prometheus pairwise ranking; fires on `tool.request.critic_comparison`; result returns to Gemma context |
+| `memory_service.py` | Episodic memory store (ChromaDB) — Phase 2; surfaced as `recall_memory` tool |
+| `reward_service.py` | Routes `user.feedback` → `reward.event` to producing agents — Phase 4 |
 
 ## Bus Subjects
 
 - `query.received` — new user query arrives
 - `response.generation` — generator publishes final answer
+- `tool.schema` — tool publishes its JSON schema on startup; GeneratorAgent maintains live registry
+- `tool.request.web_search` / `tool.result.web_search` — web search execution
+- `tool.request.web_fetch` / `tool.result.web_fetch` — URL fetch + extraction
+- `tool.request.critic_comparison` / `tool.result.critic_comparison` — Prometheus pairwise (Gemma-callable)
+- `critique.result` — Prometheus absolute grade (1–5); system-triggered after every generation
 - `answer.dialog` — conversation turn appended for history tracking
 - `user.feedback` — user thumbs up/down signal
 - `reward.event` — targeted reward to producing agent
-- `critique.result` — critic evaluation result
 
 ## Architecture Invariants
 

@@ -47,22 +47,22 @@
 <a class="back" href="plan_local2.html">← Back to main plan</a>
 
 <h1>LoCAL2 — Phase 1b</h1>
-<h2>Tool Bus: WebSearchAgent · WebFetchAgent · GeneratorAgent tool loop</h2>
+<h2>Tool Bus: WebSearchTool · WebFetchTool · GeneratorAgent tool loop</h2>
 
 <!-- Scope -->
 <div class="section blue">
   <h3>Scope &amp; Deliverables</h3>
-  <p style="color:#94a3b8; font-size:0.9rem; margin-bottom:1rem;">Phase 1b wires Gemma's native tool calling to real capabilities. GeneratorAgent publishes tool requests to the bus and blocks on results. WebSearchAgent and WebFetchAgent are independent bus participants. Phase 1b is complete when Stories S3 and S4 pass against the live stack.</p>
+  <p style="color:#94a3b8; font-size:0.9rem; margin-bottom:1rem;">Phase 1b wires Gemma's native tool calling to real capabilities. GeneratorAgent publishes tool requests to the bus and blocks on results. WebSearchTool and WebFetchTool are independent bus participants. Phase 1b is complete when Stories S3 and S4 pass against the live stack.</p>
   <div class="grid">
     <div class="card">
       <h4>New files</h4>
       <ul>
-        <li><code>src/local/agents/web_search_agent.py</code> <span class="tag new">new</span></li>
-        <li><code>src/local/agents/web_fetch_agent.py</code> <span class="tag new">new</span></li>
+        <li><code>src/local/tools/web_search_tool.py</code> <span class="tag new">new</span></li>
+        <li><code>src/local/tools/web_fetch_tool.py</code> <span class="tag new">new</span></li>
         <li><code>config/web_search.yaml</code> <span class="tag new">new</span></li>
         <li><code>config/web_fetch.yaml</code> <span class="tag new">new</span></li>
-        <li><code>tests/test_web_search_agent.py</code> <span class="tag new">new</span></li>
-        <li><code>tests/test_web_fetch_agent.py</code> <span class="tag new">new</span></li>
+        <li><code>tests/test_web_search_tool.py</code> <span class="tag new">new</span></li>
+        <li><code>tests/test_web_fetch_tool.py</code> <span class="tag new">new</span></li>
         <li><code>tests/stories/s3_web_search.yaml</code> <span class="tag new">new</span></li>
         <li><code>tests/stories/s4_web_fetch.yaml</code> <span class="tag new">new</span></li>
       </ul>
@@ -87,15 +87,15 @@
   <div class="phase">
     <div class="phase-num">6</div>
     <div class="phase-content">
-      <h4>WebSearchAgent</h4>
-      <p style="color:#94a3b8; font-size:0.85rem;">Implement <code>web_search_agent.py</code> with mock + SearXNG/Brave/Tavily providers. Write <code>config/web_search.yaml</code>. Unit test: publish a <code>tool.request.web_search</code> envelope directly, assert <code>tool.result.web_search</code> arrives with correct <code>correlation_id</code> and non-empty result.</p>
+      <h4>WebSearchTool</h4>
+      <p style="color:#94a3b8; font-size:0.85rem;">Implement <code>web_search_tool.py</code> with mock + SearXNG/Brave/Tavily providers. Write <code>config/web_search.yaml</code>. Unit test: publish a <code>tool.request.web_search</code> envelope directly, assert <code>tool.result.web_search</code> arrives with correct <code>correlation_id</code> and non-empty result.</p>
     </div>
   </div>
   <div class="phase">
     <div class="phase-num">7</div>
     <div class="phase-content">
-      <h4>WebFetchAgent</h4>
-      <p style="color:#94a3b8; font-size:0.85rem;">Implement <code>web_fetch_agent.py</code> with httpx + BeautifulSoup extraction. Write <code>config/web_fetch.yaml</code>. Unit test: publish <code>tool.request.web_fetch</code> with a live URL, assert extracted text arrives and is truncated to <code>max_chars</code>. Test error path: invalid URL → result contains error string.</p>
+      <h4>WebFetchTool</h4>
+      <p style="color:#94a3b8; font-size:0.85rem;">Implement <code>web_fetch_tool.py</code> with httpx + BeautifulSoup extraction. Write <code>config/web_fetch.yaml</code>. Unit test: publish <code>tool.request.web_fetch</code> with a live URL, assert extracted text arrives and is truncated to <code>max_chars</code>. Test error path: invalid URL → result contains error string.</p>
     </div>
   </div>
   <div class="phase">
@@ -107,9 +107,9 @@
   </div>
 </div>
 
-<!-- WebSearchAgent -->
+<!-- WebSearchTool -->
 <div class="section amber">
-  <h3>Step 6 — WebSearchAgent</h3>
+  <h3>Step 6 — WebSearchTool</h3>
 
   <div class="card" style="margin-bottom:1rem;">
     <h4>Behaviour</h4>
@@ -182,7 +182,7 @@ class MockProvider:      # canned results — use in unit tests</pre>
 
   <div class="card" style="margin-top:1rem;">
     <h4>Unit test sketch</h4>
-    <pre># tests/test_web_search_agent.py
+    <pre># tests/test_web_search_tool.py
 def test_mock_search_publishes_result():
     # Start agent with mock provider in a thread
     # Publish tool.request.web_search directly to bus
@@ -200,9 +200,9 @@ def test_provider_timeout_sets_error():
   </div>
 </div>
 
-<!-- WebFetchAgent -->
+<!-- WebFetchTool -->
 <div class="section green">
-  <h3>Step 7 — WebFetchAgent</h3>
+  <h3>Step 7 — WebFetchTool</h3>
 
   <div class="card" style="margin-bottom:1rem;">
     <h4>Behaviour</h4>
@@ -255,12 +255,12 @@ result = f"URL: {url}\nExtracted text:\n{text[:cfg['max_chars']]}"</pre>
       <li>Invalid URL / connection error → <code>error: "fetch error: {exc}"</code></li>
       <li>Missing <code>args.url</code> → <code>error: "missing url argument"</code></li>
     </ul>
-    <p style="color:#94a3b8; font-size:0.82rem; margin-top:0.5rem;">Gemma reads the error string and can decide to try a different URL or acknowledge the failure. No retry logic in WebFetchAgent — that is Gemma's decision.</p>
+    <p style="color:#94a3b8; font-size:0.82rem; margin-top:0.5rem;">Gemma reads the error string and can decide to try a different URL or acknowledge the failure. No retry logic in WebFetchTool — that is Gemma's decision.</p>
   </div>
 
   <div class="card" style="margin-top:1rem;">
     <h4>Unit test sketch</h4>
-    <pre># tests/test_web_fetch_agent.py
+    <pre># tests/test_web_fetch_tool.py
 def test_fetch_extracts_body_text():
     # httpx.get patched to return known HTML
     # Assert result contains expected extracted text
@@ -394,12 +394,12 @@ for tc in tool_calls:
   <div class="card">
     <h4>run_local.py — start tool agents</h4>
     <pre>def _start_web_search(model: str) -> None:
-    from local.agents.web_search_agent import WebSearchAgent
-    WebSearchAgent().run()
+    from local.tools.web_search_tool import WebSearchTool
+    WebSearchTool().run()
 
 def _start_web_fetch() -> None:
-    from local.agents.web_fetch_agent import WebFetchAgent
-    WebFetchAgent().run()
+    from local.tools.web_fetch_tool import WebFetchTool
+    WebFetchTool().run()
 
 # In main(), after generator thread:
 ws_thread = threading.Thread(target=_start_web_search, daemon=True, name="web_search")

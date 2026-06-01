@@ -4,12 +4,39 @@ temperature: 0.7
 max_tool_iterations: 5
 tool_timeout: 20          # seconds to wait for a tool result before returning error
 
-# Optional system prompt injected as the first message of every conversation.
-system_prompt: |
-  You are LoCAL2, a reasoning agent. Use your thinking space to break the user's
-  request into steps before answering or calling tools. Execute web_search and
-  recall_memory as needed to gather facts. Be concise and direct in your final answer.
+system_prompt: ""
 
-# Tool schemas — empty in Phase 1a (no tools registered).
-# Populated in Phase 1b with web_search and web_fetch schemas.
-tools: []
+# Tool schemas — static fallback. Tools also announce dynamically via tool.schema on startup,
+# which updates this list at runtime. Keep in sync with web_search_tool.py / web_fetch_tool.py.
+tools:
+  - type: function
+    function:
+      name: web_search
+      description: >
+        Search the web for current information. Use when the query requires
+        up-to-date facts, recent events, or information beyond your training data.
+        Returns a numbered list of results with titles, URLs, and snippets.
+        After reviewing snippets, call web_fetch on the most relevant URL if you
+        need the full page content.
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+            description: The search query string.
+        required: [query]
+
+  - type: function
+    function:
+      name: web_fetch
+      description: >
+        Fetch the full text content of a specific URL. Use after web_search when
+        the snippet is insufficient and you need the complete page content.
+        Returns extracted body text truncated to a maximum character limit.
+      parameters:
+        type: object
+        properties:
+          url:
+            type: string
+            description: The full URL to fetch.
+        required: [url]

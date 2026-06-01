@@ -132,11 +132,11 @@
   <div class="arrow">↓ (Gemma emits tool call → GeneratorAgent publishes to bus → waits for tool.result → appends → resumes)</div>
   <div class="arch-box">
     <div class="label">Tool: web_search</div>
-    <div class="desc">Gemma calls when it needs to <em>find</em> sources. GeneratorAgent publishes <code>tool.request.web_search</code>; WebSearchAgent executes (SearXNG / Brave / Tavily), publishes <code>tool.result.web_search</code> with snippets + URLs. Gemma then decides whether to call <code>web_fetch</code> on a specific URL or synthesize from snippets directly.</div>
+    <div class="desc">Gemma calls when it needs to <em>find</em> sources. GeneratorAgent publishes <code>tool.request.web_search</code>; WebSearchTool executes (SearXNG / Brave / Tavily), publishes <code>tool.result.web_search</code> with snippets + URLs. Gemma then decides whether to call <code>web_fetch</code> on a specific URL or synthesize from snippets directly.</div>
   </div>
   <div class="arch-box">
     <div class="label">Tool: web_fetch</div>
-    <div class="desc">Gemma calls when it needs full page content from a known URL (often after web_search). GeneratorAgent publishes <code>tool.request.web_fetch</code>; WebFetchAgent retrieves and extracts the page text, publishes <code>tool.result.web_fetch</code>. Gemma orchestrates the search→fetch two-step natively.</div>
+    <div class="desc">Gemma calls when it needs full page content from a known URL (often after web_search). GeneratorAgent publishes <code>tool.request.web_fetch</code>; WebFetchTool retrieves and extracts the page text, publishes <code>tool.result.web_fetch</code>. Gemma orchestrates the search→fetch two-step natively.</div>
   </div>
   <div class="arch-box">
     <div class="label">Tool: recall_memory</div>
@@ -309,10 +309,10 @@
   <div class="phase">
     <div class="phase-num">1b</div>
     <div class="phase-content">
-      <h4>Tool bus — WebSearchAgent + WebFetchAgent</h4>
+      <h4>Tool bus — WebSearchTool + WebFetchTool &nbsp;<a href="plan_local2_1b.html" style="font-size:0.8rem; font-weight:400; color:#7dd3fc;">detailed plan →</a></h4>
       <ul>
-        <li>WebSearchAgent subscribes <code>tool.request.web_search</code> — configurable provider (SearXNG / Brave / Tavily)</li>
-        <li>WebFetchAgent subscribes <code>tool.request.web_fetch</code> — BeautifulSoup extraction</li>
+        <li>WebSearchTool subscribes <code>tool.request.web_search</code> — configurable provider (SearXNG / Brave / Tavily)</li>
+        <li>WebFetchTool subscribes <code>tool.request.web_fetch</code> — BeautifulSoup extraction</li>
         <li>GeneratorAgent: DISPATCHING_TOOL → WAITING_FOR_TOOL state transitions</li>
         <li>Timeout / no-response handling → error string appended, generation resumes</li>
         <li>Stories S3 (web_search fires) + S4 (search→fetch two-step)</li>
@@ -378,7 +378,7 @@
 <div id="phase1-detail" style="margin-top:2.5rem; padding-top:1.5rem; border-top: 2px solid #3b82f6;">
   <h1 style="color:#3b82f6; font-size:1.4rem; margin-bottom:0.25rem;">Phase 1 — Detailed Implementation Plan</h1>
   <h2 style="color:#94a3b8; font-size:1rem; font-weight:400; margin-bottom:0.25rem;">1a: Generator · Conversation History · Bus · UI · API</h2>
-  <h2 style="color:#94a3b8; font-size:1rem; font-weight:400; margin-bottom:2rem;">1b: WebSearchAgent · WebFetchAgent · Tool Bus</h2>
+  <h2 style="color:#94a3b8; font-size:1rem; font-weight:400; margin-bottom:2rem;">1b: WebSearchTool · WebFetchTool · Tool Bus</h2>
 
   <!-- Scope -->
   <div class="section blue">
@@ -393,7 +393,7 @@
           <li>Protocol layer (envelope, subjects, message types)</li>
           <li><code>services/ollama_backend.py</code> adapted for non-generator callers</li>
           <li><code>services/conversation_service.py</code> (thinking-clean turns)</li>
-          <li><code>WebSearchAgent</code> + <code>WebFetchAgent</code> as bus participants</li>
+          <li><code>WebSearchTool</code> + <code>WebFetchTool</code> as bus participants</li>
           <li>GeneratorAgent: publishes <code>tool.request.*</code>, waits for <code>tool.result.*</code></li>
           <li>generator_states.py + generator_transitions.py</li>
           <li>config/generator.yaml, config/web_search.yaml</li>
@@ -446,9 +446,11 @@
 │       │   ├── <span style="color:#93c5fd">__init__.py</span>
 │       │   ├── <span style="color:#f59e0b">generator_agent.py</span>  new: publishes tool.request.*, waits for tool.result.*, publishes response.generation
 │       │   ├── <span style="color:#f59e0b">generator_states.py</span> IDLE / RECEIVING / GENERATING / DISPATCHING_TOOL / WAITING_FOR_TOOL / PUBLISHING
-│       │   ├── <span style="color:#f59e0b">generator_transitions.py</span>  transition table
-│       │   ├── <span style="color:#f59e0b">web_search_agent.py</span> subscribes tool.request.web_search; configurable provider
-│       │   └── <span style="color:#f59e0b">web_fetch_agent.py</span>  subscribes tool.request.web_fetch; BeautifulSoup extraction
+│       │   └── <span style="color:#f59e0b">generator_transitions.py</span>  transition table
+│       ├── tools/
+│       │   ├── <span style="color:#93c5fd">__init__.py</span>
+│       │   ├── <span style="color:#f59e0b">web_search_tool.py</span> subscribes tool.request.web_search; configurable provider
+│       │   └── <span style="color:#f59e0b">web_fetch_tool.py</span>  subscribes tool.request.web_fetch; BeautifulSoup extraction
 │       ├── services/
 │       │   ├── <span style="color:#93c5fd">__init__.py</span>
 │       │   ├── <span style="color:#86efac">ollama_backend.py</span>   adapt for non-generator callers (Critic etc.)
@@ -490,24 +492,24 @@
       <tr>
         <td>tool.request.web_search</td>
         <td>GeneratorAgent</td>
-        <td>WebSearchAgent</td>
+        <td>WebSearchTool</td>
         <td>Payload: <code>{query_id, tool: "web_search", args: {query}}</code></td>
       </tr>
       <tr>
         <td>tool.result.web_search</td>
-        <td>WebSearchAgent</td>
+        <td>WebSearchTool</td>
         <td>GeneratorAgent</td>
         <td>Payload: <code>{query_id, result: "...", error: null}</code>. <code>query_id</code> used to correlate.</td>
       </tr>
       <tr>
         <td>tool.request.web_fetch</td>
         <td>GeneratorAgent</td>
-        <td>WebFetchAgent</td>
+        <td>WebFetchTool</td>
         <td>Payload: <code>{query_id, tool: "web_fetch", args: {url}}</code></td>
       </tr>
       <tr>
         <td>tool.result.web_fetch</td>
-        <td>WebFetchAgent</td>
+        <td>WebFetchTool</td>
         <td>GeneratorAgent</td>
         <td>Payload: <code>{query_id, result: "...", error: null}</code></td>
       </tr>
@@ -592,12 +594,12 @@ thinking = getattr(response, "thinking", "") or ""
 
   <!-- Tool Agents -->
   <div class="section amber">
-    <h3>WebSearchAgent + WebFetchAgent — New bus participants</h3>
+    <h3>WebSearchTool + WebFetchTool — New bus participants</h3>
     <p style="color:#94a3b8; font-size:0.85rem; margin-bottom:1rem;">Gemma 4 natively distinguishes search (find sources) from fetch (extract page content). These are separate tools, separate bus participants. Gemma orchestrates the search→fetch two-step when it needs full page content — LoCAL2 does not apply a fetch-on-thin-snippets heuristic. No LoCAL1 gateway code reused. No synthesis LLM call — Gemma synthesizes the answer from raw results in its generation turn.</p>
 
     <div class="grid">
       <div class="card">
-        <h4>WebSearchAgent</h4>
+        <h4>WebSearchTool</h4>
         <p style="color:#94a3b8; font-size:0.82rem; margin-bottom:0.5rem;">Subscribes to <code>tool.request.web_search</code>. Executes search via configured provider. Publishes <code>tool.result.web_search</code>.</p>
         <pre style="background:#0f1117; color:#86efac; font-size:0.82rem; padding:0.75rem; border-radius:4px; line-height:1.6;">Output format:
 Today's date: 2026-05-30
@@ -610,7 +612,7 @@ Today's date: 2026-05-30
         <p style="color:#94a3b8; font-size:0.82rem; margin-top:0.5rem;">Date prefix grounds time-sensitive answers. Up to <code>max_results</code> from config. URLs included so Gemma can call <code>web_fetch</code> on a specific one.</p>
       </div>
       <div class="card">
-        <h4>WebFetchAgent</h4>
+        <h4>WebFetchTool</h4>
         <p style="color:#94a3b8; font-size:0.82rem; margin-bottom:0.5rem;">Subscribes to <code>tool.request.web_fetch</code>. Fetches the URL, extracts body text (BeautifulSoup), truncates to <code>fetch_max_chars</code>. Publishes <code>tool.result.web_fetch</code>.</p>
         <pre style="background:#0f1117; color:#86efac; font-size:0.82rem; padding:0.75rem; border-radius:4px; line-height:1.6;">Output format:
 URL: https://...
@@ -621,7 +623,7 @@ Extracted text:
     </div>
 
     <div class="card" style="margin-top:1rem;">
-      <h4>WebSearchAgent — configurable providers</h4>
+      <h4>WebSearchTool — configurable providers</h4>
       <table>
         <tr><th>Provider</th><th>Config key</th><th>Notes</th></tr>
         <tr><td>SearXNG</td><td><code>provider: searxng</code></td><td>Self-hosted, free. Default for dev.</td></tr>
@@ -634,8 +636,8 @@ Extracted text:
     <div class="card" style="margin-top:1rem;">
       <h4>Error and no-response handling</h4>
       <ul>
-        <li>If WebSearchAgent finds no results: publishes <code>tool.result.web_search</code> with <code>error: "no results"</code></li>
-        <li>If WebFetchAgent fails: publishes <code>tool.result.web_fetch</code> with <code>error: "fetch failed: 404"</code></li>
+        <li>If WebSearchTool finds no results: publishes <code>tool.result.web_search</code> with <code>error: "no results"</code></li>
+        <li>If WebFetchTool fails: publishes <code>tool.result.web_fetch</code> with <code>error: "fetch failed: 404"</code></li>
         <li>If neither agent responds within timeout: GeneratorAgent transitions WAITING_FOR_TOOL → TOOL_TIMEOUT, appends <code>"[tool unavailable]"</code> as the tool result, resumes generation</li>
         <li>Gemma reads error strings and adapts — may retry with a different query or acknowledge the limitation</li>
       </ul>
@@ -1101,15 +1103,15 @@ _TRAIL_SECONDS = 2.0  # reduced from 3s
     <div class="phase">
       <div class="phase-num done" style="background:#3b82f6;">6</div>
       <div class="phase-content">
-        <h4>WebSearchAgent</h4>
-        <p style="color:#94a3b8; font-size:0.85rem;">Implement <code>web_search_agent.py</code> with configurable provider. Set <code>provider: mock</code> for unit test — verify <code>tool.result.web_search</code> published with correct payload and correlation ID.</p>
+        <h4>WebSearchTool</h4>
+        <p style="color:#94a3b8; font-size:0.85rem;">Implement <code>web_search_tool.py</code> with configurable provider. Set <code>provider: mock</code> for unit test — verify <code>tool.result.web_search</code> published with correct payload and correlation ID.</p>
       </div>
     </div>
     <div class="phase">
       <div class="phase-num done" style="background:#3b82f6;">7</div>
       <div class="phase-content">
-        <h4>WebFetchAgent</h4>
-        <p style="color:#94a3b8; font-size:0.85rem;">Implement <code>web_fetch_agent.py</code> with BeautifulSoup extraction. Unit test with a local HTML fixture — verify extracted text truncated to <code>fetch_max_chars</code>.</p>
+        <h4>WebFetchTool</h4>
+        <p style="color:#94a3b8; font-size:0.85rem;">Implement <code>web_fetch_tool.py</code> with BeautifulSoup extraction. Unit test with a local HTML fixture — verify extracted text truncated to <code>fetch_max_chars</code>.</p>
       </div>
     </div>
     <div class="phase">

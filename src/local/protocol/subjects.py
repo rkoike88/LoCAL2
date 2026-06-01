@@ -7,6 +7,7 @@ RESPONSE_GENERATION = "response.generation"
 ANSWER_DIALOG = "answer.dialog"
 
 # Tool bus — Phase 1b
+TOOL_SCHEMA = "tool.schema"              # tools announce JSON schema on startup
 TOOL_REQUEST_WEB_SEARCH = "tool.request.web_search"
 TOOL_RESULT_WEB_SEARCH = "tool.result.web_search"
 TOOL_REQUEST_WEB_FETCH = "tool.request.web_fetch"

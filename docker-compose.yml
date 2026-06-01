@@ -9,7 +9,7 @@ services:
       - ./searxng:/etc/searxng:rw
     environment:
       - SEARXNG_HOSTNAME=http://localhost:8080
-      - SEARXNG_SECRET=${SEARXNG_SECRET}
+      - SEARXNG_SECRET=${MY_SEARX_SECRET}
     logging:
       driver: "json-file"
       options:

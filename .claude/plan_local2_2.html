@@ -119,6 +119,33 @@ recall_memory(query="what databases has this user worked with")  → similarity<
   </div>
 </div>
 
+<!-- Refactor: 4-tool design -->
+<div class="section red">
+  <h3>Design Revision — 4 Single-Purpose Tools (pending)</h3>
+  <p style="color:#94a3b8; font-size:0.9rem; margin-bottom:1rem;">Steps 9–13 were implemented with 2 tools (save_memory dual-mode, recall_memory dual-mode). Live testing showed Gemma reliably ignores save_memory on "please remember" requests — it treats them as conversational. Root cause: dual-mode tools require Gemma to make a secondary decision inside the call. Single-purpose tools make tool selection itself the only decision.</p>
+  <p style="color:#94a3b8; font-size:0.9rem; margin-bottom:1rem;">Tools are <strong>generic bus-native</strong> — any agent publishes <code>tool.request.*</code>, any agent receives <code>tool.result.*</code>. The JSON schema is Gemma's view only. CriticAgent, ReflectionAgent, or future agents can call these tools directly via the bus.</p>
+
+  <table>
+    <tr><th>Tool</th><th>MemoryService method</th><th>Schema trigger (when to call)</th></tr>
+    <tr><td>save_topic</td><td>write_topic</td><td>User asks to remember a preference, rule, or fact permanently across sessions</td></tr>
+    <tr><td>recall_topic</td><td>recall_topic</td><td>Look up a specific standing fact by key the agent knows or can infer</td></tr>
+    <tr><td>save_memory</td><td>write_episodic</td><td>Explicitly note something important mid-conversation (agent-initiated)</td></tr>
+    <tr><td>search_memory</td><td>search_episodic</td><td>Recall something from past sessions when no exact key is known — search by meaning</td></tr>
+  </table>
+
+  <div class="card" style="margin-top:1rem;">
+    <h4>Refactor scope</h4>
+    <ul>
+      <li>Replace <code>memory_recall_tool.py</code> + <code>memory_save_tool.py</code> with 4 new tool files</li>
+      <li>Add 4 subjects to <code>subjects.py</code>: <code>tool.request/result.save_topic</code>, <code>recall_topic</code>, <code>save_memory</code>, <code>search_memory</code></li>
+      <li>Update <code>run_local.py</code> — 4 tool threads, shared MemoryService instance</li>
+      <li>Replace 2 test files with 4; MemoryService tests unchanged</li>
+      <li>Update stories S5 + S6 to use new tool names</li>
+      <li>MemoryAgent unchanged — uses MemoryService directly, not via bus</li>
+    </ul>
+  </div>
+</div>
+
 <!-- Build order -->
 <div class="section">
   <h3>Build Order — Steps 9–13</h3>

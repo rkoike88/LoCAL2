@@ -11,11 +11,17 @@ Starts in order: ZMQ proxy → GeneratorAgent → API (if --api) → UI (if not 
 from __future__ import annotations
 
 import argparse
+import resource
 import signal
 import sys
 import time
 import threading
 from pathlib import Path
+
+# Raise the open-file soft limit — each ZMQ participant uses 2 sockets and
+# macOS defaults to 256, which is too low once we have 7+ participants.
+_, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+resource.setrlimit(resource.RLIMIT_NOFILE, (min(4096, _hard), _hard))
 
 # Ensure src/ is on the path when run directly.
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -42,14 +48,24 @@ def _start_web_fetch() -> None:
     WebFetchTool().run()
 
 
-def _start_memory_recall(memory_service) -> None:
-    from local.tools.memory_recall_tool import MemoryRecallTool
-    MemoryRecallTool(memory_service=memory_service).run()
+def _start_save_topic(memory_service) -> None:
+    from local.tools.save_topic_tool import SaveTopicTool
+    SaveTopicTool(memory_service=memory_service).run()
 
 
-def _start_memory_save(memory_service) -> None:
-    from local.tools.memory_save_tool import MemorySaveTool
-    MemorySaveTool(memory_service=memory_service).run()
+def _start_recall_topic(memory_service) -> None:
+    from local.tools.recall_topic_tool import RecallTopicTool
+    RecallTopicTool(memory_service=memory_service).run()
+
+
+def _start_user_instruction_memory(memory_service) -> None:
+    from local.tools.user_instruction_memory_tool import UserInstructionMemoryTool
+    UserInstructionMemoryTool(memory_service=memory_service).run()
+
+
+def _start_search_memory(memory_service) -> None:
+    from local.tools.search_memory_tool import SearchMemoryTool
+    SearchMemoryTool(memory_service=memory_service).run()
 
 
 def _start_memory_agent(memory_service) -> None:
@@ -91,8 +107,10 @@ def main() -> None:
 
     threading.Thread(target=_start_web_search, daemon=True, name="web_search").start()
     threading.Thread(target=_start_web_fetch, daemon=True, name="web_fetch").start()
-    threading.Thread(target=_start_memory_recall, args=(shared_memory,), daemon=True, name="memory_recall").start()
-    threading.Thread(target=_start_memory_save, args=(shared_memory,), daemon=True, name="memory_save").start()
+    threading.Thread(target=_start_save_topic, args=(shared_memory,), daemon=True, name="save_topic").start()
+    threading.Thread(target=_start_recall_topic, args=(shared_memory,), daemon=True, name="recall_topic").start()
+    threading.Thread(target=_start_user_instruction_memory, args=(shared_memory,), daemon=True, name="user_instruction_memory").start()
+    threading.Thread(target=_start_search_memory, args=(shared_memory,), daemon=True, name="search_memory").start()
     time.sleep(0.2)   # let tools connect and announce schemas to generator
 
     # -- Memory Agent --------------------------------------------------------

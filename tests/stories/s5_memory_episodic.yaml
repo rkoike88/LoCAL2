@@ -3,7 +3,7 @@ title: "Episodic recall — cross-session memory of a stated fact"
 description: >
   Two-turn story across separate sessions. Turn 1 states a personal fact.
   Turn 2 starts a fresh session and asks about it — Gemma must call
-  recall_memory(query=...) to retrieve the episodic engram written by
+  search_memory(query=...) to retrieve the episodic engram written by
   MemoryAgent after turn 1.
 
 inter_turn_delay_secs: 8   # allow MemoryAgent LLM classification + ChromaDB write
@@ -34,6 +34,6 @@ response_generation_checks:
 
 notes: >
   Turn 2 starts a new session (no shared conversation history) so Gemma
-  must rely on recall_memory to answer correctly. inter_turn_delay_secs
+  must rely on search_memory to answer correctly. inter_turn_delay_secs
   gives MemoryAgent time to classify and write the turn 1 engram.
   Requires nomic-embed-text pulled: ollama pull nomic-embed-text.

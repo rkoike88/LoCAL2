@@ -2,7 +2,7 @@ story_id: S6
 title: "Topic save+recall — preference persists across sessions"
 description: >
   Two-turn story across separate sessions. Turn 1 asks Gemma to remember
-  a preference — Gemma should decide to call save_memory. Turn 2 starts
+  a preference — Gemma should decide to call save_topic. Turn 2 starts
   a fresh session with no conversation history; the correct answer can
   only come from memory retrieval. No tool assertions — the behavioral
   test is whether the answer survives the session boundary.
@@ -33,7 +33,7 @@ response_generation_checks:
 
 notes: >
   Turn 2 starts a new session so conversation history is not available.
-  The answer can only be correct if save_memory fired in turn 1 and
-  recall_memory fires in turn 2. No tool assertions — correct answer
+  The answer can only be correct if save_topic fired in turn 1 and
+  recall_topic or search_memory fires in turn 2. No tool assertions — correct answer
   is the behavioral test.
   Requires nomic-embed-text: ollama pull nomic-embed-text.

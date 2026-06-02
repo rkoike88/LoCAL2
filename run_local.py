@@ -48,16 +48,6 @@ def _start_web_fetch() -> None:
     WebFetchTool().run()
 
 
-def _start_save_topic(memory_service) -> None:
-    from local.tools.save_topic_tool import SaveTopicTool
-    SaveTopicTool(memory_service=memory_service).run()
-
-
-def _start_get_topic(memory_service) -> None:
-    from local.tools.get_topic_tool import GetTopicTool
-    GetTopicTool(memory_service=memory_service).run()
-
-
 def _start_search_memory(memory_service) -> None:
     from local.tools.search_memory_tool import SearchMemoryTool
     SearchMemoryTool(memory_service=memory_service).run()
@@ -95,8 +85,6 @@ def main() -> None:
 
     threading.Thread(target=_start_web_search, daemon=True, name="web_search").start()
     threading.Thread(target=_start_web_fetch, daemon=True, name="web_fetch").start()
-    threading.Thread(target=_start_save_topic, args=(shared_memory,), daemon=True, name="save_topic").start()
-    threading.Thread(target=_start_get_topic, args=(shared_memory,), daemon=True, name="get_topic").start()
     threading.Thread(target=_start_search_memory, args=(shared_memory,), daemon=True, name="search_memory").start()
     time.sleep(0.5)   # let all tools connect and subscribe to schema.request
 

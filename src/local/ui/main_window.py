@@ -35,8 +35,6 @@ from local.protocol.subjects import (
     GENERATION_THINKING,
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
-    TOOL_ACTIVITY_GET_TOPIC,
-    TOOL_ACTIVITY_SAVE_TOPIC,
     TOOL_ACTIVITY_SEARCH_MEMORY,
     TOOL_ACTIVITY_WEB_FETCH,
     TOOL_ACTIVITY_WEB_SEARCH,
@@ -52,8 +50,6 @@ from local.ui.tool_panel import ToolPanel
 
 # Activity subjects that tool panels need to receive
 _TOOL_ACTIVITY_SUBJECTS = [
-    TOOL_ACTIVITY_SAVE_TOPIC,
-    TOOL_ACTIVITY_GET_TOPIC,
     TOOL_ACTIVITY_SEARCH_MEMORY,
     TOOL_ACTIVITY_WEB_SEARCH,
     TOOL_ACTIVITY_WEB_FETCH,
@@ -61,8 +57,6 @@ _TOOL_ACTIVITY_SUBJECTS = [
 
 # (label, tooltip, config_name, activity_subject)
 _TOOL_DEFS = [
-    ("Sv", "save_topic",              "save_topic",              TOOL_ACTIVITY_SAVE_TOPIC),
-    ("Rc", "recall_topic",            "get_topic",               TOOL_ACTIVITY_GET_TOPIC),
     ("Sm", "search_memory",           "search_memory",           TOOL_ACTIVITY_SEARCH_MEMORY),
     ("Ws", "web_search",              "web_search",              TOOL_ACTIVITY_WEB_SEARCH),
     ("Wf", "web_fetch",               "web_fetch",               TOOL_ACTIVITY_WEB_FETCH),

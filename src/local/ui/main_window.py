@@ -1,13 +1,9 @@
-"""LoCAL2 main window — bus log + query input.
+"""LoCAL2 main window — conversation log + per-tool panels.
 
 Layout:
-  52px icon strip  |  scroll area (log items stack vertically)
-  ─────────────────────────────────────────────────────────────
-                   |  query input row (bottom)
-
-RESPONSE events use StreamingResponseWidget: thinking streams in live as
-generation.thinking chunks arrive, then collapses when the answer lands.
-All other events use plain QLabel rows.
+  52px icon strip  |  QStackedWidget
+                   |    page 0: conversation log + query input
+                   |    pages 1-6: tool panels (activity + settings)
 """
 from __future__ import annotations
 
@@ -24,6 +20,7 @@ try:
         QPushButton,
         QScrollArea,
         QSizePolicy,
+        QStackedWidget,
         QTextEdit,
         QVBoxLayout,
         QWidget,
@@ -38,6 +35,11 @@ from local.protocol.subjects import (
     GENERATION_THINKING,
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
+    TOOL_ACTIVITY_GET_TOPIC,
+    TOOL_ACTIVITY_SAVE_TOPIC,
+    TOOL_ACTIVITY_SEARCH_MEMORY,
+    TOOL_ACTIVITY_WEB_FETCH,
+    TOOL_ACTIVITY_WEB_SEARCH,
     TOOL_REQUEST_WEB_FETCH,
     TOOL_REQUEST_WEB_SEARCH,
     TOOL_RESULT_WEB_FETCH,
@@ -46,6 +48,25 @@ from local.protocol.subjects import (
 from local.session.local_session import OBSERVE
 from local.transport.bus_config import PROXY_BACKEND_ADDR, PROXY_FRONTEND_ADDR
 from local.transport.zmq_pubsub import ZmqPublisher, ZmqSubscriber
+from local.ui.tool_panel import ToolPanel
+
+# Activity subjects that tool panels need to receive
+_TOOL_ACTIVITY_SUBJECTS = [
+    TOOL_ACTIVITY_SAVE_TOPIC,
+    TOOL_ACTIVITY_GET_TOPIC,
+    TOOL_ACTIVITY_SEARCH_MEMORY,
+    TOOL_ACTIVITY_WEB_SEARCH,
+    TOOL_ACTIVITY_WEB_FETCH,
+]
+
+# (label, tooltip, config_name, activity_subject)
+_TOOL_DEFS = [
+    ("Sv", "save_topic",              "save_topic",              TOOL_ACTIVITY_SAVE_TOPIC),
+    ("Rc", "recall_topic",            "get_topic",               TOOL_ACTIVITY_GET_TOPIC),
+    ("Sm", "search_memory",           "search_memory",           TOOL_ACTIVITY_SEARCH_MEMORY),
+    ("Ws", "web_search",              "web_search",              TOOL_ACTIVITY_WEB_SEARCH),
+    ("Wf", "web_fetch",               "web_fetch",               TOOL_ACTIVITY_WEB_FETCH),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -156,14 +177,19 @@ class BusMonitorWorker(QObject):
 
 class BusLogger(QObject):
     message = Signal(str)
-    thinking_chunk = Signal(dict)   # {ts, chunk, query_id}
-    response = Signal(dict)         # {ts, answer, thinking, tool_calls, query_id}
+    thinking_chunk = Signal(dict)
+    response = Signal(dict)
+    tool_activity = Signal(object)   # passes MessageEnvelope through
 
     def log_envelope(self, envelope: MessageEnvelope) -> None:
         now = datetime.now()
         ts = now.strftime("%H:%M:%S") + f".{now.microsecond // 100000}"
         raw = envelope.payload or {}
         subject = envelope.subject
+
+        if subject in _TOOL_ACTIVITY_SUBJECTS:
+            self.tool_activity.emit(envelope)
+            return
 
         if subject == GENERATION_THINKING:
             self.thinking_chunk.emit({
@@ -226,32 +252,44 @@ class MainWindow(QMainWindow):
         if model:
             title += f"  [{model}]"
         self.setWindowTitle(title)
-        self.resize(900, 720)
+        self.resize(960, 720)
+
+        # ── Tool panels (one per tool, keyed by activity subject) ─────
+        self._tool_panels: dict[str, ToolPanel] = {}
+
+        # ── Stack: page 0 = conversation, pages 1-N = tool panels ─────
+        self._stack = QStackedWidget()
+        self._stack.addWidget(self._build_conversation_page())
+        for label, tooltip, config_name, activity_subject in _TOOL_DEFS:
+            panel = ToolPanel(
+                tool_name=tooltip,
+                config_name=config_name,
+                publisher=publisher,
+            )
+            self._tool_panels[activity_subject] = panel
+            self._stack.addWidget(panel)
 
         # ── Icon strip ────────────────────────────────────────────────
-        clear_btn = QPushButton("+")
-        clear_btn.setObjectName("sidebarBtn")
-        clear_btn.setToolTip("Clear log")
-        clear_btn.setFixedSize(36, 36)
-        clear_btn.clicked.connect(self._clear_log)
+        icon_strip = self._build_sidebar()
 
-        new_session_btn = QPushButton("⟳")
-        new_session_btn.setObjectName("sidebarBtn")
-        new_session_btn.setToolTip("New conversation")
-        new_session_btn.setFixedSize(36, 36)
-        new_session_btn.clicked.connect(self._new_session)
+        root = QHBoxLayout()
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        root.addWidget(icon_strip)
+        root.addWidget(self._stack, 1)
 
-        icon_strip = QWidget()
-        icon_strip.setObjectName("sidebar")
-        icon_strip.setFixedWidth(52)
-        strip_layout = QVBoxLayout(icon_strip)
-        strip_layout.setContentsMargins(8, 12, 8, 12)
-        strip_layout.setSpacing(8)
-        strip_layout.addWidget(clear_btn, alignment=Qt.AlignHCenter)
-        strip_layout.addWidget(new_session_btn, alignment=Qt.AlignHCenter)
-        strip_layout.addStretch()
+        container = QWidget()
+        container.setLayout(root)
+        self.setCentralWidget(container)
 
-        # ── Scroll area log ───────────────────────────────────────────
+        self._apply_styles()
+        self._start_bus_monitor()
+
+    # ------------------------------------------------------------------
+    # Page builders
+    # ------------------------------------------------------------------
+
+    def _build_conversation_page(self) -> QWidget:
         self._log_widget = QWidget()
         self._log_widget.setObjectName("logWidget")
         self._log_layout = QVBoxLayout(self._log_widget)
@@ -265,7 +303,6 @@ class MainWindow(QMainWindow):
         self._log_scroll.setWidgetResizable(True)
         self._log_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        # ── Query input row ───────────────────────────────────────────
         self._query_input = QLineEdit()
         self._query_input.setObjectName("queryInput")
         self._query_input.setPlaceholderText("Type a query and press Enter…")
@@ -287,41 +324,93 @@ class MainWindow(QMainWindow):
         input_container.setLayout(input_row)
         input_container.setContentsMargins(12, 8, 12, 12)
 
-        content_layout = QVBoxLayout()
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(0)
-        content_layout.addWidget(self._log_scroll, 1)
-        content_layout.addWidget(input_container)
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self._log_scroll, 1)
+        layout.addWidget(input_container)
+        return page
 
-        root = QHBoxLayout()
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-        root.addWidget(icon_strip)
+    def _build_sidebar(self) -> QWidget:
+        clear_btn = QPushButton("+")
+        clear_btn.setObjectName("sidebarBtn")
+        clear_btn.setToolTip("Clear log")
+        clear_btn.setFixedSize(36, 36)
+        clear_btn.clicked.connect(self._clear_log)
 
-        content_widget = QWidget()
-        content_widget.setLayout(content_layout)
-        root.addWidget(content_widget, 1)
+        new_session_btn = QPushButton("⟳")
+        new_session_btn.setObjectName("sidebarBtn")
+        new_session_btn.setToolTip("New conversation")
+        new_session_btn.setFixedSize(36, 36)
+        new_session_btn.clicked.connect(self._new_session)
 
-        container = QWidget()
-        container.setLayout(root)
-        self.setCentralWidget(container)
+        # Nav button to return to conversation
+        chat_btn = QPushButton("◉")
+        chat_btn.setObjectName("sidebarNavBtn")
+        chat_btn.setToolTip("Conversation")
+        chat_btn.setFixedSize(36, 36)
+        chat_btn.clicked.connect(lambda: self._stack.setCurrentIndex(0))
 
-        self._apply_styles()
-        self._start_bus_monitor()
+        icon_strip = QWidget()
+        icon_strip.setObjectName("sidebar")
+        icon_strip.setFixedWidth(52)
+        strip_layout = QVBoxLayout(icon_strip)
+        strip_layout.setContentsMargins(8, 12, 8, 12)
+        strip_layout.setSpacing(8)
+        strip_layout.addWidget(clear_btn, alignment=Qt.AlignHCenter)
+        strip_layout.addWidget(new_session_btn, alignment=Qt.AlignHCenter)
+
+        # Separator
+        sep = QWidget()
+        sep.setFixedHeight(1)
+        sep.setObjectName("sidebarSep")
+        strip_layout.addSpacing(4)
+        strip_layout.addWidget(sep)
+        strip_layout.addSpacing(4)
+
+        strip_layout.addWidget(chat_btn, alignment=Qt.AlignHCenter)
+
+        # Tool nav buttons (stack pages start at index 1)
+        for stack_idx, (label, tooltip, _, _) in enumerate(_TOOL_DEFS, start=1):
+            btn = QPushButton(label)
+            btn.setObjectName("sidebarNavBtn")
+            btn.setToolTip(tooltip)
+            btn.setFixedSize(36, 36)
+            btn.clicked.connect(lambda checked=False, idx=stack_idx: self._stack.setCurrentIndex(idx))
+            strip_layout.addWidget(btn, alignment=Qt.AlignHCenter)
+
+        strip_layout.addStretch()
+        return icon_strip
+
+    # ------------------------------------------------------------------
+    # Bus monitor
+    # ------------------------------------------------------------------
 
     def _start_bus_monitor(self) -> None:
+        all_subjects = list(OBSERVE) + _TOOL_ACTIVITY_SUBJECTS
         self._bus_logger = BusLogger()
         self._bus_logger.message.connect(self.append_log)
         self._bus_logger.thinking_chunk.connect(self._on_thinking_chunk)
         self._bus_logger.response.connect(self._on_response)
+        self._bus_logger.tool_activity.connect(self._on_tool_activity)
 
-        self._monitor_worker = BusMonitorWorker(PROXY_BACKEND_ADDR, subscriptions=OBSERVE)
+        self._monitor_worker = BusMonitorWorker(PROXY_BACKEND_ADDR, subscriptions=all_subjects)
         self._monitor_worker.envelope_received.connect(self._bus_logger.log_envelope)
 
         self._monitor_thread = QThread(self)
         self._monitor_worker.moveToThread(self._monitor_thread)
         self._monitor_thread.started.connect(self._monitor_worker.run)
         self._monitor_thread.start()
+
+    # ------------------------------------------------------------------
+    # Event handlers
+    # ------------------------------------------------------------------
+
+    def _on_tool_activity(self, envelope: MessageEnvelope) -> None:
+        panel = self._tool_panels.get(envelope.subject)
+        if panel:
+            panel.append_activity(envelope)
 
     def _send_query(self) -> None:
         query = self._query_input.text().strip()
@@ -397,6 +486,10 @@ class MainWindow(QMainWindow):
         self._publisher.close()
         super().closeEvent(event)
 
+    # ------------------------------------------------------------------
+    # Styles
+    # ------------------------------------------------------------------
+
     def _apply_styles(self) -> None:
         self.setStyleSheet("""
             QMainWindow, QWidget {
@@ -407,6 +500,9 @@ class MainWindow(QMainWindow):
             QWidget#sidebar {
                 background: #171717;
                 border-right: 1px solid #222222;
+            }
+            QWidget#sidebarSep {
+                background: #2a2a2a;
             }
             QPushButton#sidebarBtn {
                 background: transparent;
@@ -420,6 +516,19 @@ class MainWindow(QMainWindow):
                 background: #2a2a2a;
                 color: #ececec;
             }
+            QPushButton#sidebarNavBtn {
+                background: transparent;
+                color: #666666;
+                border: none;
+                border-radius: 6px;
+                font-size: 11px;
+                font-family: "Menlo", "Monaco", "Courier New";
+                padding: 0px;
+            }
+            QPushButton#sidebarNavBtn:hover {
+                background: #2a2a2a;
+                color: #ececec;
+            }
             QScrollArea#logScroll {
                 background: #0d0d0d;
                 border: none;
@@ -427,10 +536,17 @@ class MainWindow(QMainWindow):
             QWidget#logWidget {
                 background: #0d0d0d;
             }
+            QScrollArea#activityScroll {
+                background: #0d0d0d;
+                border: none;
+            }
+            QWidget#activityWidget {
+                background: #0d0d0d;
+            }
             QLabel#logItem {
                 background: transparent;
                 color: #666666;
-                font-family: "Menlo", "Monaco", "Courier New", monospace;
+                font-family: "Menlo", "Monaco", "Courier New";
                 font-size: 12px;
                 padding: 2px 24px;
             }
@@ -441,12 +557,12 @@ class MainWindow(QMainWindow):
             }
             QLabel#logHeader {
                 color: #555555;
-                font-family: "Menlo", "Monaco", "Courier New", monospace;
+                font-family: "Menlo", "Monaco", "Courier New";
                 font-size: 12px;
             }
             QLabel#logAnswer {
                 color: #ececec;
-                font-family: "Menlo", "Monaco", "Courier New", monospace;
+                font-family: "Menlo", "Monaco", "Courier New";
                 font-size: 13px;
                 padding: 4px 0px;
             }
@@ -454,7 +570,7 @@ class MainWindow(QMainWindow):
                 background: transparent;
                 color: #555555;
                 border: none;
-                font-family: "Menlo", "Monaco", "Courier New", monospace;
+                font-family: "Menlo", "Monaco", "Courier New";
                 font-size: 12px;
                 padding: 2px 0px;
                 text-align: left;
@@ -467,7 +583,7 @@ class MainWindow(QMainWindow):
                 color: #555555;
                 border: 1px solid #1e1e1e;
                 border-radius: 4px;
-                font-family: "Menlo", "Monaco", "Courier New", monospace;
+                font-family: "Menlo", "Monaco", "Courier New";
                 font-size: 12px;
                 padding: 8px;
             }
@@ -496,6 +612,56 @@ class MainWindow(QMainWindow):
             }
             QPushButton#sendBtn:hover {
                 background: #383838;
+            }
+            QTabWidget#toolTabs::pane {
+                background: #0d0d0d;
+                border: none;
+                border-top: 1px solid #222222;
+            }
+            QTabBar::tab {
+                background: #171717;
+                color: #666666;
+                border: none;
+                padding: 6px 16px;
+                font-family: "Menlo", "Monaco", "Courier New";
+                font-size: 12px;
+            }
+            QTabBar::tab:selected {
+                background: #0d0d0d;
+                color: #ececec;
+                border-bottom: 2px solid #555555;
+            }
+            QTabBar::tab:hover {
+                color: #aaaaaa;
+            }
+            QPlainTextEdit#yamlEditor {
+                background: #0a0a0a;
+                color: #cccccc;
+                border: 1px solid #222222;
+                border-radius: 4px;
+                font-family: "Menlo", "Monaco", "Courier New";
+                font-size: 12px;
+                padding: 8px;
+            }
+            QWidget#settingsBtnRow {
+                background: #111111;
+                border-top: 1px solid #1e1e1e;
+            }
+            QPushButton#saveSettingsBtn {
+                background: #2a2a2a;
+                color: #ececec;
+                border: 1px solid #383838;
+                border-radius: 5px;
+                padding: 5px 0px;
+                font-size: 13px;
+            }
+            QPushButton#saveSettingsBtn:hover {
+                background: #383838;
+            }
+            QLabel#settingsStatus {
+                color: #666666;
+                font-size: 12px;
+                font-family: "Menlo", "Monaco", "Courier New";
             }
             QScrollBar:vertical {
                 background: #0d0d0d;

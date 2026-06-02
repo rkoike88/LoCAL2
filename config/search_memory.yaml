@@ -1,0 +1,11 @@
+description: |
+  Search episodic memory from past sessions by meaning.
+  Call this when the user asks about something from a prior conversation and
+  you are not certain of the exact topic key — e.g. "do you recall what we discussed
+  about X", "did I mention anything about Y", "what was my take on Z last time".
+  Always try this before telling the user you don't know something about them.
+  Use get_topic instead when you know the exact dot-notation key.
+
+param_query: |
+  Natural language description of what you are looking for.
+  Examples: "coffee preference", "user name", "project language preference".

@@ -20,7 +20,8 @@ from local.agents.generator_transitions import GeneratorStateMachine
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
-    ANSWER_DIALOG, GENERATION_THINKING, QUERY_RECEIVED, RESPONSE_GENERATION, TOOL_SCHEMA,
+    ANSWER_DIALOG, GENERATION_THINKING, QUERY_RECEIVED, RESPONSE_GENERATION,
+    TOOL_SCHEMA, TOOL_SCHEMA_REQUEST,
 )
 from local.services.conversation_service import ConversationService
 from local.transport.bus_config import PROXY_BACKEND_ADDR, make_participant_bus
@@ -53,6 +54,8 @@ class GeneratorAgent:
 
     def run(self) -> None:
         print(f"[generator] model={self._model}  num_ctx={self._options['num_ctx']}")
+        self._request_schemas()
+        time.sleep(0.5)  # startup window: let tool schema responses queue up
         while True:
             try:
                 envelope = self._sub.receive()
@@ -207,12 +210,25 @@ class GeneratorAgent:
             )
         return answer, thinking, tool_call_log
 
+    def _normalize_tool_name(self, name: str) -> str:
+        """Map hallucinated or variant tool names to registered schema names."""
+        registered = {s.get("function", {}).get("name") for s in self._tool_schemas}
+        if name in registered:
+            return name
+        name_lower = name.lower()
+        for rname in registered:
+            if rname in name_lower or name_lower in rname:
+                logger.warning("GeneratorAgent: normalizing tool name %r → %r", name, rname)
+                return rname
+        return name
+
     def _execute_tool(self, name: str, args: dict, correlation_id: str) -> str:
         """Dispatch a tool call over the bus and block until the result arrives or timeout.
 
         Opens a short-lived ZmqSubscriber for tool.result.<name> BEFORE publishing
         tool.request.<name> to avoid a race between publish and subscribe.
         """
+        name = self._normalize_tool_name(name)
         req_subject = f"tool.request.{name}"
         res_subject = f"tool.result.{name}"
 
@@ -237,15 +253,20 @@ class GeneratorAgent:
         logger.warning("GeneratorAgent: tool %r timed out after %ss", name, self._tool_timeout)
         return f"[tool timeout: {name!r} did not respond within {self._tool_timeout}s]"
 
+    def _request_schemas(self) -> None:
+        self._pub.publish(MessageEnvelope.create(
+            message_type="schema_request",
+            subject=TOOL_SCHEMA_REQUEST,
+            sender_id=self.AGENT_ID,
+            payload={},
+        ))
+
     def _register_tool_schema(self, schema: dict) -> None:
-        """Add or replace a tool schema received from tool.schema announcement."""
+        """Add or replace a tool schema in the registry."""
         name = schema.get("function", {}).get("name", "")
         if not name:
             return
-        self._tool_schemas = [
-            s for s in self._tool_schemas
-            if s.get("function", {}).get("name") != name
-        ]
+        self._tool_schemas = [s for s in self._tool_schemas if s.get("function", {}).get("name") != name]
         self._tool_schemas.append(schema)
         logger.info("GeneratorAgent: registered tool %r (total: %d)", name, len(self._tool_schemas))
 

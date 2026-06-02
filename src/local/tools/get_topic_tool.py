@@ -1,4 +1,4 @@
-"""SaveTopicTool — persists a standing fact, preference, or rule to the topic store."""
+"""GetTopicTool — retrieves a standing fact from the topic store by exact key."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ import logging
 from local.config_loader import ConfigManager, get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
-    TOOL_ACTIVITY_SAVE_TOPIC,
-    TOOL_REQUEST_SAVE_TOPIC,
-    TOOL_RESULT_SAVE_TOPIC,
+    TOOL_ACTIVITY_GET_TOPIC,
+    TOOL_REQUEST_GET_TOPIC,
+    TOOL_RESULT_GET_TOPIC,
     TOOL_SCHEMA,
     TOOL_SCHEMA_REQUEST,
 )
@@ -18,48 +18,46 @@ from local.transport.bus_config import make_participant_bus
 
 logger = logging.getLogger(__name__)
 
-CONFIG_NAME = "save_topic"
+CONFIG_NAME = "get_topic"
 
 
-class SaveTopicTool:
-    TOOL_ID = "save_topic_tool"
+class GetTopicTool:
+    TOOL_ID = "get_topic_tool"
 
     def __init__(self, memory_service: MemoryService | None = None) -> None:
         self._memory = memory_service or MemoryService()
-        self._pub, self._sub = make_participant_bus([TOOL_REQUEST_SAVE_TOPIC, TOOL_SCHEMA_REQUEST])
+        self._pub, self._sub = make_participant_bus([TOOL_REQUEST_GET_TOPIC, TOOL_SCHEMA_REQUEST])
 
     def run(self) -> None:
         self._announce_schema()
-        print("[save_topic_tool] ready")
+        print("[recall_topic_tool] ready")
         while True:
             try:
                 envelope = self._sub.receive()
             except Exception as exc:
-                logger.error("SaveTopicTool: receive error: %s", exc)
+                logger.error("GetTopicTool: receive error: %s", exc)
                 continue
             if envelope.subject == TOOL_SCHEMA_REQUEST:
                 ConfigManager.invalidate(CONFIG_NAME)
                 self._announce_schema()
-            elif envelope.subject == TOOL_REQUEST_SAVE_TOPIC:
+            elif envelope.subject == TOOL_REQUEST_GET_TOPIC:
                 self._handle_request(envelope)
 
     def _build_schema(self) -> dict:
         cfg = get_config(CONFIG_NAME)
-        description = cfg.get("description", "Permanently store a standing fact or preference.").strip()
-        param_key = cfg.get("param_key", "Dot-notation storage key, e.g. 'user.coffee_preference'.").strip()
-        param_value = cfg.get("param_value", "The fact or value to store.").strip()
+        description = cfg.get("description", "Look up a fact by its exact topic key.").strip()
+        param_key = cfg.get("param_key", "Exact dot-notation key, e.g. 'user.coffee_preference'.").strip()
         return {
             "type": "function",
             "function": {
-                "name": "save_topic",
+                "name": "get_topic",
                 "description": description,
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "key": {"type": "string", "description": param_key},
-                        "value": {"type": "string", "description": param_value},
                     },
-                    "required": ["key", "value"],
+                    "required": ["key"],
                 },
             },
         }
@@ -75,42 +73,41 @@ class SaveTopicTool:
     def _handle_request(self, envelope: MessageEnvelope) -> None:
         args: dict = envelope.payload.get("args", {})
         topic: str = (args.get("key") or args.get("topic") or "").strip()
-        value: str = args.get("value", "").strip()
         correlation_id = envelope.correlation_id
 
-        self._publish_activity("request", {"topic": topic, "value": value}, correlation_id)
+        self._publish_activity("request", {"topic": topic}, correlation_id)
 
         try:
-            result = self._save(topic, value)
+            result = self._recall(topic)
         except Exception as exc:
-            logger.error("SaveTopicTool: save failed: %s", exc)
-            result = f"[save_topic error: {exc}]"
+            logger.error("GetTopicTool: recall failed: %s", exc)
+            result = f"[recall_topic error: {exc}]"
 
         self._publish_activity("result", {"result": result}, correlation_id)
 
         self._pub.publish(MessageEnvelope.create(
             message_type="tool_result",
-            subject=TOOL_RESULT_SAVE_TOPIC,
+            subject=TOOL_RESULT_GET_TOPIC,
             sender_id=self.TOOL_ID,
-            payload={"result": result, "tool": "save_topic"},
+            payload={"result": result, "tool": "get_topic"},
             correlation_id=correlation_id,
             metadata={},
         ))
 
-    def _save(self, topic: str, value: str) -> str:
+    def _recall(self, topic: str) -> str:
         if not topic:
-            return "[save_topic: key is required]"
-        if not value:
-            return "[save_topic: value is required]"
-        self._memory.write_topic(topic, value)
-        return f"[saved: {topic!r} = {value!r}]"
+            return "[get_topic: key is required]"
+        value = self._memory.recall_topic(topic)
+        if value is None:
+            return f"[no memory found for topic: {topic!r}]"
+        return value
 
     def _publish_activity(self, event_type: str, data: dict, correlation_id: str | None) -> None:
         self._pub.publish(MessageEnvelope.create(
             message_type="tool_activity",
-            subject=TOOL_ACTIVITY_SAVE_TOPIC,
+            subject=TOOL_ACTIVITY_GET_TOPIC,
             sender_id=self.TOOL_ID,
-            payload={"event": event_type, "tool": "save_topic", **data},
+            payload={"event": event_type, "tool": "get_topic", **data},
             correlation_id=correlation_id or "",
             metadata={},
         ))

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from local.tools.search_memory_tool import SearchMemoryTool, SCHEMA
+from local.tools.search_memory_tool import SearchMemoryTool
 
 
 def _make_tool() -> tuple[SearchMemoryTool, MagicMock, MagicMock, MagicMock]:
@@ -26,10 +26,12 @@ def _make_envelope(args: dict, correlation_id: str = "corr-1") -> MagicMock:
 
 class TestSchema:
     def test_tool_name_is_search_memory(self):
-        assert SCHEMA["function"]["name"] == "search_memory"
+        tool, _, _, _ = _make_tool()
+        assert tool._build_schema()["function"]["name"] == "search_memory"
 
     def test_schema_requires_query(self):
-        required = SCHEMA["function"]["parameters"]["required"]
+        tool, _, _, _ = _make_tool()
+        required = tool._build_schema()["function"]["parameters"]["required"]
         assert "query" in required
 
     def test_announce_publishes_to_tool_schema(self):

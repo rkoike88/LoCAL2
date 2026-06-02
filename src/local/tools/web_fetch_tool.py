@@ -1,40 +1,22 @@
-"""WebFetchTool — executes web_fetch tool calls from GeneratorAgent.
-
-Subscribes to tool.request.web_fetch. Announces JSON schema to tool.schema on startup.
-Fetches the URL, extracts body text via BeautifulSoup, truncates to max_chars.
-"""
+"""WebFetchTool — executes web_fetch tool calls from GeneratorAgent."""
 from __future__ import annotations
 
 import logging
 
-from local.config_loader import get_config
+from local.config_loader import ConfigManager, get_config
 from local.protocol.envelope import MessageEnvelope
-from local.protocol.subjects import TOOL_REQUEST_WEB_FETCH, TOOL_RESULT_WEB_FETCH, TOOL_SCHEMA
+from local.protocol.subjects import (
+    TOOL_ACTIVITY_WEB_FETCH,
+    TOOL_REQUEST_WEB_FETCH,
+    TOOL_RESULT_WEB_FETCH,
+    TOOL_SCHEMA,
+    TOOL_SCHEMA_REQUEST,
+)
 from local.transport.bus_config import make_participant_bus
 
 logger = logging.getLogger(__name__)
 
-SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "web_fetch",
-        "description": (
-            "Fetch the full text content of a specific URL. Use after web_search when "
-            "the snippet is insufficient and you need the complete page content. "
-            "Returns extracted body text truncated to a maximum character limit."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "The full URL to fetch.",
-                }
-            },
-            "required": ["url"],
-        },
-    },
-}
+CONFIG_NAME = "web_fetch"
 
 _USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -46,10 +28,10 @@ class WebFetchTool:
     TOOL_ID = "web_fetch_tool"
 
     def __init__(self) -> None:
-        cfg = get_config("web_fetch")
+        cfg = get_config(CONFIG_NAME)
         self._max_chars: int = cfg.get("max_chars", 3000)
         self._timeout: float = cfg.get("timeout", 15)
-        self._pub, self._sub = make_participant_bus([TOOL_REQUEST_WEB_FETCH])
+        self._pub, self._sub = make_participant_bus([TOOL_REQUEST_WEB_FETCH, TOOL_SCHEMA_REQUEST])
 
     def run(self) -> None:
         self._announce_schema()
@@ -60,15 +42,37 @@ class WebFetchTool:
             except Exception as exc:
                 logger.error("WebFetchTool: receive error: %s", exc)
                 continue
-            if envelope.subject == TOOL_REQUEST_WEB_FETCH:
+            if envelope.subject == TOOL_SCHEMA_REQUEST:
+                ConfigManager.invalidate(CONFIG_NAME)
+                self._announce_schema()
+            elif envelope.subject == TOOL_REQUEST_WEB_FETCH:
                 self._handle_request(envelope)
+
+    def _build_schema(self) -> dict:
+        cfg = get_config(CONFIG_NAME)
+        description = cfg.get("description", "Fetch the full text content of a specific URL.").strip()
+        param_url = cfg.get("param_url", "The full URL to fetch.").strip()
+        return {
+            "type": "function",
+            "function": {
+                "name": "web_fetch",
+                "description": description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": param_url},
+                    },
+                    "required": ["url"],
+                },
+            },
+        }
 
     def _announce_schema(self) -> None:
         self._pub.publish(MessageEnvelope.create(
             message_type="tool_schema",
             subject=TOOL_SCHEMA,
             sender_id=self.TOOL_ID,
-            payload={"schema": SCHEMA},
+            payload={"schema": self._build_schema()},
         ))
 
     def _handle_request(self, envelope: MessageEnvelope) -> None:
@@ -76,11 +80,15 @@ class WebFetchTool:
         url: str = args.get("url", "")
         correlation_id = envelope.correlation_id
 
+        self._publish_activity("request", {"url": url}, correlation_id)
+
         try:
             result = self._fetch(url)
         except Exception as exc:
             logger.error("WebFetchTool: fetch failed for %r: %s", url, exc)
             result = f"[web_fetch error: {exc}]"
+
+        self._publish_activity("result", {"result": result[:200]}, correlation_id)
 
         self._pub.publish(MessageEnvelope.create(
             message_type="tool_result",
@@ -110,3 +118,13 @@ class WebFetchTool:
         if len(content) > self._max_chars:
             content = content[:self._max_chars] + f"\n[truncated at {self._max_chars} chars]"
         return content
+
+    def _publish_activity(self, event_type: str, data: dict, correlation_id: str | None) -> None:
+        self._pub.publish(MessageEnvelope.create(
+            message_type="tool_activity",
+            subject=TOOL_ACTIVITY_WEB_FETCH,
+            sender_id=self.TOOL_ID,
+            payload={"event": event_type, "tool": "web_fetch", **data},
+            correlation_id=correlation_id or "",
+            metadata={},
+        ))

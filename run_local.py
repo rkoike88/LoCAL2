@@ -53,14 +53,9 @@ def _start_save_topic(memory_service) -> None:
     SaveTopicTool(memory_service=memory_service).run()
 
 
-def _start_recall_topic(memory_service) -> None:
-    from local.tools.recall_topic_tool import RecallTopicTool
-    RecallTopicTool(memory_service=memory_service).run()
-
-
-def _start_user_instruction_memory(memory_service) -> None:
-    from local.tools.user_instruction_memory_tool import UserInstructionMemoryTool
-    UserInstructionMemoryTool(memory_service=memory_service).run()
+def _start_get_topic(memory_service) -> None:
+    from local.tools.get_topic_tool import GetTopicTool
+    GetTopicTool(memory_service=memory_service).run()
 
 
 def _start_search_memory(memory_service) -> None:
@@ -92,14 +87,7 @@ def main() -> None:
     proxy_thread.start()
     time.sleep(0.3)   # let XSUB/XPUB sockets bind before agents connect
 
-    # -- Generator -----------------------------------------------------------
-    gen_thread = threading.Thread(
-        target=_start_generator, args=(args.model,), daemon=True, name="generator"
-    )
-    gen_thread.start()
-    time.sleep(0.2)   # let PUB/SUB connections settle
-
-    # -- Tools ---------------------------------------------------------------
+    # -- Tools (BEFORE generator) --------------------------------------------
     # MemoryService created once in main thread — ChromaDB init is not thread-safe
     # under concurrent construction on the same path.
     from local.services.memory_service import MemoryService
@@ -108,10 +96,17 @@ def main() -> None:
     threading.Thread(target=_start_web_search, daemon=True, name="web_search").start()
     threading.Thread(target=_start_web_fetch, daemon=True, name="web_fetch").start()
     threading.Thread(target=_start_save_topic, args=(shared_memory,), daemon=True, name="save_topic").start()
-    threading.Thread(target=_start_recall_topic, args=(shared_memory,), daemon=True, name="recall_topic").start()
-    threading.Thread(target=_start_user_instruction_memory, args=(shared_memory,), daemon=True, name="user_instruction_memory").start()
+    threading.Thread(target=_start_get_topic, args=(shared_memory,), daemon=True, name="get_topic").start()
     threading.Thread(target=_start_search_memory, args=(shared_memory,), daemon=True, name="search_memory").start()
-    time.sleep(0.2)   # let tools connect and announce schemas to generator
+    time.sleep(0.5)   # let all tools connect and subscribe to schema.request
+
+    # -- Generator (AFTER tools) ---------------------------------------------
+    # Tools must be subscribed before generator publishes schema.request at startup.
+    gen_thread = threading.Thread(
+        target=_start_generator, args=(args.model,), daemon=True, name="generator"
+    )
+    gen_thread.start()
+    time.sleep(0.2)   # let generator connect before memory_agent starts
 
     # -- Memory Agent --------------------------------------------------------
     threading.Thread(target=_start_memory_agent, args=(shared_memory,), daemon=True, name="memory_agent").start()

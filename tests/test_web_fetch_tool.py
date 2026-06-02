@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock, patch
 import pytest
 
-from local.tools.web_fetch_tool import WebFetchTool, SCHEMA
+from local.tools.web_fetch_tool import WebFetchTool
 from local.protocol.subjects import TOOL_RESULT_WEB_FETCH, TOOL_SCHEMA
 
 
@@ -46,7 +46,8 @@ def _make_http_response(html: str, status_code: int = 200):
 
 class TestSchema:
     def test_schema_has_required_fields(self):
-        fn = SCHEMA["function"]
+        tool = _make_tool()
+        fn = tool._build_schema()["function"]
         assert fn["name"] == "web_fetch"
         assert "description" in fn
         assert fn["parameters"]["required"] == ["url"]
@@ -56,7 +57,7 @@ class TestSchema:
         tool._announce_schema()
         envelope = tool._pub.publish.call_args[0][0]
         assert envelope.subject == TOOL_SCHEMA
-        assert envelope.payload["schema"] == SCHEMA
+        assert envelope.payload["schema"]["function"]["name"] == "web_fetch"
 
 
 # ---------------------------------------------------------------------------

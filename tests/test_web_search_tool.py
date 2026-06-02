@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock, patch
 import pytest
 
-from local.tools.web_search_tool import WebSearchTool, SCHEMA
+from local.tools.web_search_tool import WebSearchTool
 from local.protocol.subjects import TOOL_RESULT_WEB_SEARCH, TOOL_SCHEMA
 
 
@@ -44,7 +44,8 @@ def _make_request_envelope(query: str, correlation_id: str = "test-corr-123"):
 
 class TestSchema:
     def test_schema_has_required_fields(self):
-        fn = SCHEMA["function"]
+        tool = _make_tool()
+        fn = tool._build_schema()["function"]
         assert fn["name"] == "web_search"
         assert "description" in fn
         assert fn["parameters"]["required"] == ["query"]
@@ -55,7 +56,7 @@ class TestSchema:
         call_args = tool._pub.publish.call_args
         envelope = call_args[0][0]
         assert envelope.subject == TOOL_SCHEMA
-        assert envelope.payload["schema"] == SCHEMA
+        assert envelope.payload["schema"]["function"]["name"] == "web_search"
 
 
 # ---------------------------------------------------------------------------

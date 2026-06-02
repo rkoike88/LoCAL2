@@ -1,0 +1,29 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "LoCAL2",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/run_local.py",
+            "args": [],
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "LoCAL2 (headless + API)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/run_local.py",
+            "args": ["--headless", "--api"],
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}

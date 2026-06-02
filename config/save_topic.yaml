@@ -1,0 +1,22 @@
+description: |
+  Permanently store a standing fact, preference, or rule so it survives future sessions.
+  Call this when the user says "remember that", "please remember", "my preference is",
+  "always do X", or asks you to save any fact for later.
+  Simply saying "I will remember" will NOT persist anything — you MUST call this tool.
+  If the tool returns an error, tell the user and retry with corrected parameters.
+  Do NOT claim success when the tool returned an error.
+
+param_key: |
+  A short dot-notation storage key. Use user.* for personal facts,
+  project.* for project decisions, constraint.* for rules.
+  Always generate a key even if the user does not provide one.
+  "I am a vegetarian"                              → user.diet
+  "I prefer dark roast"                            → user.coffee_preference
+  "I prefer loosely-coupled architecture"          → user.architecture_preference
+
+param_value: |
+  The fact to store. Can be a word, phrase, or sentence — whatever captures the preference.
+  "I am a vegetarian"                              → vegetarian
+  "I prefer dark roast"                            → dark roast
+  "I prefer loosely-coupled architecture"          → loosely-coupled architecture
+  Never leave this empty. If unsure, use the user's own words.

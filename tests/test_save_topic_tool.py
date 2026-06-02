@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from local.tools.save_topic_tool import SaveTopicTool, SCHEMA
+from local.tools.save_topic_tool import SaveTopicTool
 
 
 def _make_tool() -> tuple[SaveTopicTool, MagicMock, MagicMock, MagicMock]:
@@ -26,11 +26,13 @@ def _make_envelope(args: dict, correlation_id: str = "corr-1") -> MagicMock:
 
 class TestSchema:
     def test_tool_name_is_save_topic(self):
-        assert SCHEMA["function"]["name"] == "save_topic"
+        tool, _, _, _ = _make_tool()
+        assert tool._build_schema()["function"]["name"] == "save_topic"
 
     def test_schema_requires_topic_and_value(self):
-        required = SCHEMA["function"]["parameters"]["required"]
-        assert "topic" in required
+        tool, _, _, _ = _make_tool()
+        required = tool._build_schema()["function"]["parameters"]["required"]
+        assert "key" in required
         assert "value" in required
 
     def test_announce_publishes_to_tool_schema(self):
@@ -45,12 +47,12 @@ class TestSchema:
 class TestSaveBehaviour:
     def test_calls_write_topic_with_correct_args(self):
         tool, mock_memory, _, _ = _make_tool()
-        tool._handle_request(_make_envelope({"topic": "user.language", "value": "Python"}))
+        tool._handle_request(_make_envelope({"key": "user.language", "value": "Python"}))
         mock_memory.write_topic.assert_called_once_with("user.language", "Python")
 
     def test_returns_confirmation_on_success(self):
         tool, _, mock_pub, _ = _make_tool()
-        tool._handle_request(_make_envelope({"topic": "project.stack", "value": "FastAPI"}))
+        tool._handle_request(_make_envelope({"key": "project.stack", "value": "FastAPI"}))
         result = mock_pub.publish.call_args.args[0].payload["result"]
         assert "saved" in result
         assert "project.stack" in result
@@ -58,47 +60,47 @@ class TestSaveBehaviour:
     def test_accepts_any_topic_prefix(self):
         tool, mock_memory, _, _ = _make_tool()
         for topic in ["user.x", "project.y", "constraint.z", "custom.key"]:
-            tool._handle_request(_make_envelope({"topic": topic, "value": "v"}))
+            tool._handle_request(_make_envelope({"key": topic, "value": "v"}))
         assert mock_memory.write_topic.call_count == 4
 
     def test_missing_topic_returns_error(self):
         tool, mock_memory, mock_pub, _ = _make_tool()
         tool._handle_request(_make_envelope({"value": "Python"}))
         result = mock_pub.publish.call_args.args[0].payload["result"]
-        assert "topic" in result
+        assert "key" in result
         mock_memory.write_topic.assert_not_called()
 
     def test_missing_value_returns_error(self):
         tool, mock_memory, mock_pub, _ = _make_tool()
-        tool._handle_request(_make_envelope({"topic": "user.language"}))
+        tool._handle_request(_make_envelope({"key": "user.language"}))
         result = mock_pub.publish.call_args.args[0].payload["result"]
         assert "value" in result
         mock_memory.write_topic.assert_not_called()
 
     def test_empty_topic_returns_error(self):
         tool, mock_memory, mock_pub, _ = _make_tool()
-        tool._handle_request(_make_envelope({"topic": "  ", "value": "Python"}))
+        tool._handle_request(_make_envelope({"key": "  ", "value": "Python"}))
         result = mock_pub.publish.call_args.args[0].payload["result"]
-        assert "topic" in result
+        assert "key" in result
         mock_memory.write_topic.assert_not_called()
 
 
 class TestBusWiring:
     def test_result_subject_is_tool_result_save_topic(self):
         tool, _, mock_pub, _ = _make_tool()
-        tool._handle_request(_make_envelope({"topic": "user.x", "value": "v"}))
+        tool._handle_request(_make_envelope({"key": "user.x", "value": "v"}))
         published = mock_pub.publish.call_args.args[0]
         assert published.subject == "tool.result.save_topic"
 
     def test_correlation_id_propagated(self):
         tool, _, mock_pub, _ = _make_tool()
-        tool._handle_request(_make_envelope({"topic": "user.x", "value": "v"}, "my-corr"))
+        tool._handle_request(_make_envelope({"key": "user.x", "value": "v"}, "my-corr"))
         published = mock_pub.publish.call_args.args[0]
         assert published.correlation_id == "my-corr"
 
     def test_exception_returns_error_string(self):
         tool, mock_memory, mock_pub, _ = _make_tool()
         mock_memory.write_topic.side_effect = RuntimeError("db error")
-        tool._handle_request(_make_envelope({"topic": "user.x", "value": "v"}))
+        tool._handle_request(_make_envelope({"key": "user.x", "value": "v"}))
         result = mock_pub.publish.call_args.args[0].payload["result"]
         assert "save_topic error" in result

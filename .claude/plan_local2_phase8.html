@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LoCAL2 Phase 8 — Date/Time + Location Tools</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: #111; color: #d4d4d4; max-width: 960px; margin: 40px auto;
+         padding: 0 24px; line-height: 1.6; }
+  h1 { color: #e8e8e8; border-bottom: 1px solid #333; padding-bottom: 10px; }
+  h2 { color: #c9a96e; margin-top: 36px; }
+  h3 { color: #7ec8a4; margin-top: 24px; }
+  h4 { color: #9dbde8; margin-top: 18px; margin-bottom: 6px; }
+  a { color: #9dbde8; }
+  code { background: #1e1e1e; color: #ce9178; padding: 2px 6px; border-radius: 3px;
+         font-family: "Menlo", "Monaco", monospace; font-size: 0.9em; }
+  pre  { background: #1e1e1e; border: 1px solid #333; border-radius: 6px;
+         padding: 16px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+  pre code { background: none; padding: 0; color: #d4d4d4; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th { background: #1e1e1e; color: #9dbde8; text-align: left;
+       padding: 8px 12px; border: 1px solid #333; }
+  td { padding: 7px 12px; border: 1px solid #2a2a2a; vertical-align: top; }
+  tr:nth-child(even) td { background: #161616; }
+  .done   { color: #55aa55; }
+  .todo   { color: #888; }
+  .new    { color: #c9a96e; font-weight: bold; }
+  .phase  { background: #1a1a2e; border-left: 4px solid #c9a96e;
+            padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  .note   { background: #1e1a10; border-left: 4px solid #888;
+            padding: 10px 14px; margin: 12px 0; border-radius: 0 6px 6px 0;
+            font-size: 0.92em; color: #aaa; }
+  .warn   { background: #1e1510; border-left: 4px solid #c9a96e;
+            padding: 10px 14px; margin: 12px 0; border-radius: 0 6px 6px 0;
+            font-size: 0.92em; }
+  .risk   { background: #1e1010; border-left: 4px solid #e06c75;
+            padding: 10px 14px; margin: 12px 0; border-radius: 0 6px 6px 0;
+            font-size: 0.92em; }
+  ol.build { list-style: decimal; padding-left: 1.6em; }
+  ol.build li { margin: 6px 0; }
+  ul { padding-left: 1.4em; }
+  li { margin: 4px 0; }
+</style>
+</head>
+<body>
+
+<p><a href="plan_local2_plan2.html">← Plan 2</a></p>
+
+<h1>Phase 8 — Date/Time + Location Tools</h1>
+
+<div class="phase">
+  <strong>Goal:</strong> Give Gemma reliable grounding about <em>when</em> and <em>where</em> it is
+  operating. Two small tools — no external APIs, no state, no deps beyond stdlib.
+  The coding is straightforward; the design challenge is making a 2B-parameter model
+  call them consistently.
+</div>
+
+<!-- ============================================================ -->
+<h2>Reliability — The Core Challenge</h2>
+
+<p>Small models fail to call tools in two patterns:</p>
+<ol>
+  <li><strong>Confident hallucination</strong> — answers with a plausible-but-stale date from training data instead of calling the tool.</li>
+  <li><strong>Implicit-query miss</strong> — the user's intent implies a need for the tool but doesn't state it explicitly ("recommend a restaurant" → needs location).</li>
+</ol>
+
+<h3>Why get_datetime is easier</h3>
+<p>Explicit time/date queries ("what time is it?", "what day is it?") are unambiguous.
+Gemma's training data is frozen — it knows it can't answer correctly — which pushes it
+toward tool use. These queries are the reliable case.</p>
+
+<h3>Why get_location is harder</h3>
+<p>Explicit queries ("where are you?", "what's my location?") should work.
+Implicit queries ("what's a good restaurant nearby?", "what's the weather?") will
+not reliably trigger <code>get_location</code> in a 2B model without very strong prompt guidance.</p>
+
+<h3>Three levers — in order of priority</h3>
+
+<table>
+  <tr><th>Lever</th><th>Mechanism</th><th>Coverage</th></tr>
+  <tr>
+    <td><strong>1. System prompt rules</strong></td>
+    <td>Explicit imperative rules in <code>config/generator.yaml</code> — same pattern that makes <code>search_memory</code> reliable</td>
+    <td>Explicit queries; works for both tools</td>
+  </tr>
+  <tr>
+    <td><strong>2. Tool description wording</strong></td>
+    <td>Imperative "Call this tool when…" language in the schema <code>description</code> field</td>
+    <td>Reinforces lever 1; helps model selection when multiple tools are registered</td>
+  </tr>
+  <tr>
+    <td><strong>3. Context injection fallback</strong></td>
+    <td><code>GeneratorAgent._build_messages()</code> prepends <code>[Current datetime: …]</code> to every system message — Gemma sees fresh data without needing to call the tool</td>
+    <td>Guarantees correct answers regardless of tool-calling reliability; costs ~10 tokens per turn</td>
+  </tr>
+</table>
+
+<div class="note">
+  <strong>Recommendation:</strong> Implement levers 1 and 2 first. Test with explicit queries.
+  If Gemma still misses time/date questions after the system prompt rule, add lever 3
+  (context injection) as a fallback. Do not design the fallback upfront — wait to see
+  whether it's needed.
+</div>
+
+<!-- ============================================================ -->
+<h2>Tool 1 — DateTimeTool (<code>get_datetime</code>)</h2>
+
+<h3>Schema</h3>
+<pre><code>{
+  "type": "function",
+  "function": {
+    "name": "get_datetime",
+    "description": "Returns the current local date, time, day of week, and timezone. Call this tool whenever the user asks about the current time, date, day, or timezone. Do not answer time or date questions from training data — always call this tool.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  }
+}</code></pre>
+
+<h3>Result format</h3>
+<pre><code>"Tuesday 2026-06-03 09:17:42 PDT (UTC-7)"</code></pre>
+
+<h3>Implementation</h3>
+<pre><code>import time
+from datetime import datetime
+import zoneinfo  # stdlib Python 3.9+
+
+def _get_datetime() -> str:
+    now = datetime.now().astimezone()
+    tz_name = now.strftime("%Z")          # e.g. "PDT"
+    utc_offset = now.strftime("%z")       # e.g. "+0700" → format as UTC-7
+    offset_h = int(utc_offset[:3])
+    utc_str = f"UTC{offset_h:+d}"
+    return now.strftime(f"%A %Y-%m-%d %H:%M:%S ") + f"{tz_name} ({utc_str})"</code></pre>
+
+<p>No config file needed. Follows the existing tool pattern: publishes schema on
+<code>tool.schema</code> at startup; responds to <code>tool.request.get_datetime</code>;
+publishes result on <code>tool.result.get_datetime</code>.</p>
+
+<!-- ============================================================ -->
+<h2>Tool 2 — LocationTool (<code>get_location</code>)</h2>
+
+<h3>Schema</h3>
+<pre><code>{
+  "type": "function",
+  "function": {
+    "name": "get_location",
+    "description": "Returns the user's current location (city, state, country, timezone, and optionally coordinates). Call this tool when the user asks where you are, where they are, or when answering a question that requires knowing the local area.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  }
+}</code></pre>
+
+<h3>Result format</h3>
+<pre><code>"Cupertino, California, United States (America/Los_Angeles, 37.3230° N, 122.0322° W)"</code></pre>
+
+<h3>Config file: <code>config/location.yaml</code></h3>
+<pre><code>city: "Cupertino"
+state: "California"
+country: "United States"
+timezone: "America/Los_Angeles"
+coordinates: "37.3230° N, 122.0322° W"   # optional — omit to exclude from result</code></pre>
+
+<p>If <code>config/location.yaml</code> is missing or empty, the tool returns
+<code>"Location not configured — edit config/location.yaml"</code> rather than failing.</p>
+
+<!-- ============================================================ -->
+<h2>System Prompt Rules</h2>
+
+<p>Add to <code>config/generator.yaml</code> <code>system_prompt</code>:</p>
+
+<pre><code>  - If the user asks about the current date, time, day of week, or timezone —
+    call get_datetime. Never answer time or date questions from training data.
+  - If the user asks where you are, what your location is, or asks a question
+    that requires knowing the local area — call get_location.</code></pre>
+
+<!-- ============================================================ -->
+<h2>Lever 3 — Context Injection Fallback (implement only if needed)</h2>
+
+<p>If Gemma proves unreliable at calling <code>get_datetime</code> even with the system prompt rule,
+add a one-line prepend in <code>GeneratorAgent._build_messages()</code>:</p>
+
+<pre><code>if self._inject_datetime:                   # config flag: inject_datetime: true
+    now_str = _format_datetime()
+    system_content = f"[Current datetime: {now_str}]\n\n" + system_content</code></pre>
+
+<p>This costs ~10 tokens per turn and makes correct date/time answers unconditional.
+Add <code>inject_datetime: false</code> to <code>config/generator.yaml</code> so it can be toggled
+without a code change.</p>
+
+<!-- ============================================================ -->
+<h2>New Files</h2>
+
+<table>
+  <tr><th>File</th><th>Purpose</th></tr>
+  <tr><td><code>src/local/tools/datetime_tool.py</code></td><td class="new">NEW — DateTimeTool</td></tr>
+  <tr><td><code>src/local/tools/location_tool.py</code></td><td class="new">NEW — LocationTool</td></tr>
+  <tr><td><code>config/location.yaml</code></td><td class="new">NEW — user location config</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>Modified Files</h2>
+
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>config/generator.yaml</code></td><td>Add <code>get_datetime</code> and <code>get_location</code> rules to <code>system_prompt</code></td></tr>
+  <tr><td><code>run_local.py</code></td><td>Start <code>datetime_tool</code> and <code>location_tool</code> alongside other tools</td></tr>
+</table>
+
+<div class="note">
+  Tools follow the same pattern as <code>web_search_tool.py</code> and <code>web_fetch_tool.py</code>:
+  publish schema on <code>tool.schema</code> at startup, subscribe to <code>tool.request.&lt;name&gt;</code>,
+  publish result on <code>tool.result.&lt;name&gt;</code>. The ToolWindow in the UI will
+  spawn reactively when the schema arrives — no UI changes needed.
+</div>
+
+<!-- ============================================================ -->
+<h2>Tool Startup Pattern (reference)</h2>
+
+<pre><code>class DateTimeTool:
+    TOOL_NAME = "get_datetime"
+
+    def __init__(self) -> None:
+        self._pub, self._sub = make_participant_bus(
+            [TOOL_SCHEMA_REQUEST, f"tool.request.{self.TOOL_NAME}"]
+        )
+
+    def run(self) -> None:
+        self._announce_schema()
+        while True:
+            envelope = self._sub.receive()
+            if envelope.subject == TOOL_SCHEMA_REQUEST:
+                self._announce_schema()
+            elif envelope.subject == f"tool.request.{self.TOOL_NAME}":
+                self._handle_request(envelope)
+
+    def _announce_schema(self) -> None:
+        self._pub.publish(MessageEnvelope.create(
+            message_type="tool_schema",
+            subject=TOOL_SCHEMA,
+            sender_id=self.TOOL_NAME,
+            payload={"schema": SCHEMA},
+        ))
+
+    def _handle_request(self, envelope: MessageEnvelope) -> None:
+        result = _get_datetime()
+        self._pub.publish(MessageEnvelope.create(
+            message_type="tool_result",
+            subject=f"tool.result.{self.TOOL_NAME}",
+            sender_id=self.TOOL_NAME,
+            payload={"result": result},
+            correlation_id=envelope.correlation_id,
+        ))</code></pre>
+
+<!-- ============================================================ -->
+<h2>run_local.py — Startup Order</h2>
+
+<pre><code># Tools start first; generator waits 0.5s after tools so schemas are registered
+procs = [
+    ("web_search",  [...]),
+    ("web_fetch",   [...]),
+    ("datetime",    ["python", "-m", "local.tools.datetime_tool"]),
+    ("location",    ["python", "-m", "local.tools.location_tool"]),
+    ("generator_a", [...]),
+    ("generator_b", [...]),   # if dual-respondent enabled
+    ...
+]</code></pre>
+
+<!-- ============================================================ -->
+<h2>Testing</h2>
+
+<h3>Unit tests: <code>tests/test_datetime_tool.py</code></h3>
+<ul>
+  <li>Result contains day of week, date (YYYY-MM-DD), time (HH:MM:SS), timezone abbreviation</li>
+  <li>Result is a non-empty string</li>
+  <li>Result changes between calls separated by 1+ second (proves it's live, not cached)</li>
+</ul>
+
+<h3>Unit tests: <code>tests/test_location_tool.py</code></h3>
+<ul>
+  <li>With a valid config: result contains city, state, country</li>
+  <li>With coordinates set: result contains coordinates</li>
+  <li>With missing config: result is the graceful error string</li>
+</ul>
+
+<h3>Story S10 — Date/time + location grounding</h3>
+
+<table>
+  <tr><th>Turn</th><th>Query</th><th>Assertion</th></tr>
+  <tr><td>1</td><td>"What day of the week is it?"</td><td>Answer contains the correct day name (verified at test time)</td></tr>
+  <tr><td>2</td><td>"What year is it?"</td><td>Answer contains "2026"</td></tr>
+  <tr><td>3</td><td>"Where are you located?"</td><td>Answer contains the city from config/location.yaml</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>Build Order</h2>
+
+<ol class="build">
+  <li>Add <code>get_datetime</code> and <code>get_location</code> system prompt rules to <code>config/generator.yaml</code></li>
+  <li>Build <code>src/local/tools/datetime_tool.py</code></li>
+  <li>Build <code>src/local/tools/location_tool.py</code> + <code>config/location.yaml</code></li>
+  <li>Wire both tools into <code>run_local.py</code></li>
+  <li>Unit tests for both tools</li>
+  <li>Story S10; run full test suite</li>
+  <li>Live smoke test: "what time is it?", "what day is it?", "where are you?"</li>
+  <li>If Gemma misses date/time queries: add lever 3 (context injection) to <code>_build_messages</code></li>
+</ol>
+
+<!-- ============================================================ -->
+<h2>Files Changed / Added</h2>
+
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>src/local/tools/datetime_tool.py</code></td><td class="new">NEW</td></tr>
+  <tr><td><code>src/local/tools/location_tool.py</code></td><td class="new">NEW</td></tr>
+  <tr><td><code>config/location.yaml</code></td><td class="new">NEW</td></tr>
+  <tr><td><code>config/generator.yaml</code></td><td>Add system prompt rules for get_datetime / get_location</td></tr>
+  <tr><td><code>run_local.py</code></td><td>Start datetime_tool and location_tool</td></tr>
+  <tr><td><code>tests/test_datetime_tool.py</code></td><td class="new">NEW</td></tr>
+  <tr><td><code>tests/test_location_tool.py</code></td><td class="new">NEW</td></tr>
+  <tr><td><code>tests/stories/s10_datetime_location.yaml</code></td><td class="new">NEW</td></tr>
+</table>
+
+</body>
+</html>

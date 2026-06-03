@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LoCAL2 Phase 6 — Observability UI</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: #111; color: #d4d4d4; max-width: 960px; margin: 40px auto;
+         padding: 0 24px; line-height: 1.6; }
+  h1 { color: #e8e8e8; border-bottom: 1px solid #333; padding-bottom: 10px; }
+  h2 { color: #c9a96e; margin-top: 36px; }
+  h3 { color: #7ec8a4; margin-top: 24px; }
+  h4 { color: #9dbde8; margin-top: 18px; margin-bottom: 6px; }
+  code { background: #1e1e1e; color: #ce9178; padding: 2px 6px; border-radius: 3px;
+         font-family: "Menlo", "Monaco", monospace; font-size: 0.9em; }
+  pre  { background: #1e1e1e; border: 1px solid #333; border-radius: 6px;
+         padding: 16px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+  pre code { background: none; padding: 0; color: #d4d4d4; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th { background: #1e1e1e; color: #9dbde8; text-align: left;
+       padding: 8px 12px; border: 1px solid #333; }
+  td { padding: 7px 12px; border: 1px solid #2a2a2a; vertical-align: top; }
+  tr:nth-child(even) td { background: #161616; }
+  .done   { color: #55aa55; }
+  .todo   { color: #888; }
+  .new    { color: #c9a96e; font-weight: bold; }
+  .phase  { background: #1a1a2e; border-left: 4px solid #c9a96e;
+            padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  .note   { background: #1e1a10; border-left: 4px solid #888;
+            padding: 10px 14px; margin: 12px 0; border-radius: 0 6px 6px 0;
+            font-size: 0.9em; color: #aaa; }
+  .sidebar-mock {
+    display: inline-flex; flex-direction: column; align-items: center;
+    background: #1a1a1a; border: 1px solid #333; border-radius: 6px;
+    padding: 10px 8px; gap: 8px; font-family: monospace; font-size: 13px;
+    vertical-align: top; min-width: 52px;
+  }
+  .sidebar-btn {
+    width: 36px; height: 36px; display: flex; align-items: center;
+    justify-content: center; border-radius: 4px; cursor: default;
+    color: #d4d4d4; background: #2a2a2a;
+  }
+  .sidebar-btn.new-btn { background: #1a2a1a; color: #7ec8a4; border: 1px solid #3a4a3a; }
+  .sidebar-sep { width: 28px; height: 1px; background: #333; margin: 2px 0; }
+  .layout-row { display: flex; gap: 16px; align-items: flex-start; margin: 16px 0; }
+  .stack-mock {
+    flex: 1; background: #141414; border: 1px solid #333; border-radius: 6px;
+    padding: 16px; font-family: monospace; font-size: 12px; color: #888;
+  }
+  .stack-label { color: #c9a96e; font-weight: bold; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<h1>Phase 6 — Observability UI</h1>
+
+<div class="phase">
+  <strong>Goal:</strong> Surface every participant's activity in its own panel.
+  Each agent/tool gets a dedicated place in the UI with an activity log and
+  settings controls. Critic (currently invisible) gets a panel. The generator's
+  episodic memory becomes browsable via a memory inspector.
+</div>
+
+<h2>Motivation</h2>
+<p>
+  Phase 5 introduced a shadow generator (RespondentB), pairwise grading, and
+  engram annotations — but none of it is observable from the UI. You can't see
+  what the critic scored, what's in memory, or whether the pairwise winner
+  annotation landed. Phase 6 makes all of that visible.
+</p>
+<p>
+  The existing tool panel structure (Activity + Settings per tool) is the right
+  pattern — extend it to cover Critic and add a new Memory Inspector panel.
+  No new interaction patterns needed; just more panels.
+</p>
+
+<h2>What Changes</h2>
+
+<h3>Sidebar — before and after</h3>
+
+<div class="layout-row">
+  <div>
+    <p style="color:#888; font-size:12px; margin-bottom:8px;">Before</p>
+    <div class="sidebar-mock">
+      <div class="sidebar-btn">+</div>
+      <div class="sidebar-btn">⟳</div>
+      <div class="sidebar-sep"></div>
+      <div class="sidebar-btn">◉</div>
+      <div class="sidebar-btn">Sm</div>
+      <div class="sidebar-btn">Ws</div>
+      <div class="sidebar-btn">Wf</div>
+    </div>
+  </div>
+  <div>
+    <p style="color:#888; font-size:12px; margin-bottom:8px;">After</p>
+    <div class="sidebar-mock">
+      <div class="sidebar-btn">+</div>
+      <div class="sidebar-btn">⟳</div>
+      <div class="sidebar-sep"></div>
+      <div class="sidebar-btn">◉</div>
+      <div class="sidebar-btn">Sm</div>
+      <div class="sidebar-btn">Ws</div>
+      <div class="sidebar-btn">Wf</div>
+      <div class="sidebar-btn new-btn">Cr</div>
+      <div class="sidebar-btn new-btn">🧠</div>
+    </div>
+  </div>
+</div>
+
+<p>
+  <strong>◉</strong> = Conversation (generator's primary view) &nbsp;·&nbsp;
+  <strong>Sm/Ws/Wf</strong> = tool panels (unchanged) &nbsp;·&nbsp;
+  <strong class="new">Cr</strong> = Critic panel &nbsp;·&nbsp;
+  <strong class="new">🧠</strong> = Memory inspector (generator's episodic store)
+</p>
+
+<h3>Stack pages — before and after</h3>
+<table>
+  <tr><th>Index</th><th>Before</th><th>After</th></tr>
+  <tr><td>0</td><td>Conversation</td><td>Conversation (unchanged)</td></tr>
+  <tr><td>1</td><td>Sm — search_memory</td><td>Sm — search_memory (unchanged)</td></tr>
+  <tr><td>2</td><td>Ws — web_search</td><td>Ws — web_search (unchanged)</td></tr>
+  <tr><td>3</td><td>Wf — web_fetch</td><td>Wf — web_fetch (unchanged)</td></tr>
+  <tr><td>4</td><td class="todo">—</td><td class="new">Cr — CriticPanel</td></tr>
+  <tr><td>5</td><td class="todo">—</td><td class="new">🧠 — MemoryInspectorPanel</td></tr>
+</table>
+
+<h2>New Panels</h2>
+
+<h3>CriticPanel <code>src/local/ui/critic_panel.py</code></h3>
+
+<p>Same two-tab structure as <code>ToolPanel</code>. No new bus subscription
+needed — it connects to <code>BusLogger.critique</code> which already exists
+and is emitted on every <code>critique.result</code> event.</p>
+
+<h4>Activity tab</h4>
+<p>Each grade event appended as a compact card:</p>
+<pre><code>[21:07:04.3]  ● 4/5  (pairwise: A won)
+  Q: What is the boiling point of water?
+  Feedback: Accurate and concise. Minor omission…</code></pre>
+<ul>
+  <li>Score badge colour-coded (same scheme as conversation panel)</li>
+  <li>Shows <code>respondent_id</code> and <code>pairwise_winner</code> when present</li>
+  <li>Feedback text truncated to ~120 chars, full text on hover (tooltip)</li>
+</ul>
+
+<h4>Settings tab</h4>
+<p>Reuses ToolPanel's YAML editor + Save pattern for <code>config/critic.yaml</code>.
+Note: critic saves do <em>not</em> trigger <code>TOOL_SCHEMA_REQUEST</code>
+(critic has no tool schema). Save writes the file only; critic picks it up
+on next restart.</p>
+
+<h3>MemoryInspectorPanel <code>src/local/ui/memory_inspector.py</code></h3>
+
+<p>Pull model — no bus subscription. Queries <code>MemoryService</code> directly on
+Refresh. Safe to call from Qt thread (ChromaDB reads are thread-safe).</p>
+
+<h4>Layout</h4>
+<pre><code>┌──────────────────────────────────────────────┐
+│  Memory Inspector            [Refresh]        │
+├──────┬──────┬───────┬───────┬────────┬───────┤
+│ Age  │ Resp │ Score │ Senti │ Winner │ Query │
+├──────┼──────┼───────┼───────┼────────┼───────┤
+│ 2m   │  A   │  4/5  │  👍   │  ✓     │ What… │
+│ 8m   │  B   │  3/5  │  —    │  ✗     │ What… │
+│ 1h   │  A   │  —    │  —    │  —     │ Tell… │
+└──────┴──────┴───────┴───────┴────────┴───────┘</code></pre>
+
+<ul>
+  <li><strong>Age</strong>: human-readable relative time (seconds/minutes/hours)</li>
+  <li><strong>Resp</strong>: <code>A</code> or <code>B</code> from <code>respondent_id</code> metadata</li>
+  <li><strong>Score</strong>: <code>critic_score</code> if present, else <code>—</code></li>
+  <li><strong>Sentiment</strong>: 👍 / 👎 from <code>user_sentiment</code> (+1/-1), else <code>—</code></li>
+  <li><strong>Winner</strong>: ✓ / ✗ from <code>pairwise_winner</code> (True/False), else <code>—</code></li>
+  <li><strong>Query</strong>: <code>query</code> metadata field, truncated to ~60 chars</li>
+  <li>Rows sorted newest first; max 100 rows (configurable)</li>
+  <li>Click a row to show full content in a panel below the table</li>
+</ul>
+
+<h2>New / Modified Files</h2>
+
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr>
+    <td><code>src/local/services/memory_service.py</code></td>
+    <td class="new">Add <code>list_episodic(n=100)</code> — returns all episodic engrams sorted by timestamp desc</td>
+  </tr>
+  <tr>
+    <td><code>src/local/ui/critic_panel.py</code></td>
+    <td class="new">New CriticPanel widget — activity log (critique events) + settings (critic.yaml)</td>
+  </tr>
+  <tr>
+    <td><code>src/local/ui/memory_inspector.py</code></td>
+    <td class="new">New MemoryInspectorPanel widget — QTableWidget + Refresh + detail view</td>
+  </tr>
+  <tr>
+    <td><code>src/local/ui/main_window.py</code></td>
+    <td>Accept <code>memory_service</code> param; add Cr and 🧠 to stack + sidebar; wire BusLogger.critique → CriticPanel; subscribe to PAIRWISE_RESULT in BusLogger for Cr panel enrichment</td>
+  </tr>
+  <tr>
+    <td><code>run_local.py</code></td>
+    <td>Pass <code>shared_memory</code> to <code>MainWindow()</code></td>
+  </tr>
+</table>
+
+<h2>BusLogger — pairwise enrichment</h2>
+<p>
+  <code>critique.result</code> payloads currently carry <code>respondent_id</code>
+  and <code>score</code> but not <code>pairwise_winner</code> (that lands later
+  via <code>pairwise.result</code>). The simplest approach for Phase 6: CriticPanel
+  also subscribes to <code>PAIRWISE_RESULT</code> via BusLogger. When a
+  <code>pairwise.result</code> arrives, append a separate compact line to the
+  activity log:
+</p>
+<pre><code>[21:07:18.1]  ⟺ pairwise  winner=A
+  A: 46868de7  B: 8a1c2f39</code></pre>
+<p>No need to retroactively update the absolute grade cards — the pairwise line
+lands a few seconds later and the sequence is self-explanatory.</p>
+
+<h2>MemoryService — <code>list_episodic()</code></h2>
+<pre><code>def list_episodic(self, n: int = 100) -> list[dict]:
+    """Return the n most recent episodic engrams, newest first."""
+    result = self._collection.get(
+        where={"type": "episodic"},
+        include=["metadatas", "documents"],
+    )
+    ids   = result.get("ids") or []
+    docs  = result.get("documents") or []
+    metas = result.get("metadatas") or []
+    items = sorted(
+        zip(ids, docs, metas),
+        key=lambda x: x[2].get("timestamp", 0),
+        reverse=True,
+    )
+    return [
+        {"id": id_, "content": doc, "metadata": meta}
+        for id_, doc, meta in items[:n]
+    ]</code></pre>
+<div class="note">
+  ChromaDB <code>get()</code> returns all matching documents. For typical LoCAL2
+  usage (hundreds of engrams) this is fast. If the collection grows very large
+  (thousands), add a timestamp filter. For Phase 6, the simple approach is fine.
+</div>
+
+<h2>MainWindow — constructor change</h2>
+<pre><code>class MainWindow(QMainWindow):
+    def __init__(
+        self,
+        publisher: ZmqPublisher,
+        model: str = "",
+        memory_service=None,        # new — passed in from run_local.py
+    ) -> None:</code></pre>
+<p>
+  <code>memory_service</code> is passed to <code>MemoryInspectorPanel</code>.
+  If <code>None</code> (e.g., headless test), the panel shows "No memory service".
+</p>
+
+<h2>BusLogger — new signals</h2>
+<table>
+  <tr><th>Signal</th><th>Emitted on</th><th>Consumed by</th></tr>
+  <tr>
+    <td><code>critique</code></td>
+    <td><code>critique.result</code></td>
+    <td>Existing: score badge on response widget. New: CriticPanel activity tab</td>
+  </tr>
+  <tr>
+    <td class="new"><code>pairwise</code></td>
+    <td><code>pairwise.result</code></td>
+    <td>CriticPanel activity tab (pairwise result line)</td>
+  </tr>
+</table>
+<p>
+  <code>PAIRWISE_RESULT</code> needs to be added to <code>OBSERVE</code>
+  (or the bus monitor subscription list) so BusLogger sees it.
+</p>
+
+<h2>Build Order</h2>
+
+<table>
+  <tr><th>Step</th><th>File</th><th>What</th></tr>
+  <tr>
+    <td>1</td>
+    <td><code>memory_service.py</code></td>
+    <td>Add <code>list_episodic(n=100)</code></td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td><code>src/local/ui/critic_panel.py</code></td>
+    <td>New CriticPanel: activity log + YAML settings for critic.yaml</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td><code>src/local/ui/memory_inspector.py</code></td>
+    <td>New MemoryInspectorPanel: table + refresh + detail pane</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td><code>main_window.py</code></td>
+    <td>Wire everything: memory_service param, add panels to stack, add Cr/🧠 sidebar buttons, BusLogger pairwise signal, connect CriticPanel</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td><code>run_local.py</code></td>
+    <td>Pass <code>shared_memory</code> to MainWindow</td>
+  </tr>
+</table>
+
+<h2>What This Does NOT Include</h2>
+<ul>
+  <li>Generator settings panel (generator.yaml editable in UI) — can be a Phase 6b addition</li>
+  <li>Memory search / query from inspector UI — Phase 6b</li>
+  <li>Delete / prune engrams from inspector — Phase 6b</li>
+  <li>Real-time push updates to memory inspector (auto-refresh on new engram) — Phase 6b</li>
+</ul>
+
+<h2>Story S8</h2>
+<p>After Phase 6 is built, run a query and verify:</p>
+<ol>
+  <li>Cr panel shows the absolute grade within ~30s (score, feedback snippet)</li>
+  <li>If <code>--respondent-b</code> enabled: Cr panel shows the pairwise result line after both grades arrive</li>
+  <li>🧠 panel: click Refresh — the engram from the query appears with Age, Score, and (if B enabled) Winner column populated</li>
+  <li>Sentiment: give a 👍 on a response — click Refresh in 🧠 panel — that engram now shows 👍</li>
+</ol>
+
+</body>
+</html>

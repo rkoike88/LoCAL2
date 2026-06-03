@@ -369,11 +369,12 @@
     <div class="phase-content">
       <h4>Dual Respondents + Pairwise Comparison — <a href="plan_local2_5.html" style="color:#7dd3fc; font-size:0.85rem;">detailed plan →</a></h4>
       <ul>
-        <li>RespondentB subclass of GeneratorAgent — adds self-critique refinement step (draft → Gemma refine pass)</li>
+        <li>RespondentB = same GeneratorAgent class, different model/temperature via <code>--respondent-b --model-b --temperature-b</code> CLI flags. No subclass.</li>
+        <li>B is a shadow generator: thinking + response + dialog filtered from UI entirely; only A appears to user</li>
         <li>CriticAgent pairwise buffer: grades A and B independently, runs Prometheus pairwise when both arrive, publishes <code>pairwise.result</code></li>
         <li>MemoryAgent annotates both engrams with <code>pairwise_winner: true/false</code></li>
-        <li>Pairwise result feeds next cycle via memory retrieval weighting — invisible to UI in current turn</li>
-        <li>Story S7 (pairwise.result on bus, both engrams annotated)</li>
+        <li><code>respondent_id</code> carried on every bus message (thinking, response, dialog, critique)</li>
+        <li>Story S7 (pairwise.result on bus, both engrams annotated) ✅ COMPLETE</li>
       </ul>
     </div>
   </div>
@@ -381,11 +382,12 @@
   <div class="phase">
     <div class="phase-num later">6</div>
     <div class="phase-content">
-      <h4>Observability UI</h4>
+      <h4>Observability UI — <a href="plan_local2_6.html" style="color:#7dd3fc; font-size:0.85rem;">detailed plan →</a></h4>
       <ul>
-        <li>Memory recall inspector (engrams, scores, age, pairwise_winner, user_sentiment)</li>
-        <li>Conversation state inspector (messages array view)</li>
-        <li>Pairwise_winner weighting in score-weighted retrieval</li>
+        <li>Critic panel (Cr): activity log of absolute grades + pairwise results; settings tab for critic.yaml</li>
+        <li>Memory inspector (🧠): table of episodic engrams with Age, Respondent, Score, Sentiment, Winner, Query; Refresh button; click to expand</li>
+        <li>Each participant has its own panel — no shared "busy" tool sidebar</li>
+        <li>Story S8 (Cr panel shows grade, 🧠 panel shows annotated engram)</li>
       </ul>
     </div>
   </div>

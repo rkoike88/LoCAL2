@@ -9,3 +9,4 @@ PyYAML>=6.0.3
 httpx>=0.28.1
 beautifulsoup4>=4.14.3
 chromadb>=0.6.0
+pypdf>=4.0

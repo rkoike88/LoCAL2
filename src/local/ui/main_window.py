@@ -7,12 +7,15 @@ Layout:
 """
 from __future__ import annotations
 
+import base64
 import uuid
 from datetime import datetime
 
 try:
-    from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal
+    from PySide6.QtCore import QBuffer, QByteArray, QObject, QThread, QTimer, Qt, Signal
     from PySide6.QtWidgets import (
+        QApplication,
+        QFileDialog,
         QGraphicsOpacityEffect,
         QHBoxLayout,
         QLabel,
@@ -52,6 +55,7 @@ from local.protocol.subjects import (
 from local.session.local_session import OBSERVE
 from local.transport.bus_config import PROXY_BACKEND_ADDR
 from local.transport.zmq_pubsub import ZmqPublisher, ZmqSubscriber
+from local.ui.attachment_bar import AttachmentBar
 from local.ui.critic_window import CriticWindow
 from local.ui.memory_window import MemoryWindow
 from local.ui.tool_window import ToolWindow
@@ -83,6 +87,11 @@ class StreamingResponseWidget(QWidget):
         self._header = QLabel(f"[{ts}] RESPONSE  ⟳")
         self._header.setObjectName("logHeader")
         layout.addWidget(self._header)
+
+        self._attach_label = QLabel()
+        self._attach_label.setObjectName("attachSummary")
+        self._attach_label.setVisible(False)
+        layout.addWidget(self._attach_label)
 
         self._toggle_btn = QPushButton("◈ thinking  ▼")
         self._toggle_btn.setObjectName("thinkingToggle")
@@ -146,6 +155,11 @@ class StreamingResponseWidget(QWidget):
         self._toggle_btn.clicked.connect(self._toggle)
         self._thumb_up.clicked.connect(lambda: self._emit_feedback("positive"))
         self._thumb_down.clicked.connect(lambda: self._emit_feedback("negative"))
+
+    def set_attachments(self, names: list[str]) -> None:
+        if names:
+            self._attach_label.setText("[attached: " + ", ".join(names) + "]")
+            self._attach_label.setVisible(True)
 
     def set_score(self, score: int | None, feedback: str) -> None:
         if score is None:
@@ -323,6 +337,46 @@ class BusLogger(QObject):
 
 
 # ---------------------------------------------------------------------------
+# Paste-aware query input — intercepts Cmd/Ctrl+V when clipboard has an image
+# ---------------------------------------------------------------------------
+
+class _PasteAwareLineEdit(QLineEdit):
+    image_pasted = Signal(object)  # QImage
+
+    def paste(self) -> None:
+        img = QApplication.clipboard().image()
+        if not img.isNull():
+            self.image_pasted.emit(img)
+            return
+        super().paste()
+
+
+# ---------------------------------------------------------------------------
+# Drag-drop input container
+# ---------------------------------------------------------------------------
+
+class _InputContainer(QWidget):
+    """Input area container that accepts file drops and forwards them."""
+    files_dropped = Signal(list)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event) -> None:
+        paths = [u.toLocalFile() for u in event.mimeData().urls() if u.isLocalFile()]
+        if paths:
+            self.files_dropped.emit(paths)
+            event.acceptProposedAction()
+
+
+# ---------------------------------------------------------------------------
 # Main window
 # ---------------------------------------------------------------------------
 
@@ -334,6 +388,7 @@ class MainWindow(QMainWindow):
         self._session_id = str(uuid.uuid4())
         self._pending: dict[str, StreamingResponseWidget] = {}
         self._response_widgets: dict[str, StreamingResponseWidget] = {}
+        self._pending_attachments: dict[str, list[str]] = {}
         title = "LoCAL2"
         if model:
             title += f"  [{model}]"
@@ -387,10 +442,21 @@ class MainWindow(QMainWindow):
         self._log_scroll.setWidgetResizable(True)
         self._log_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        self._query_input = QLineEdit()
+        self._attachment_bar = AttachmentBar()
+        self._attachment_bar.setVisible(False)
+
+        self._query_input = _PasteAwareLineEdit()
         self._query_input.setObjectName("queryInput")
         self._query_input.setPlaceholderText("Type a query and press Enter…")
         self._query_input.returnPressed.connect(self._send_query)
+        self._query_input.image_pasted.connect(self._on_clipboard_image)
+
+        clip_btn = QPushButton("+")
+        clip_btn.setObjectName("clipBtn")
+        clip_btn.setFixedSize(34, 34)
+        clip_btn.setToolTip("Attach file…")
+        clip_btn.setCursor(Qt.PointingHandCursor)
+        clip_btn.clicked.connect(self._open_file_picker)
 
         send_btn = QPushButton("Send")
         send_btn.setObjectName("sendBtn")
@@ -400,13 +466,21 @@ class MainWindow(QMainWindow):
         input_row = QHBoxLayout()
         input_row.setContentsMargins(0, 0, 0, 0)
         input_row.setSpacing(8)
+        input_row.addWidget(clip_btn)
         input_row.addWidget(self._query_input)
         input_row.addWidget(send_btn)
 
-        input_container = QWidget()
+        container_layout = QVBoxLayout()
+        container_layout.setContentsMargins(12, 0, 12, 12)
+        container_layout.setSpacing(0)
+        container_layout.addWidget(self._attachment_bar)
+        container_layout.addSpacing(8)
+        container_layout.addLayout(input_row)
+
+        input_container = _InputContainer()
         input_container.setObjectName("inputContainer")
-        input_container.setLayout(input_row)
-        input_container.setContentsMargins(12, 8, 12, 12)
+        input_container.setLayout(container_layout)
+        input_container.files_dropped.connect(self._attachment_bar.add_files)
 
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -524,6 +598,9 @@ class MainWindow(QMainWindow):
         if not query:
             return
         query_id = str(uuid.uuid4())
+        attachments = self._attachment_bar.attachments()
+        if attachments:
+            self._pending_attachments[query_id] = [a["name"] for a in attachments]
         envelope = MessageEnvelope.create(
             message_type="query",
             subject=QUERY_RECEIVED,
@@ -532,12 +609,35 @@ class MainWindow(QMainWindow):
                 "query": query,
                 "session_id": self._session_id,
                 "query_id": query_id,
+                "attachments": attachments,
             },
             correlation_id=query_id,
             metadata={"session_id": self._session_id},
         )
         self._publisher.publish(envelope)
         self._query_input.clear()
+        self._attachment_bar.clear()
+
+    def _on_clipboard_image(self, image) -> None:
+        buf = QByteArray()
+        buffer = QBuffer(buf)
+        buffer.open(QBuffer.OpenModeFlag.WriteOnly)
+        image.save(buffer, "PNG")
+        buffer.close()
+        b64 = base64.b64encode(bytes(buf)).decode()
+        self._attachment_bar.add_attachment({"type": "image", "name": "clipboard.png", "data": b64})
+
+    def _open_file_picker(self) -> None:
+        exts = (
+            "All supported files (*.jpg *.jpeg *.png *.gif *.webp "
+            "*.pdf *.txt *.md *.py *.js *.ts *.yaml *.json *.csv);;"
+            "Images (*.jpg *.jpeg *.png *.gif *.webp);;"
+            "Documents (*.pdf *.txt *.md);;"
+            "Code (*.py *.js *.ts *.yaml *.json *.csv)"
+        )
+        paths, _ = QFileDialog.getOpenFileNames(self, "Attach files", "", exts)
+        if paths:
+            self._attachment_bar.add_files(paths)
 
     def _new_session(self) -> None:
         self._session_id = str(uuid.uuid4())
@@ -555,6 +655,8 @@ class MainWindow(QMainWindow):
         query_id = data["query_id"]
         if query_id not in self._pending:
             widget = StreamingResponseWidget(data["ts"])
+            names = self._pending_attachments.pop(query_id, [])
+            widget.set_attachments(names)
             self._insert_log_widget(widget)
             self._pending[query_id] = widget
             self._scroll_to_bottom()
@@ -566,6 +668,8 @@ class MainWindow(QMainWindow):
         widget = self._pending.pop(query_id, None)
         if widget is None:
             widget = StreamingResponseWidget(data["ts"])
+            names = self._pending_attachments.pop(query_id, [])
+            widget.set_attachments(names)
             self._insert_log_widget(widget)
         widget.finalize(data["ts"], data["answer"], data["tool_calls"], query_id=query_id)
         widget.feedback.connect(self._on_user_feedback)
@@ -720,6 +824,17 @@ class MainWindow(QMainWindow):
                 font-size: 12px;
                 padding: 8px;
             }
+            QLabel#attachSummary {
+                color: #555555;
+                font-family: "Menlo", "Monaco", "Courier New";
+                font-size: 11px;
+                padding: 0px;
+            }
+            QPushButton#clipBtn {
+                background: #1a1a1a; color: #777; border: 1px solid #333;
+                border-radius: 5px; font-size: 20px; padding: 0;
+            }
+            QPushButton#clipBtn:hover { background: #252525; color: #aaa; }
             QWidget#inputContainer {
                 background: #111111;
                 border-top: 1px solid #222222;

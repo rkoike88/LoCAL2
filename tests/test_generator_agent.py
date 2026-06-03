@@ -84,6 +84,62 @@ class TestBuildMessages:
         msgs = agent._build_messages("hello", session_id=None)
         assert msgs == [{"role": "user", "content": "hello"}]
 
+    def test_no_attachments_unchanged(self):
+        agent = _make_agent()
+        msgs = agent._build_messages("hello", session_id=None, attachments=[])
+        assert msgs == [{"role": "user", "content": "hello"}]
+
+    def test_text_attachment_prepended(self):
+        agent = _make_agent()
+        att = {"type": "text", "name": "notes.txt", "data": "secret phrase xyz"}
+        msgs = agent._build_messages("What does the file say?", session_id=None, attachments=[att])
+        user_msg = msgs[-1]
+        assert user_msg["role"] == "user"
+        assert "[Attached: notes.txt]" in user_msg["content"]
+        assert "secret phrase xyz" in user_msg["content"]
+        assert "What does the file say?" in user_msg["content"]
+        assert "images" not in user_msg
+
+    def test_text_attachment_truncated_to_max_chars(self):
+        agent = _make_agent()
+        long_text = "x" * 20000
+        att = {"type": "text", "name": "big.txt", "data": long_text}
+        with patch("local.agents.generator_agent.get_config") as mock_cfg:
+            mock_cfg.return_value = {"max_attachment_chars": 100}
+            msgs = agent._build_messages("query", session_id=None, attachments=[att])
+        content = msgs[-1]["content"]
+        assert "x" * 100 in content
+        assert "x" * 101 not in content
+
+    def test_image_attachment_goes_to_images_field(self):
+        agent = _make_agent()
+        att = {"type": "image", "name": "photo.png", "data": "base64data=="}
+        msgs = agent._build_messages("What do you see?", session_id=None, attachments=[att])
+        user_msg = msgs[-1]
+        assert user_msg["images"] == ["base64data=="]
+        assert user_msg["content"] == "What do you see?"
+
+    def test_mixed_text_and_image_attachments(self):
+        agent = _make_agent()
+        atts = [
+            {"type": "text",  "name": "notes.txt", "data": "some context"},
+            {"type": "image", "name": "diagram.png", "data": "imgdata=="},
+        ]
+        msgs = agent._build_messages("Explain this", session_id=None, attachments=atts)
+        user_msg = msgs[-1]
+        assert "[Attached: notes.txt]" in user_msg["content"]
+        assert "some context" in user_msg["content"]
+        assert "Explain this" in user_msg["content"]
+        assert user_msg["images"] == ["imgdata=="]
+
+    def test_error_attachments_skipped(self):
+        agent = _make_agent()
+        atts = [{"type": "error", "name": "bad.zip"}]
+        msgs = agent._build_messages("hello", session_id=None, attachments=atts)
+        user_msg = msgs[-1]
+        assert user_msg["content"] == "hello"
+        assert "images" not in user_msg
+
 
 # ---------------------------------------------------------------------------
 # _generate (mocked ollama.chat)

@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LoCAL2 Phase 7 — File Attachments + Multimodal</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: #111; color: #d4d4d4; max-width: 960px; margin: 40px auto;
+         padding: 0 24px; line-height: 1.6; }
+  h1 { color: #e8e8e8; border-bottom: 1px solid #333; padding-bottom: 10px; }
+  h2 { color: #c9a96e; margin-top: 36px; }
+  h3 { color: #7ec8a4; margin-top: 24px; }
+  h4 { color: #9dbde8; margin-top: 18px; margin-bottom: 6px; }
+  a { color: #9dbde8; }
+  code { background: #1e1e1e; color: #ce9178; padding: 2px 6px; border-radius: 3px;
+         font-family: "Menlo", "Monaco", monospace; font-size: 0.9em; }
+  pre  { background: #1e1e1e; border: 1px solid #333; border-radius: 6px;
+         padding: 16px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+  pre code { background: none; padding: 0; color: #d4d4d4; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th { background: #1e1e1e; color: #9dbde8; text-align: left;
+       padding: 8px 12px; border: 1px solid #333; }
+  td { padding: 7px 12px; border: 1px solid #2a2a2a; vertical-align: top; }
+  tr:nth-child(even) td { background: #161616; }
+  .done   { color: #55aa55; }
+  .todo   { color: #888; }
+  .new    { color: #c9a96e; font-weight: bold; }
+  .phase  { background: #1a1a2e; border-left: 4px solid #c9a96e;
+            padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  .note   { background: #1e1a10; border-left: 4px solid #888;
+            padding: 10px 14px; margin: 12px 0; border-radius: 0 6px 6px 0;
+            font-size: 0.92em; color: #aaa; }
+  .warn   { background: #1e1510; border-left: 4px solid #c9a96e;
+            padding: 10px 14px; margin: 12px 0; border-radius: 0 6px 6px 0;
+            font-size: 0.92em; }
+  .step { counter-increment: step; }
+  ol.build { list-style: none; padding-left: 0; counter-reset: step; }
+  ol.build li::before { content: counter(step) ". "; color: #c9a96e; font-weight: bold; }
+  ul { padding-left: 1.4em; }
+  li { margin: 4px 0; }
+</style>
+</head>
+<body>
+
+<p><a href="plan_local2_plan2.html">← Plan 2</a></p>
+
+<h1>Phase 7 — File Attachments + Multimodal</h1>
+
+<div class="phase">
+  <strong>Goal:</strong> Let the user attach files to any query. Images go directly to Gemma's vision
+  input via the Ollama <code>images</code> field. PDFs and text files are extracted and prepended as
+  context. Gemma sees everything natively — no prompt preprocessing or intermediate summarization.
+</div>
+
+<!-- ============================================================ -->
+<h2>Supported File Types</h2>
+
+<table>
+  <tr><th>Type</th><th>Extensions</th><th>Handling</th></tr>
+  <tr><td>Image</td><td><code>.jpg .jpeg .png .gif .webp</code></td>
+      <td>Base64-encode bytes → <code>images</code> field in Ollama user message</td></tr>
+  <tr><td>PDF</td><td><code>.pdf</code></td>
+      <td>Text extracted via <code>pypdf</code> → prepended to user message content</td></tr>
+  <tr><td>Text</td><td><code>.txt .md .py .js .ts .yaml .json .csv</code></td>
+      <td>Read directly → prepended to user message content</td></tr>
+  <tr><td>Other</td><td>—</td><td>Red error chip: "unsupported format" — excluded from payload</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>New File: <code>src/local/ui/attachment_bar.py</code></h2>
+
+<h3>Widget layout</h3>
+
+<pre><code>┌──────────────────────────────────────────────────────────────┐
+│  ⌁   📎 diagram.png ✕   📎 notes.pdf ✕                      │
+└──────────────────────────────────────────────────────────────┘</code></pre>
+
+<p>The <code>AttachmentBar</code> is a <code>QWidget</code> containing a horizontal flow of chips plus a
+paperclip button (<code>⌁</code>) on the left. It is hidden when no files are attached and
+becomes visible as soon as the first file is added.</p>
+
+<h3>Public API</h3>
+
+<table>
+  <tr><th>Method</th><th>Description</th></tr>
+  <tr><td><code>add_files(paths: list[str])</code></td>
+      <td>Process and add files; called by button picker and drag-drop handler</td></tr>
+  <tr><td><code>attachments() → list[dict]</code></td>
+      <td>Returns current <code>[{type, name, data}, …]</code>; only valid attachments included</td></tr>
+  <tr><td><code>clear()</code></td>
+      <td>Remove all chips and reset internal list; called after send</td></tr>
+</table>
+
+<h3>Chip behaviour</h3>
+<ul>
+  <li>Each chip is a small <code>QPushButton</code>: <code>📎 filename.ext  ✕</code></li>
+  <li>Clicking <code>✕</code> removes that chip and its attachment from the list</li>
+  <li>Error files (unsupported type or extraction failure) get a red chip; they are shown
+      but excluded from <code>attachments()</code> so they are never sent</li>
+  <li>Multiple files allowed; no per-session limit enforced in the widget</li>
+</ul>
+
+<h3>File processing</h3>
+
+<pre><code>def _process_file(path: str) -> dict:
+    ext = Path(path).suffix.lower()
+    name = Path(path).name
+    if ext in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+        data = base64.b64encode(Path(path).read_bytes()).decode()
+        return {"type": "image", "name": name, "data": data}
+    elif ext == ".pdf":
+        text = _extract_pdf_text(path)      # pypdf PdfReader
+        return {"type": "text", "name": name, "data": text}
+    elif ext in {".txt", ".md", ".py", ".js", ".ts", ".yaml", ".json", ".csv"}:
+        text = Path(path).read_text(errors="replace")
+        return {"type": "text", "name": name, "data": text}
+    else:
+        return {"type": "error", "name": name}
+
+
+def _extract_pdf_text(path: str) -> str:
+    from pypdf import PdfReader
+    reader = PdfReader(path)
+    return "\n".join(page.extract_text() or "" for page in reader.pages)</code></pre>
+
+<h3>Drag-and-drop</h3>
+<p>The parent <code>input_container</code> in <code>MainWindow</code> sets <code>setAcceptDrops(True)</code> and
+overrides <code>dragEnterEvent</code> / <code>dropEvent</code>. Dropped files are forwarded to
+<code>self._attachment_bar.add_files(paths)</code>. The <code>AttachmentBar</code> itself does not
+handle drag events — it only receives already-resolved paths.</p>
+
+<!-- ============================================================ -->
+<h2>Changes: <code>src/local/ui/main_window.py</code></h2>
+
+<h3>Input area layout</h3>
+
+<pre><code>┌──────────────────────────────────────────────────────────────────┐
+│  📎 diagram.png ✕   📎 notes.pdf ✕                              │  ← AttachmentBar
+│                                                        (hidden   │
+│                                                        when empty)│
+├──────────────────────────────────────────────────────────────────┤
+│  Type a query and press Enter…                             Send  │  ← input row
+└──────────────────────────────────────────────────────────────────┘</code></pre>
+
+<p>The paperclip button lives inside <code>AttachmentBar</code> (leftmost element). The query
+<code>QLineEdit</code> and Send button remain unchanged in their own row below.</p>
+
+<h3><code>_build_conversation_page()</code> changes</h3>
+<ul>
+  <li>Instantiate <code>self._attachment_bar = AttachmentBar()</code></li>
+  <li>Insert <code>self._attachment_bar</code> into <code>input_container</code> above the existing input row</li>
+  <li>Wire <code>dragEnterEvent</code> / <code>dropEvent</code> on <code>input_container</code></li>
+</ul>
+
+<h3><code>_send_query()</code> changes</h3>
+
+<pre><code>def _send_query(self) -> None:
+    query = self._query_input.text().strip()
+    if not query:
+        return
+    query_id = str(uuid.uuid4())
+    attachments = self._attachment_bar.attachments()
+    envelope = MessageEnvelope.create(
+        message_type="query",
+        subject=QUERY_RECEIVED,
+        sender_id="ui",
+        payload={
+            "query": query,
+            "session_id": self._session_id,
+            "query_id": query_id,
+            "attachments": attachments,        # [] when none
+        },
+        correlation_id=query_id,
+        metadata={"session_id": self._session_id},
+    )
+    self._publisher.publish(envelope)
+    self._query_input.clear()
+    self._attachment_bar.clear()</code></pre>
+
+<h3>Response card attachment summary</h3>
+<p>When attachments are present at send time, a dim summary line is shown in the
+<code>StreamingResponseWidget</code> below the query timestamp badge:</p>
+<pre><code>[attached: diagram.png, notes.pdf]</code></pre>
+<p>This requires passing <code>attachment_names: list[str]</code> when creating the widget. The
+widget adds a <code>QLabel</code> (objectName <code>attachmentSummary</code>) that is hidden when the list
+is empty. <code>BusLogger</code> does not need to change — the names are known in the UI at send
+time and passed directly.</p>
+
+<!-- ============================================================ -->
+<h2>Changes: <code>src/local/agents/generator_agent.py</code></h2>
+
+<h3><code>_handle_query()</code></h3>
+<p>Extract attachments from the envelope payload and pass them to <code>_build_messages</code>:</p>
+<pre><code>attachments = payload.get("attachments") or []
+messages = self._build_messages(query, session_id, attachments)</code></pre>
+
+<h3><code>_build_messages(query, session_id, attachments)</code></h3>
+
+<pre><code>def _build_messages(
+    self, query: str, session_id: str | None, attachments: list[dict] | None = None
+) -> list[dict]:
+    history = self._conv.get_history(session_id)
+    messages: list[dict] = []
+    if self._system_prompt:
+        messages.append({"role": "system", "content": self._system_prompt})
+    messages.extend(history)
+
+    # Build user message
+    content_parts = []
+    image_b64s = []
+    max_chars = get_config("generator").get("max_attachment_chars", 8000)
+
+    for att in (attachments or []):
+        if att.get("type") == "text":
+            text = (att.get("data") or "")[:max_chars]
+            content_parts.append(f'[Attached: {att["name"]}]\n{text}')
+        elif att.get("type") == "image":
+            image_b64s.append(att.get("data", ""))
+
+    content_parts.append(query)
+    user_msg: dict = {"role": "user", "content": "\n\n".join(content_parts)}
+    if image_b64s:
+        user_msg["images"] = image_b64s
+
+    messages.append(user_msg)
+    return messages</code></pre>
+
+<div class="note">
+  <strong>History invariant:</strong> Attachments are NOT stored in conversation history.
+  Only the bare text query (without injected file context) is appended to the session
+  after generation. This keeps the context window clean across turns and avoids
+  re-sending large base64 blobs.
+</div>
+
+<!-- ============================================================ -->
+<h2>Changes: <code>config/generator.yaml</code></h2>
+
+<pre><code>max_attachment_chars: 8000   # truncation limit per text attachment</code></pre>
+
+<!-- ============================================================ -->
+<h2>New Dependency: <code>requirements.txt</code></h2>
+
+<pre><code>pypdf&gt;=4.0</code></pre>
+
+<!-- ============================================================ -->
+<h2>Story S9 — Multimodal Acceptance</h2>
+
+<p>Story file: <code>tests/stories/s9_multimodal.yaml</code></p>
+
+<table>
+  <tr><th>Turn</th><th>Input</th><th>Assertion</th><th>Mode</th></tr>
+  <tr>
+    <td>1</td>
+    <td>Attach a <code>.txt</code> file containing a known unique phrase; query: "What does the attached file say?"</td>
+    <td>Answer contains the unique phrase from the file</td>
+    <td>Automated (fixture file)</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>Attach a <code>.png</code> screenshot; query: "Describe what you see in the image"</td>
+    <td>Answer is non-empty and does not start with an error marker</td>
+    <td>Manual smoke test (vision assertion not deterministic)</td>
+  </tr>
+</table>
+
+<div class="note">
+  The automated turn injects a known fixture file at test time; no live Ollama call is
+  needed — the test can mock <code>GeneratorAgent._generate</code> to verify that
+  <code>_build_messages</code> produces the correct content string and that the
+  <code>query.received</code> envelope carries the expected <code>attachments</code> list.
+</div>
+
+<!-- ============================================================ -->
+<h2>Build Order</h2>
+
+<ol class="build">
+  <li class="step">Add <code>pypdf&gt;=4.0</code> to <code>requirements.txt</code>; run <code>pip install pypdf</code></li>
+  <li class="step">Build <code>src/local/ui/attachment_bar.py</code> — chips, paperclip button, file processing</li>
+  <li class="step">Wire <code>AttachmentBar</code> into <code>MainWindow._build_conversation_page()</code>; add drag-drop</li>
+  <li class="step">Update <code>_send_query()</code> to include <code>attachments</code> in payload and call <code>clear()</code></li>
+  <li class="step">Add attachment summary line to <code>StreamingResponseWidget</code></li>
+  <li class="step">Update <code>GeneratorAgent._build_messages()</code> to handle text and image attachments</li>
+  <li class="step">Add <code>max_attachment_chars: 8000</code> to <code>config/generator.yaml</code></li>
+  <li class="step">Write Story S9 and tests; run full suite</li>
+  <li class="step">Manual smoke test: attach image → "what do you see?"; attach PDF → ask question about it</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2>Files Changed / Added</h2>
+
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>src/local/ui/attachment_bar.py</code></td><td class="new">NEW — chip strip, paperclip button, file processing</td></tr>
+  <tr><td><code>src/local/ui/main_window.py</code></td><td>Wire AttachmentBar, drag-drop, attachments in send payload, response card summary</td></tr>
+  <tr><td><code>src/local/agents/generator_agent.py</code></td><td><code>_build_messages</code> handles text prepend + image list</td></tr>
+  <tr><td><code>config/generator.yaml</code></td><td>Add <code>max_attachment_chars</code></td></tr>
+  <tr><td><code>requirements.txt</code></td><td>Add <code>pypdf&gt;=4.0</code></td></tr>
+  <tr><td><code>tests/stories/s9_multimodal.yaml</code></td><td class="new">NEW — acceptance story</td></tr>
+</table>
+
+</body>
+</html>

@@ -1,0 +1,70 @@
+story_id: S9
+title: "File attachments + multimodal"
+description: >
+  Phase 7 acceptance. Verifies that the AttachmentBar widget processes files
+  correctly, that attachments reach the query.received bus payload, and that
+  GeneratorAgent builds the correct messages array for text and image attachments.
+
+  Automated coverage: unit tests in test_generator_agent.py (TestBuildMessagesAttachments).
+  Manual smoke tests described below.
+
+manual_checks:
+  - id: S9-M1
+    title: "Text file attachment"
+    steps:
+      - "Start the full stack"
+      - "Click the ⌁ paperclip button and select a .txt file containing a unique phrase"
+      - "Type: 'What does the attached file say?'"
+      - "Verify: a 📎 chip appears with the filename"
+      - "Send the query"
+      - "Verify: response card shows '[attached: <filename>]' summary line"
+      - "Verify: Gemma's answer includes the phrase from the file"
+      - "Verify: the chip is cleared after send"
+
+  - id: S9-M2
+    title: "PDF attachment"
+    steps:
+      - "Click ⌁ and select a PDF"
+      - "Type: 'Summarize the attached document'"
+      - "Verify: response summarises content from the PDF"
+
+  - id: S9-M3
+    title: "Image attachment (vision)"
+    steps:
+      - "Click ⌁ and select a .png or .jpg image"
+      - "Type: 'Describe what you see in the image'"
+      - "Verify: Gemma's answer references visible content from the image"
+      - "Verify: no base64 text leaks into the visible answer"
+
+  - id: S9-M4
+    title: "Unsupported file type"
+    steps:
+      - "Click ⌁ and select a .zip or .exe file"
+      - "Verify: a red ⚠ chip appears; file is NOT included in the query payload"
+
+  - id: S9-M5
+    title: "Drag-drop"
+    steps:
+      - "Drag a .txt or .png file onto the query input area"
+      - "Verify: chip appears as if picked via the file picker"
+
+  - id: S9-M6
+    title: "Multiple attachments"
+    steps:
+      - "Attach a .txt and a .png file together"
+      - "Verify: both chips appear"
+      - "Verify: response card attachment summary lists both filenames"
+      - "Verify: Gemma sees both the text context and the image"
+
+  - id: S9-M7
+    title: "Remove chip before send"
+    steps:
+      - "Attach a file; click ✕ on its chip"
+      - "Verify: chip disappears and AttachmentBar hides"
+      - "Verify: sent query payload has no attachments"
+
+notes: >
+  Vision quality depends on gemma4:e2b model capability. If vision is poor,
+  try gemma4:12b or larger. Text extraction from PDFs requires pypdf>=4.0
+  (already in requirements.txt). Attachments are NOT stored in conversation
+  history — follow-up turns do not re-send file data.

@@ -91,6 +91,7 @@ class GeneratorAgent:
         query: str = payload.get("query", "")
         session_id: str | None = payload.get("session_id")
         original_query_id: str = payload.get("query_id") or str(uuid.uuid4())
+        attachments: list = payload.get("attachments") or []
 
         # RespondentB gets its own query_id to avoid ChromaDB collision;
         # correlation_id links it back to the original query for pairwise matching.
@@ -103,7 +104,7 @@ class GeneratorAgent:
 
         self._sm.transition(GeneratorAction.RECEIVE)
 
-        messages = self._build_messages(query, session_id)
+        messages = self._build_messages(query, session_id, attachments)
         initial_len = len(messages)
         self._sm.transition(GeneratorAction.START_GENERATION)
 
@@ -149,14 +150,34 @@ class GeneratorAgent:
 
         self._sm.transition(GeneratorAction.RESET)
 
-    def _build_messages(self, query: str, session_id: str | None) -> list[dict]:
+    def _build_messages(
+        self,
+        query: str,
+        session_id: str | None,
+        attachments: list[dict] | None = None,
+    ) -> list[dict]:
         """Construct the messages array for ollama.chat() from history + new query."""
         history = self._conv.get_history(session_id)
         messages: list[dict] = []
         if self._system_prompt:
             messages.append({"role": "system", "content": self._system_prompt})
         messages.extend(history)
-        messages.append({"role": "user", "content": query})
+
+        max_chars: int = get_config("generator").get("max_attachment_chars", 8000)
+        content_parts: list[str] = []
+        image_b64s: list[str] = []
+        for att in (attachments or []):
+            if att.get("type") == "text":
+                text = (att.get("data") or "")[:max_chars]
+                content_parts.append(f'[Attached: {att["name"]}]\n{text}')
+            elif att.get("type") == "image":
+                image_b64s.append(att.get("data", ""))
+        content_parts.append(query)
+
+        user_msg: dict = {"role": "user", "content": "\n\n".join(content_parts)}
+        if image_b64s:
+            user_msg["images"] = image_b64s
+        messages.append(user_msg)
         return messages
 
     def _generate(

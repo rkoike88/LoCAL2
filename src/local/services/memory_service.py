@@ -174,6 +174,21 @@ class MemoryService:
         self._collection.update(ids=[query_id], metadatas=[merged])
         logger.debug("MemoryService: updated critic_score=%d on engram %s", score, query_id)
 
+    def update_engram_sentiment(self, query_id: str, sentiment: str) -> None:
+        """Merge user_sentiment into an existing engram's metadata.
+
+        sentiment: "positive" (+1) or "negative" (-1) stored as integer.
+        """
+        value = 1 if sentiment == "positive" else -1
+        result = self._collection.get(ids=[query_id])
+        if not result.get("ids"):
+            logger.warning("MemoryService: engram %s not found — skipping sentiment update", query_id)
+            return
+        existing_meta = (result.get("metadatas") or [{}])[0]
+        merged = {**existing_meta, "user_sentiment": value}
+        self._collection.update(ids=[query_id], metadatas=[merged])
+        logger.debug("MemoryService: updated user_sentiment=%d on engram %s", value, query_id)
+
     # ------------------------------------------------------------------
     # Embedding helpers
     # ------------------------------------------------------------------

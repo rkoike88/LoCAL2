@@ -13,6 +13,7 @@ from datetime import datetime
 try:
     from PySide6.QtCore import QObject, QThread, Qt, Signal
     from PySide6.QtWidgets import (
+        QGraphicsOpacityEffect,
         QHBoxLayout,
         QLabel,
         QLineEdit,
@@ -42,6 +43,7 @@ from local.protocol.subjects import (
     TOOL_REQUEST_WEB_SEARCH,
     TOOL_RESULT_WEB_FETCH,
     TOOL_RESULT_WEB_SEARCH,
+    USER_FEEDBACK,
 )
 from local.session.local_session import OBSERVE
 from local.transport.bus_config import PROXY_BACKEND_ADDR, PROXY_FRONTEND_ADDR
@@ -70,9 +72,12 @@ _TOOL_DEFS = [
 class StreamingResponseWidget(QWidget):
     """Response card that fills in live: thinking streams first, answer finalizes it."""
 
+    feedback = Signal(str, str)  # (query_id, sentiment)
+
     def __init__(self, ts: str) -> None:
         super().__init__()
         self.setObjectName("responseItem")
+        self._query_id: str = ""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 10, 16, 10)
         layout.setSpacing(6)
@@ -105,14 +110,44 @@ class StreamingResponseWidget(QWidget):
         self._answer_label.setVisible(False)
         layout.addWidget(self._answer_label)
 
+        # Bottom row: score label (left) + thumbs (right)
+        bottom_row = QHBoxLayout()
+        bottom_row.setContentsMargins(0, 0, 0, 0)
+
         self._score_label = QLabel()
         self._score_label.setObjectName("scoreLabel")
-        self._score_label.setAlignment(Qt.AlignRight)
         self._score_label.setVisible(False)
-        layout.addWidget(self._score_label)
+        bottom_row.addWidget(self._score_label)
+        bottom_row.addStretch()
+
+        self._thumb_up = QPushButton("👍")
+        self._thumb_up.setFlat(True)
+        self._thumb_up.setCursor(Qt.PointingHandCursor)
+        self._thumb_up.setFixedSize(28, 28)
+        self._thumb_up.setVisible(False)
+        self._thumb_up.setToolTip("Good response")
+        self._thumb_up_opacity = QGraphicsOpacityEffect()
+        self._thumb_up_opacity.setOpacity(0.3)
+        self._thumb_up.setGraphicsEffect(self._thumb_up_opacity)
+
+        self._thumb_down = QPushButton("👎")
+        self._thumb_down.setFlat(True)
+        self._thumb_down.setCursor(Qt.PointingHandCursor)
+        self._thumb_down.setFixedSize(28, 28)
+        self._thumb_down.setVisible(False)
+        self._thumb_down.setToolTip("Poor response")
+        self._thumb_down_opacity = QGraphicsOpacityEffect()
+        self._thumb_down_opacity.setOpacity(0.3)
+        self._thumb_down.setGraphicsEffect(self._thumb_down_opacity)
+
+        bottom_row.addWidget(self._thumb_up)
+        bottom_row.addWidget(self._thumb_down)
+        layout.addLayout(bottom_row)
 
         self._thinking_visible = True
         self._toggle_btn.clicked.connect(self._toggle)
+        self._thumb_up.clicked.connect(lambda: self._emit_feedback("positive"))
+        self._thumb_down.clicked.connect(lambda: self._emit_feedback("negative"))
 
     def set_score(self, score: int | None, feedback: str) -> None:
         if score is None:
@@ -136,7 +171,8 @@ class StreamingResponseWidget(QWidget):
             self._thinking_box.verticalScrollBar().maximum()
         )
 
-    def finalize(self, ts: str, answer: str, tool_calls: list) -> None:
+    def finalize(self, ts: str, answer: str, tool_calls: list, query_id: str = "") -> None:
+        self._query_id = query_id
         tool_ind = f"  ⚙ {len(tool_calls)} tool call(s)" if tool_calls else ""
         self._header.setText(f"[{ts}] RESPONSE{tool_ind}")
         if self._toggle_btn.isVisible():
@@ -145,6 +181,18 @@ class StreamingResponseWidget(QWidget):
             self._toggle_btn.setText("◈ thinking  ▶")
         self._answer_label.setText(answer or "(empty)")
         self._answer_label.setVisible(True)
+        if query_id:
+            self._thumb_up.setVisible(True)
+            self._thumb_down.setVisible(True)
+
+    def _emit_feedback(self, sentiment: str) -> None:
+        if not self._query_id:
+            return
+        self._thumb_up_opacity.setOpacity(1.0 if sentiment == "positive" else 0.15)
+        self._thumb_down_opacity.setOpacity(1.0 if sentiment == "negative" else 0.15)
+        self._thumb_up.setEnabled(False)
+        self._thumb_down.setEnabled(False)
+        self.feedback.emit(self._query_id, sentiment)
 
     def _toggle(self) -> None:
         self._thinking_visible = not self._thinking_visible
@@ -476,7 +524,8 @@ class MainWindow(QMainWindow):
         if widget is None:
             widget = StreamingResponseWidget(data["ts"])
             self._insert_log_widget(widget)
-        widget.finalize(data["ts"], data["answer"], data["tool_calls"])
+        widget.finalize(data["ts"], data["answer"], data["tool_calls"], query_id=query_id)
+        widget.feedback.connect(self._on_user_feedback)
         if query_id:
             self._response_widgets[query_id] = widget
         self._scroll_to_bottom()
@@ -486,6 +535,21 @@ class MainWindow(QMainWindow):
         widget = self._response_widgets.get(query_id)
         if widget:
             widget.set_score(data.get("score"), data.get("feedback", ""))
+
+    def _on_user_feedback(self, query_id: str, sentiment: str) -> None:
+        envelope = MessageEnvelope.create(
+            message_type="user_feedback",
+            subject=USER_FEEDBACK,
+            sender_id="ui",
+            payload={
+                "query_id": query_id,
+                "session_id": self._session_id,
+                "sentiment": sentiment,
+            },
+            correlation_id=query_id,
+            metadata={"session_id": self._session_id},
+        )
+        self._publisher.publish(envelope)
 
     def append_log(self, text: str) -> None:
         label = QLabel(text)

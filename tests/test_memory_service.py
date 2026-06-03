@@ -312,3 +312,44 @@ class TestUpdateEngramScore:
         svc = _make_service(col)
         svc.update_engram_score("missing-id", 3)
         col.update.assert_not_called()
+
+
+# ------------------------------------------------------------------
+# Episodic store — update_engram_sentiment
+# ------------------------------------------------------------------
+
+class TestUpdateEngramSentiment:
+    def _existing_meta(self) -> dict:
+        return {"type": "episodic", "query": "q", "timestamp": 1234567890.0}
+
+    def test_positive_stores_plus_one(self):
+        col = MagicMock()
+        col.get.return_value = {"ids": ["qid-1"], "metadatas": [self._existing_meta()]}
+        svc = _make_service(col)
+        svc.update_engram_sentiment("qid-1", "positive")
+        updated = col.update.call_args.kwargs["metadatas"][0]
+        assert updated["user_sentiment"] == 1
+
+    def test_negative_stores_minus_one(self):
+        col = MagicMock()
+        col.get.return_value = {"ids": ["qid-1"], "metadatas": [self._existing_meta()]}
+        svc = _make_service(col)
+        svc.update_engram_sentiment("qid-1", "negative")
+        updated = col.update.call_args.kwargs["metadatas"][0]
+        assert updated["user_sentiment"] == -1
+
+    def test_preserves_existing_metadata(self):
+        col = MagicMock()
+        col.get.return_value = {"ids": ["qid-1"], "metadatas": [self._existing_meta()]}
+        svc = _make_service(col)
+        svc.update_engram_sentiment("qid-1", "positive")
+        updated = col.update.call_args.kwargs["metadatas"][0]
+        assert updated["type"] == "episodic"
+        assert updated["timestamp"] == 1234567890.0
+
+    def test_skips_update_when_engram_not_found(self):
+        col = MagicMock()
+        col.get.return_value = {"ids": []}
+        svc = _make_service(col)
+        svc.update_engram_sentiment("missing", "positive")
+        col.update.assert_not_called()

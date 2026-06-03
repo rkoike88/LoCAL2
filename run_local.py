@@ -63,6 +63,11 @@ def _start_critic() -> None:
     CriticAgent().run()
 
 
+def _start_reward(memory_service) -> None:
+    from local.services.reward_service import RewardService
+    RewardService(memory_service=memory_service).run()
+
+
 def _start_api(port: int) -> None:
     import uvicorn
     from local.api.gateway import app
@@ -106,6 +111,9 @@ def main() -> None:
 
     # -- Critic --------------------------------------------------------------
     threading.Thread(target=_start_critic, daemon=True, name="critic").start()
+
+    # -- Reward --------------------------------------------------------------
+    threading.Thread(target=_start_reward, args=(shared_memory,), daemon=True, name="reward").start()
 
     # -- API -----------------------------------------------------------------
     if args.api:

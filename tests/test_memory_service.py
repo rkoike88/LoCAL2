@@ -214,6 +214,56 @@ class TestSearchEpisodic:
         kwargs = col.query.call_args.kwargs
         assert kwargs.get("where") == {"type": "episodic"}
 
+    def test_critic_score_5_boosts_result(self):
+        col = MagicMock()
+        col.query.return_value = _make_query_result(
+            ["high_quality", "unscored"],
+            [
+                {"type": "episodic", "query": "q", "critic_score": 5},
+                {"type": "episodic", "query": "q"},
+            ],
+            [0.3, 0.1],  # unscored would win on raw similarity (score 0.9 vs 0.7)
+        )
+        svc = _make_service(col)
+        cfg_patch = {"critic_score_weight": 0.05}
+        with patch("local.services.memory_service.ollama.embeddings", return_value={"embedding": FAKE_EMBEDDING}), \
+             patch("local.services.memory_service.get_config", side_effect=lambda name: cfg_patch if name == "search_memory" else {}):
+            results = svc.search_episodic("query")
+        # high_quality: 0.7 + (5-3)*0.05 = 0.70 + 0.10 = 0.80
+        # unscored: 0.9 (no adjustment)
+        # unscored still wins; high_quality score should be 0.80
+        hq = next(r for r in results if r["content"] == "high_quality")
+        assert hq["score"] == pytest.approx(0.80, abs=0.01)
+
+    def test_critic_score_1_penalises_result(self):
+        col = MagicMock()
+        col.query.return_value = _make_query_result(
+            ["low_quality"],
+            [{"type": "episodic", "query": "q", "critic_score": 1}],
+            [0.0],  # perfect similarity
+        )
+        svc = _make_service(col)
+        cfg_patch = {"critic_score_weight": 0.05}
+        with patch("local.services.memory_service.ollama.embeddings", return_value={"embedding": FAKE_EMBEDDING}), \
+             patch("local.services.memory_service.get_config", side_effect=lambda name: cfg_patch if name == "search_memory" else {}):
+            results = svc.search_episodic("query")
+        # 1.0 + (1-3)*0.05 = 1.0 - 0.10 = 0.90
+        assert results[0]["score"] == pytest.approx(0.90, abs=0.01)
+
+    def test_unscored_engram_not_adjusted(self):
+        col = MagicMock()
+        col.query.return_value = _make_query_result(
+            ["unscored"],
+            [{"type": "episodic", "query": "q"}],
+            [0.2],
+        )
+        svc = _make_service(col)
+        cfg_patch = {"critic_score_weight": 0.05}
+        with patch("local.services.memory_service.ollama.embeddings", return_value={"embedding": FAKE_EMBEDDING}), \
+             patch("local.services.memory_service.get_config", side_effect=lambda name: cfg_patch if name == "search_memory" else {}):
+            results = svc.search_episodic("query")
+        assert results[0]["score"] == pytest.approx(0.80, abs=0.01)
+
 
 # ------------------------------------------------------------------
 # Episodic store — update_engram_score

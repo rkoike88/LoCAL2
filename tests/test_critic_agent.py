@@ -142,3 +142,40 @@ class TestGradePromptConstruction:
         agent._grade("Q", "A")
         prompt = mock_llm.chat.call_args.args[0][0]["content"]
         assert "Score 5: Perfect." in prompt
+
+
+# ------------------------------------------------------------------
+# _handle_generation: tool call skip
+# ------------------------------------------------------------------
+
+class TestHandleGenerationToolSkip:
+    def _make_envelope(self, tool_calls=None) -> MagicMock:
+        env = MagicMock()
+        env.subject = "response.generation"
+        env.correlation_id = "corr-1"
+        env.payload = {
+            "query": "how do I like my eggs?",
+            "answer": "Based on your memory, scrambled.",
+            "session_id": "s1",
+            "query_id": "q1",
+            "tool_calls": tool_calls or [],
+        }
+        return env
+
+    def test_skips_grade_when_tool_calls_present(self):
+        agent, mock_llm = _make_agent("Feedback: OK. [RESULT] 4")
+        env = self._make_envelope(tool_calls=[{"name": "search_memory", "result": "scrambled"}])
+        agent._handle_generation(env)
+        mock_llm.chat.assert_not_called()
+
+    def test_skips_publish_when_tool_calls_present(self):
+        agent, mock_llm = _make_agent("Feedback: OK. [RESULT] 4")
+        env = self._make_envelope(tool_calls=[{"name": "search_memory", "result": "scrambled"}])
+        agent._handle_generation(env)
+        agent._pub.publish.assert_not_called()
+
+    def test_grades_when_no_tool_calls(self):
+        agent, mock_llm = _make_agent("Feedback: OK. [RESULT] 4")
+        env = self._make_envelope(tool_calls=[])
+        agent._handle_generation(env)
+        mock_llm.chat.assert_called_once()

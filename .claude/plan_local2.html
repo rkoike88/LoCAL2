@@ -357,9 +357,10 @@
       <ul>
         <li>Second GeneratorAgent instance (RespondentB) with behavioural variation via config</li>
         <li>Prometheus pairwise comparison via <code>critic_agent_tool.py</code> (Gemma-callable)</li>
-        <li>user.feedback → RewardService → reward.event to producing agent</li>
+        <li>user.feedback (thumbs up/down) → RewardService → reward.event to producing agent — eventual direction is conversational feedback initiated by Gemma rather than a UI control</li>
         <li>Score-weighted retrieval in SearchMemoryTool</li>
       </ul>
+      <p style="color:#94a3b8; font-size:0.85rem; margin-top:0.75rem;"><strong>Deferred to later phase:</strong> Low-score retry ("would you like me to try again?"). Correct design is Gemma initiating the retry conversation when it is aware of its own critic score — requires experimentation with how to surface critique.result back into Gemma's context.</p>
     </div>
   </div>
 

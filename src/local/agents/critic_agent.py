@@ -107,6 +107,10 @@ class CriticAgent:
         if not query or not answer or payload.get("error"):
             return
 
+        if payload.get("tool_calls"):
+            logger.debug("CriticAgent: skipping grade — tool calls present")
+            return
+
         self._sm.transition(CriticAction.RECEIVE)
         self._sm.transition(CriticAction.START_GRADE)
 

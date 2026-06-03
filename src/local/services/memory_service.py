@@ -134,6 +134,9 @@ class MemoryService:
         metas = (result.get("metadatas") or [[]])[0]
         distances = (result.get("distances") or [[]])[0]
 
+        sm_cfg = get_config("search_memory")
+        critic_weight: float = sm_cfg.get("critic_score_weight", 0.05)
+
         candidates = []
         query_lower = query.lower()
         for doc, meta, dist in zip(docs, metas, distances):
@@ -146,6 +149,9 @@ class MemoryService:
                         score += 0.1
                 except Exception:
                     pass
+            critic_score = meta.get("critic_score")
+            if critic_score is not None:
+                score += (int(critic_score) - 3) * critic_weight
             candidates.append({"content": doc, "metadata": meta, "score": score})
 
         candidates.sort(key=lambda c: c["score"], reverse=True)

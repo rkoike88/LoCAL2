@@ -102,7 +102,9 @@ class SearchMemoryTool:
             return "[no relevant memories found]"
         lines = []
         for i, c in enumerate(candidates, 1):
-            lines.append(f"{i}. {c['content']}")
+            critic_score = c["metadata"].get("critic_score")
+            suffix = f" [quality: {critic_score}/5]" if critic_score is not None else ""
+            lines.append(f"{i}.{suffix} {c['content']}")
         return "\n\n".join(lines)
 
     def _publish_activity(self, event_type: str, data: dict, correlation_id: str | None) -> None:

@@ -17,7 +17,8 @@ from local.agents.memory_agent_actions import MemoryAgentAction
 from local.agents.memory_agent_states import MemoryAgentState
 from local.agents.memory_agent_transitions import TRANSITIONS
 from local.config_loader import get_config
-from local.protocol.subjects import CRITIQUE, PAIRWISE_RESULT, RESPONSE_GENERATION
+from local.protocol.envelope import MessageEnvelope
+from local.protocol.subjects import AGENT_TRANSITION, CRITIQUE, PAIRWISE_RESULT, RESPONSE_GENERATION
 from local.services.memory_service import MemoryService
 from local.services.ollama_backend import OllamaBackend
 from local.transport.bus_config import make_participant_bus
@@ -43,8 +44,9 @@ A: {answer}"""
 
 
 class _StateMachine:
-    def __init__(self) -> None:
+    def __init__(self, on_transition=None) -> None:
         self._state = MemoryAgentState.IDLE
+        self._on_transition = on_transition
 
     @property
     def state(self) -> MemoryAgentState:
@@ -56,7 +58,10 @@ class _StateMachine:
         if next_state is None:
             logger.warning("MemoryAgent: invalid transition %s + %s", self._state, action)
             return
+        from_state = self._state
         self._state = next_state
+        if self._on_transition:
+            self._on_transition(from_state, action, next_state)
 
 
 class MemoryAgent:
@@ -71,8 +76,8 @@ class MemoryAgent:
         model = cfg.get("model", "gemma4:e4b")
         self._memory = memory_service or MemoryService()
         self._llm = llm or OllamaBackend(model=model, agent_name=self.AGENT_ID)
-        self._sm = _StateMachine()
         self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION, CRITIQUE, PAIRWISE_RESULT])
+        self._sm = _StateMachine(on_transition=self._publish_transition)
 
     def run(self) -> None:
         print(f"[memory_agent] ready")
@@ -88,6 +93,22 @@ class MemoryAgent:
                 self._handle_critique(envelope)
             elif envelope.subject == PAIRWISE_RESULT:
                 self._handle_pairwise(envelope)
+
+    def _publish_transition(self, from_state, action, to_state) -> None:
+        try:
+            self._pub.publish(MessageEnvelope.create(
+                message_type="transition",
+                subject=AGENT_TRANSITION,
+                sender_id=self.AGENT_ID,
+                payload={
+                    "agent": self.AGENT_ID,
+                    "from": from_state.name,
+                    "action": action.name,
+                    "to": to_state.name,
+                },
+            ))
+        except Exception:
+            pass
 
     def _handle_generation(self, envelope) -> None:
         payload = envelope.payload

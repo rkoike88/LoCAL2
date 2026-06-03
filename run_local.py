@@ -146,7 +146,7 @@ def main() -> None:
 
         app_qt = QApplication(sys.argv)
         publisher = ZmqPublisher(PROXY_FRONTEND_ADDR, bind=False)
-        window = MainWindow(publisher=publisher, model=args.model)
+        window = MainWindow(publisher=publisher, model=args.model, memory_service=shared_memory)
         signal.signal(signal.SIGINT, lambda *_: app_qt.quit())
         # Wake Python every 200ms so the SIGINT handler can fire while Qt owns the loop.
         _sigint_timer = QTimer()

@@ -21,7 +21,7 @@ from local.agents.critic_states import CriticState
 from local.agents.critic_transitions import TRANSITIONS
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
-from local.protocol.subjects import CRITIQUE, PAIRWISE_RESULT, RESPONSE_GENERATION
+from local.protocol.subjects import AGENT_TRANSITION, CRITIQUE, PAIRWISE_RESULT, RESPONSE_GENERATION
 from local.services.ollama_backend import OllamaBackend
 from local.transport.bus_config import make_participant_bus
 
@@ -72,8 +72,9 @@ _PAIRWISE_BUFFER_MAX = 100
 
 
 class _StateMachine:
-    def __init__(self) -> None:
+    def __init__(self, on_transition=None) -> None:
         self._state = CriticState.IDLE
+        self._on_transition = on_transition
 
     @property
     def state(self) -> CriticState:
@@ -85,7 +86,10 @@ class _StateMachine:
         if next_state is None:
             logger.warning("CriticAgent: invalid transition %s + %s", self._state, action)
             return
+        from_state = self._state
         self._state = next_state
+        if self._on_transition:
+            self._on_transition(from_state, action, next_state)
 
 
 class CriticAgent:
@@ -101,10 +105,10 @@ class CriticAgent:
         }
         timeout: int = cfg.get("grade_timeout", 30)
         self._llm = llm or OllamaBackend(model=model, agent_name=self.AGENT_ID, timeout=timeout)
-        self._sm = _StateMachine()
         # correlation_id → {"A": entry, "B": entry}; evict oldest when > max
         self._pairwise_buffer: dict[str, dict] = {}
         self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION])
+        self._sm = _StateMachine(on_transition=self._publish_transition)
 
     def run(self) -> None:
         print("[critic] ready")
@@ -249,6 +253,22 @@ class CriticAgent:
             feedback = feedback[len("feedback:"):].strip()
 
         return score, feedback
+
+    def _publish_transition(self, from_state, action, to_state) -> None:
+        try:
+            self._pub.publish(MessageEnvelope.create(
+                message_type="transition",
+                subject=AGENT_TRANSITION,
+                sender_id=self.AGENT_ID,
+                payload={
+                    "agent": self.AGENT_ID,
+                    "from": from_state.value,
+                    "action": action.value,
+                    "to": to_state.value,
+                },
+            ))
+        except Exception:
+            pass  # never let transition logging break the agent
 
     def _grade_pairwise(self, query: str, answer_a: str, answer_b: str) -> str | None:
         """Call Prometheus pairwise comparison. Returns 'A', 'B', or None on failure."""

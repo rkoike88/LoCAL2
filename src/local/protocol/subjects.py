@@ -35,3 +35,6 @@ REWARD_EVENT = "reward.event"
 
 # Phase 5 — pairwise comparison
 PAIRWISE_RESULT = "pairwise.result"
+
+# Phase 6 — agent state transition visibility
+AGENT_TRANSITION = "agent.transition"

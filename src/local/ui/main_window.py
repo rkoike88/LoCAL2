@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 
 try:
-    from PySide6.QtCore import QObject, QThread, Qt, Signal
+    from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal
     from PySide6.QtWidgets import (
         QGraphicsOpacityEffect,
         QHBoxLayout,
@@ -31,9 +31,11 @@ except ImportError as exc:
 
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
+    AGENT_TRANSITION,
     ANSWER_DIALOG,
     CRITIQUE,
     GENERATION_THINKING,
+    PAIRWISE_RESULT,
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
     TOOL_ACTIVITY_SEARCH_MEMORY,
@@ -43,25 +45,21 @@ from local.protocol.subjects import (
     TOOL_REQUEST_WEB_SEARCH,
     TOOL_RESULT_WEB_FETCH,
     TOOL_RESULT_WEB_SEARCH,
+    TOOL_SCHEMA,
+    TOOL_SCHEMA_REQUEST,
     USER_FEEDBACK,
 )
 from local.session.local_session import OBSERVE
 from local.transport.bus_config import PROXY_BACKEND_ADDR, PROXY_FRONTEND_ADDR
 from local.transport.zmq_pubsub import ZmqPublisher, ZmqSubscriber
-from local.ui.tool_panel import ToolPanel
+from local.ui.critic_window import CriticWindow
+from local.ui.memory_window import MemoryWindow
+from local.ui.tool_window import ToolWindow
 
-# Activity subjects that tool panels need to receive
 _TOOL_ACTIVITY_SUBJECTS = [
     TOOL_ACTIVITY_SEARCH_MEMORY,
     TOOL_ACTIVITY_WEB_SEARCH,
     TOOL_ACTIVITY_WEB_FETCH,
-]
-
-# (label, tooltip, config_name, activity_subject)
-_TOOL_DEFS = [
-    ("Sm", "search_memory",           "search_memory",           TOOL_ACTIVITY_SEARCH_MEMORY),
-    ("Ws", "web_search",              "web_search",              TOOL_ACTIVITY_WEB_SEARCH),
-    ("Wf", "web_fetch",               "web_fetch",               TOOL_ACTIVITY_WEB_FETCH),
 ]
 
 
@@ -238,6 +236,9 @@ class BusLogger(QObject):
     thinking_chunk = Signal(dict)
     response = Signal(dict)
     critique = Signal(dict)
+    pairwise = Signal(dict)
+    agent_transition = Signal(dict)
+    tool_schema = Signal(str)        # emits tool name on tool.schema arrival
     tool_activity = Signal(object)   # passes MessageEnvelope through
 
     def log_envelope(self, envelope: MessageEnvelope) -> None:
@@ -248,6 +249,20 @@ class BusLogger(QObject):
 
         if subject in _TOOL_ACTIVITY_SUBJECTS:
             self.tool_activity.emit(envelope)
+            return
+
+        if subject == TOOL_SCHEMA:
+            name = (raw.get("schema") or {}).get("function", {}).get("name", "")
+            if name:
+                self.tool_schema.emit(name)
+            return
+
+        if subject == PAIRWISE_RESULT:
+            self.pairwise.emit(raw)
+            return
+
+        if subject == AGENT_TRANSITION:
+            self.agent_transition.emit(raw)
             return
 
         if subject == GENERATION_THINKING:
@@ -286,6 +301,8 @@ class BusLogger(QObject):
                 "score": raw.get("score"),
                 "feedback": raw.get("feedback", ""),
                 "query_id": raw.get("query_id", ""),
+                "query": raw.get("query", ""),
+                "respondent_id": raw.get("respondent_id", "A"),
             })
             return
 
@@ -311,7 +328,7 @@ class BusLogger(QObject):
 
 class MainWindow(QMainWindow):
 
-    def __init__(self, publisher: ZmqPublisher, model: str = "") -> None:
+    def __init__(self, publisher: ZmqPublisher, model: str = "", memory_service=None) -> None:
         super().__init__()
         self._publisher = publisher
         self._session_id = str(uuid.uuid4())
@@ -323,20 +340,18 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(title)
         self.resize(960, 720)
 
-        # ── Tool panels (one per tool, keyed by activity subject) ─────
-        self._tool_panels: dict[str, ToolPanel] = {}
+        # ── Tool windows — spawned reactively on tool.schema ──────────
+        self._tool_windows: dict[str, ToolWindow] = {}  # keyed by tool name
 
-        # ── Stack: page 0 = conversation, pages 1-N = tool panels ─────
+        # ── Agent windows — spawned at startup ────────────────────────
+        self._critic_window = CriticWindow(publisher=publisher)
+        self._critic_window.show()
+        self._memory_window = MemoryWindow(memory_service=memory_service)
+        self._memory_window.show()
+
+        # ── Stack: page 0 = conversation only ─────────────────────────
         self._stack = QStackedWidget()
         self._stack.addWidget(self._build_conversation_page())
-        for label, tooltip, config_name, activity_subject in _TOOL_DEFS:
-            panel = ToolPanel(
-                tool_name=tooltip,
-                config_name=config_name,
-                publisher=publisher,
-            )
-            self._tool_panels[activity_subject] = panel
-            self._stack.addWidget(panel)
 
         # ── Icon strip ────────────────────────────────────────────────
         icon_strip = self._build_sidebar()
@@ -439,16 +454,6 @@ class MainWindow(QMainWindow):
         strip_layout.addSpacing(4)
 
         strip_layout.addWidget(chat_btn, alignment=Qt.AlignHCenter)
-
-        # Tool nav buttons (stack pages start at index 1)
-        for stack_idx, (label, tooltip, _, _) in enumerate(_TOOL_DEFS, start=1):
-            btn = QPushButton(label)
-            btn.setObjectName("sidebarNavBtn")
-            btn.setToolTip(tooltip)
-            btn.setFixedSize(36, 36)
-            btn.clicked.connect(lambda checked=False, idx=stack_idx: self._stack.setCurrentIndex(idx))
-            strip_layout.addWidget(btn, alignment=Qt.AlignHCenter)
-
         strip_layout.addStretch()
         return icon_strip
 
@@ -457,13 +462,19 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _start_bus_monitor(self) -> None:
-        all_subjects = list(OBSERVE) + _TOOL_ACTIVITY_SUBJECTS
+        all_subjects = (
+            list(OBSERVE) + _TOOL_ACTIVITY_SUBJECTS
+            + [TOOL_SCHEMA, PAIRWISE_RESULT, AGENT_TRANSITION]
+        )
         self._bus_logger = BusLogger()
         self._bus_logger.message.connect(self.append_log)
         self._bus_logger.thinking_chunk.connect(self._on_thinking_chunk)
         self._bus_logger.response.connect(self._on_response)
         self._bus_logger.critique.connect(self._on_critique)
         self._bus_logger.tool_activity.connect(self._on_tool_activity)
+        self._bus_logger.tool_schema.connect(self._on_tool_schema)
+        self._bus_logger.pairwise.connect(self._critic_window.append_pairwise)
+        self._bus_logger.agent_transition.connect(self._on_agent_transition)
 
         self._monitor_worker = BusMonitorWorker(PROXY_BACKEND_ADDR, subscriptions=all_subjects)
         self._monitor_worker.envelope_received.connect(self._bus_logger.log_envelope)
@@ -473,14 +484,38 @@ class MainWindow(QMainWindow):
         self._monitor_thread.started.connect(self._monitor_worker.run)
         self._monitor_thread.start()
 
+        # Request tool schemas after subscriber connects — tools re-announce
+        # so the UI can spawn windows for any tool already running.
+        QTimer.singleShot(600, self._request_tool_schemas)
+
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
 
     def _on_tool_activity(self, envelope: MessageEnvelope) -> None:
-        panel = self._tool_panels.get(envelope.subject)
-        if panel:
-            panel.append_activity(envelope)
+        tool_name = envelope.subject.split(".")[-1]
+        win = self._tool_windows.get(tool_name)
+        if win:
+            win.append_activity(envelope)
+
+    def _request_tool_schemas(self) -> None:
+        self._publisher.publish(MessageEnvelope.create(
+            message_type="schema_request",
+            subject=TOOL_SCHEMA_REQUEST,
+            sender_id="ui",
+            payload={},
+        ))
+
+    def _on_tool_schema(self, tool_name: str) -> None:
+        if tool_name not in self._tool_windows:
+            win = ToolWindow(tool_name=tool_name, publisher=self._publisher)
+            win.show()
+            self._tool_windows[tool_name] = win
+
+    def _on_agent_transition(self, data: dict) -> None:
+        agent = data.get("agent", "")
+        if agent == "critic":
+            self._critic_window.append_transition(data)
 
     def _send_query(self) -> None:
         query = self._query_input.text().strip()
@@ -541,6 +576,7 @@ class MainWindow(QMainWindow):
         widget = self._response_widgets.get(query_id)
         if widget:
             widget.set_score(data.get("score"), data.get("feedback", ""))
+        self._critic_window.append_critique(data)
 
     def _on_user_feedback(self, query_id: str, sentiment: str) -> None:
         envelope = MessageEnvelope.create(

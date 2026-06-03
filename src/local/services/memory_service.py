@@ -159,6 +159,25 @@ class MemoryService:
         candidates.sort(key=lambda c: c["score"], reverse=True)
         return candidates[:n]
 
+    def list_episodic(self, n: int = 100) -> list[dict[str, Any]]:
+        """Return the n most recent episodic engrams, newest first."""
+        result = self._collection.get(
+            where={"type": "episodic"},
+            include=["metadatas", "documents"],
+        )
+        ids   = result.get("ids") or []
+        docs  = result.get("documents") or []
+        metas = result.get("metadatas") or []
+        items = sorted(
+            zip(ids, docs, metas),
+            key=lambda x: x[2].get("timestamp", 0),
+            reverse=True,
+        )
+        return [
+            {"id": id_, "content": doc, "metadata": meta}
+            for id_, doc, meta in items[:n]
+        ]
+
     def update_engram_score(self, query_id: str, score: int) -> None:
         """Merge critic_score into an existing engram's metadata.
 

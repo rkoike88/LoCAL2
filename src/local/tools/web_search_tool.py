@@ -75,7 +75,10 @@ class WebSearchTool:
 
     def _handle_request(self, envelope: MessageEnvelope) -> None:
         args: dict = envelope.payload.get("args", {})
-        query: str = args.get("query", "")
+        query = args.get("query") or args.get("queries") or ""
+        if isinstance(query, list):
+            query = " ".join(str(q) for q in query if q)
+        query = str(query).strip()
         correlation_id = envelope.correlation_id
 
         self._publish_activity("request", {"query": query}, correlation_id)

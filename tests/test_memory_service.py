@@ -353,3 +353,67 @@ class TestUpdateEngramSentiment:
         svc = _make_service(col)
         svc.update_engram_sentiment("missing", "positive")
         col.update.assert_not_called()
+
+
+# ------------------------------------------------------------------
+# Episodic store — list_episodic
+# ------------------------------------------------------------------
+
+class TestListEpisodic:
+    def test_returns_engrams_sorted_newest_first(self):
+        col = MagicMock()
+        col.get.return_value = {
+            "ids": ["old", "new", "mid"],
+            "documents": ["doc-old", "doc-new", "doc-mid"],
+            "metadatas": [
+                {"type": "episodic", "timestamp": 1000.0},
+                {"type": "episodic", "timestamp": 3000.0},
+                {"type": "episodic", "timestamp": 2000.0},
+            ],
+        }
+        svc = _make_service(col)
+        results = svc.list_episodic()
+        assert [r["id"] for r in results] == ["new", "mid", "old"]
+
+    def test_respects_n_limit(self):
+        col = MagicMock()
+        col.get.return_value = {
+            "ids": ["a", "b", "c"],
+            "documents": ["da", "db", "dc"],
+            "metadatas": [
+                {"type": "episodic", "timestamp": 3.0},
+                {"type": "episodic", "timestamp": 2.0},
+                {"type": "episodic", "timestamp": 1.0},
+            ],
+        }
+        svc = _make_service(col)
+        results = svc.list_episodic(n=2)
+        assert len(results) == 2
+        assert results[0]["id"] == "a"
+
+    def test_result_contains_id_content_metadata(self):
+        col = MagicMock()
+        col.get.return_value = {
+            "ids": ["qid-1"],
+            "documents": ["Q\nA"],
+            "metadatas": [{"type": "episodic", "timestamp": 1.0, "critic_score": 4}],
+        }
+        svc = _make_service(col)
+        results = svc.list_episodic()
+        assert results[0]["id"] == "qid-1"
+        assert results[0]["content"] == "Q\nA"
+        assert results[0]["metadata"]["critic_score"] == 4
+
+    def test_empty_collection_returns_empty_list(self):
+        col = MagicMock()
+        col.get.return_value = {"ids": [], "documents": [], "metadatas": []}
+        svc = _make_service(col)
+        assert svc.list_episodic() == []
+
+    def test_filters_by_episodic_type(self):
+        col = MagicMock()
+        col.get.return_value = {"ids": [], "documents": [], "metadatas": []}
+        svc = _make_service(col)
+        svc.list_episodic()
+        kwargs = col.get.call_args.kwargs
+        assert kwargs.get("where") == {"type": "episodic"}

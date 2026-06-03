@@ -147,6 +147,57 @@ critic_score_weight: 0.05</div>
 <p>← returns to the activity view. Save writes the file and publishes
 <code>CONFIG_RELOAD</code> so the tool reloads on next invocation.</p>
 
+<h2>MemoryWindow — Browse + Semantic Search</h2>
+
+<p>Two modes toggled by a button in the header. Both share the same table; the
+mode determines what populates it.</p>
+
+<table>
+  <tr><th>Mode</th><th>Source</th><th>Sort</th><th>Trigger</th></tr>
+  <tr>
+    <td><strong>Browse</strong></td>
+    <td><code>memory_service.list_episodic(n=100)</code></td>
+    <td>Newest first</td>
+    <td>Refresh button or on window open</td>
+  </tr>
+  <tr>
+    <td><strong>Search</strong></td>
+    <td><code>memory_service.search_episodic(query)</code></td>
+    <td>Ranked by similarity + critic score bias — same order Gemma sees</td>
+    <td>Enter in search field</td>
+  </tr>
+</table>
+
+<h3>Layout</h3>
+<pre><code>┌─────────────────────────────────────────────┐
+│  🧠 Memory        [Browse] [Search] [Refresh]│   ← header
+├─────────────────────────────────────────────┤
+│  ┌─ search field (visible in Search mode) ─┐│
+│  │  eggs preference              [Search]  ││
+│  └─────────────────────────────────────────┘│
+├──────┬──────┬───────┬───────┬────────┬──────┤
+│ Age  │ Resp │ Score │ Senti │ Winner │ Query│   ← table
+├──────┼──────┼───────┼───────┼────────┼──────┤
+│ 2m   │  A   │  4/5  │  👍   │  ✓     │ What…│
+│ 8m   │  B   │  3/5  │  —    │  ✗     │ What…│
+└──────┴──────┴───────┴───────┴────────┴──────┘
+┌─────────────────────────────────────────────┐
+│  Q: What do you like for breakfast?         │   ← detail pane
+│  A: Based on your memory, you like scrambled│   (click a row)
+│     eggs…                                  │
+└─────────────────────────────────────────────┘</code></pre>
+
+<ul>
+  <li>Search field is hidden in Browse mode, shown in Search mode</li>
+  <li>In Search mode, results show a <strong>Score</strong> column that reflects the
+      composite similarity + critic bias — the same ranking Gemma uses when deciding
+      what to retrieve</li>
+  <li>Refresh in Browse mode reloads all engrams; in Search mode re-runs the last query</li>
+  <li>Search calls <code>search_episodic()</code> on the Qt thread — embedding call
+      takes ~1–2s; show a "Searching…" status label while it runs
+      (use <code>QThread</code> worker to avoid blocking UI)</li>
+</ul>
+
 <h2>Reactive Window Spawning</h2>
 
 <p>Tools already publish <code>tool.schema</code> on startup. The UI's BusLogger
@@ -354,7 +405,7 @@ stays the same — swap dict name only.</p>
   <tr><td>2</td><td><code>subjects.py</code> + agents</td><td>Add <code>AGENT_TRANSITION</code>; instrument <code>_StateMachine</code> in CriticAgent + MemoryAgent with <code>on_transition</code> callback → publish <code>agent.transition</code></td></tr>
   <tr><td>3</td><td><code>src/local/ui/tool_window.py</code></td><td>New ToolWindow: activity log + ⚙/← settings toggle + YAML save</td></tr>
   <tr><td>4</td><td><code>src/local/ui/critic_window.py</code></td><td>New CriticWindow: grade/pairwise activity log + state transitions + critic.yaml settings</td></tr>
-  <tr><td>5</td><td><code>src/local/ui/memory_window.py</code></td><td>New MemoryWindow: engram table + Refresh + detail pane</td></tr>
+  <tr><td>5</td><td><code>src/local/ui/memory_window.py</code></td><td>New MemoryWindow: Browse mode (list_episodic, newest first) + Search mode (search_episodic, semantic ranked); shared table; detail pane on row click; QThread worker for search to avoid UI block</td></tr>
   <tr><td>6</td><td><code>main_window.py</code></td><td>Remove _TOOL_DEFS + stack pages + sidebar tool btns; reactive spawn on tool.schema; spawn CriticWindow + MemoryWindow at init; pass memory_service; BusLogger subscribes to AGENT_TRANSITION + pairwise.result</td></tr>
   <tr><td>7</td><td><code>run_local.py</code></td><td>Pass <code>shared_memory</code> to MainWindow</td></tr>
 </table>

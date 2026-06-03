@@ -50,7 +50,7 @@ from local.protocol.subjects import (
     USER_FEEDBACK,
 )
 from local.session.local_session import OBSERVE
-from local.transport.bus_config import PROXY_BACKEND_ADDR, PROXY_FRONTEND_ADDR
+from local.transport.bus_config import PROXY_BACKEND_ADDR
 from local.transport.zmq_pubsub import ZmqPublisher, ZmqSubscriber
 from local.ui.critic_window import CriticWindow
 from local.ui.memory_window import MemoryWindow
@@ -516,6 +516,8 @@ class MainWindow(QMainWindow):
         agent = data.get("agent", "")
         if agent == "critic":
             self._critic_window.append_transition(data)
+        elif agent == "memory_agent":
+            self._memory_window.append_transition(data)
 
     def _send_query(self) -> None:
         query = self._query_input.text().strip()

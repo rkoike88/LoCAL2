@@ -3,10 +3,12 @@
 Browse mode: list_episodic() — all engrams, newest first.
 Search mode: search_episodic() — semantic search, ranked as Gemma sees them.
 Embedding call runs in a QThread worker so the UI stays responsive.
+Transition log strip at bottom shows memory_agent state transitions.
 """
 from __future__ import annotations
 
 import time
+from datetime import datetime
 
 try:
     from PySide6.QtCore import QObject, QThread, Qt, Signal
@@ -72,6 +74,7 @@ class MemoryWindow(QWidget):
         layout.addWidget(self._build_header())
         layout.addWidget(self._build_search_bar())
         layout.addWidget(self._build_splitter(), 1)
+        layout.addWidget(self._build_transition_log())
 
         self._apply_styles()
 
@@ -277,6 +280,25 @@ class MemoryWindow(QWidget):
         self._detail.setPlainText(content)
 
     # ------------------------------------------------------------------
+    # Transition log
+    # ------------------------------------------------------------------
+
+    def _build_transition_log(self) -> QWidget:
+        self._transition_log = QTextEdit()
+        self._transition_log.setObjectName("memTransitionLog")
+        self._transition_log.setReadOnly(True)
+        self._transition_log.setFixedHeight(56)
+        return self._transition_log
+
+    def append_transition(self, data: dict) -> None:
+        ts = datetime.now().strftime("%H:%M:%S")
+        from_s = data.get("from", "?")
+        action = data.get("action", "?")
+        to_s = data.get("to", "?")
+        line = f'<span style="color:#444">[{ts}]  {from_s} → {to_s}  ({action})</span>'
+        self._transition_log.append(line)
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
@@ -332,5 +354,10 @@ class MemoryWindow(QWidget):
                 background: #141414; color: #aaa; border: none; border-top: 1px solid #2a2a2a;
                 font-family: 'Menlo','Monaco','Courier New'; font-size: 12px;
                 padding: 8px;
+            }
+            QTextEdit#memTransitionLog {
+                background: #0e0e0e; color: #444; border: none; border-top: 1px solid #1e1e1e;
+                font-family: 'Menlo','Monaco','Courier New'; font-size: 11px;
+                padding: 4px 8px;
             }
         """)

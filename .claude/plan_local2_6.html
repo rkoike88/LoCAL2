@@ -29,25 +29,27 @@
   .note   { background: #1e1a10; border-left: 4px solid #888;
             padding: 10px 14px; margin: 12px 0; border-radius: 0 6px 6px 0;
             font-size: 0.9em; color: #aaa; }
-  .sidebar-mock {
-    display: inline-flex; flex-direction: column; align-items: center;
-    background: #1a1a1a; border: 1px solid #333; border-radius: 6px;
-    padding: 10px 8px; gap: 8px; font-family: monospace; font-size: 13px;
-    vertical-align: top; min-width: 52px;
+  .window-mock {
+    background: #1a1a1a; border: 1px solid #444; border-radius: 8px;
+    font-family: monospace; font-size: 12px; overflow: hidden;
+    display: inline-block; min-width: 280px; vertical-align: top;
   }
-  .sidebar-btn {
-    width: 36px; height: 36px; display: flex; align-items: center;
-    justify-content: center; border-radius: 4px; cursor: default;
-    color: #d4d4d4; background: #2a2a2a;
+  .window-titlebar {
+    background: #2a2a2a; padding: 6px 10px; border-bottom: 1px solid #333;
+    color: #aaa; display: flex; justify-content: space-between; align-items: center;
   }
-  .sidebar-btn.new-btn { background: #1a2a1a; color: #7ec8a4; border: 1px solid #3a4a3a; }
-  .sidebar-sep { width: 28px; height: 1px; background: #333; margin: 2px 0; }
-  .layout-row { display: flex; gap: 16px; align-items: flex-start; margin: 16px 0; }
-  .stack-mock {
-    flex: 1; background: #141414; border: 1px solid #333; border-radius: 6px;
-    padding: 16px; font-family: monospace; font-size: 12px; color: #888;
-  }
-  .stack-label { color: #c9a96e; font-weight: bold; margin-bottom: 8px; }
+  .window-title { color: #d4d4d4; font-weight: bold; }
+  .window-body { padding: 10px; color: #888; min-height: 120px; }
+  .gear { color: #7ec8a4; cursor: default; }
+  .back { color: #7ec8a4; cursor: default; font-size: 14px; }
+  .activity-line { color: #888; margin: 3px 0; }
+  .activity-line.req { color: #7ec8a4; }
+  .activity-line.res { color: #9dbde8; }
+  .yaml-editor { background: #111; border: 1px solid #333; border-radius: 4px;
+                 padding: 8px; color: #ce9178; margin-bottom: 8px; min-height: 80px; }
+  .save-btn { background: #1a3a1a; border: 1px solid #3a5a3a; color: #7ec8a4;
+              padding: 3px 12px; border-radius: 4px; font-size: 11px; cursor: default; }
+  .layout-row { display: flex; gap: 20px; align-items: flex-start; margin: 20px 0; flex-wrap: wrap; }
 </style>
 </head>
 <body>
@@ -55,171 +57,193 @@
 <h1>Phase 6 — Observability UI</h1>
 
 <div class="phase">
-  <strong>Goal:</strong> Surface every participant's activity in its own panel.
-  Each agent/tool gets a dedicated place in the UI with an activity log and
-  settings controls. Critic (currently invisible) gets a panel. The generator's
-  episodic memory becomes browsable via a memory inspector.
+  <strong>Core change:</strong> Each tool/agent gets its own floating window that appears
+  automatically when the tool starts. Windows can be open simultaneously alongside the
+  conversation. No page flipping. The main conversation window becomes leaner —
+  just the chat view and input.
 </div>
 
-<h2>Motivation</h2>
-<p>
-  Phase 5 introduced a shadow generator (RespondentB), pairwise grading, and
-  engram annotations — but none of it is observable from the UI. You can't see
-  what the critic scored, what's in memory, or whether the pairwise winner
-  annotation landed. Phase 6 makes all of that visible.
-</p>
-<p>
-  The existing tool panel structure (Activity + Settings per tool) is the right
-  pattern — extend it to cover Critic and add a new Memory Inspector panel.
-  No new interaction patterns needed; just more panels.
-</p>
+<h2>Design Principles</h2>
+<ul>
+  <li><strong>Reactive spawn.</strong> A tool window appears when its <code>tool.schema</code>
+      announcement arrives on the bus — same signal the generator already uses for schema
+      registration. No hardcoded tool list in the UI.</li>
+  <li><strong>Activity-first.</strong> Each window opens on the activity log (messages in/out).
+      Settings are one tap away via a gear icon ⚙️ — they don't compete for screen space.</li>
+  <li><strong>Single view at a time.</strong> No tabs. The window shows either activity or
+      settings, toggled by ⚙️ / ← within the window's own header bar.</li>
+  <li><strong>Live reload on Save.</strong> Saving YAML writes the file and publishes
+      <code>CONFIG_RELOAD</code> — the tool re-reads its config on the next request.
+      No restart needed.</li>
+</ul>
 
-<h2>What Changes</h2>
+<h2>Window Layout</h2>
 
-<h3>Sidebar — before and after</h3>
-
+<h3>Activity view (default)</h3>
 <div class="layout-row">
-  <div>
-    <p style="color:#888; font-size:12px; margin-bottom:8px;">Before</p>
-    <div class="sidebar-mock">
-      <div class="sidebar-btn">+</div>
-      <div class="sidebar-btn">⟳</div>
-      <div class="sidebar-sep"></div>
-      <div class="sidebar-btn">◉</div>
-      <div class="sidebar-btn">Sm</div>
-      <div class="sidebar-btn">Ws</div>
-      <div class="sidebar-btn">Wf</div>
+  <div class="window-mock">
+    <div class="window-titlebar">
+      <span class="window-title">search_memory</span>
+      <span class="gear">⚙</span>
+    </div>
+    <div class="window-body">
+      <div class="activity-line req">→ request</div>
+      <div class="activity-line" style="padding-left:12px">query: eggs preference</div>
+      <div class="activity-line res">← result</div>
+      <div class="activity-line" style="padding-left:12px">You like scrambled eggs [quality: 4/5]</div>
+      <div class="activity-line req">→ request</div>
+      <div class="activity-line" style="padding-left:12px">query: coffee preference</div>
+      <div class="activity-line res">← result</div>
+      <div class="activity-line" style="padding-left:12px">(no results)</div>
     </div>
   </div>
-  <div>
-    <p style="color:#888; font-size:12px; margin-bottom:8px;">After</p>
-    <div class="sidebar-mock">
-      <div class="sidebar-btn">+</div>
-      <div class="sidebar-btn">⟳</div>
-      <div class="sidebar-sep"></div>
-      <div class="sidebar-btn">◉</div>
-      <div class="sidebar-btn">Sm</div>
-      <div class="sidebar-btn">Ws</div>
-      <div class="sidebar-btn">Wf</div>
-      <div class="sidebar-btn new-btn">Cr</div>
-      <div class="sidebar-btn new-btn">🧠</div>
+
+  <div class="window-mock">
+    <div class="window-titlebar">
+      <span class="window-title">web_search</span>
+      <span class="gear">⚙</span>
+    </div>
+    <div class="window-body">
+      <div class="activity-line req">→ request</div>
+      <div class="activity-line" style="padding-left:12px">query: weather Tokyo today</div>
+      <div class="activity-line res">← result</div>
+      <div class="activity-line" style="padding-left:12px">1. weather.com/Tokyo…</div>
+      <div class="activity-line" style="padding-left:12px">2. accuweather.com…</div>
+    </div>
+  </div>
+
+  <div class="window-mock">
+    <div class="window-titlebar">
+      <span class="window-title">critic</span>
+      <span class="gear">⚙</span>
+    </div>
+    <div class="window-body">
+      <div class="activity-line req">● 4/5  respondent=A</div>
+      <div class="activity-line" style="padding-left:12px">Q: What is the capital…</div>
+      <div class="activity-line" style="padding-left:12px; color:#666">Accurate and concise…</div>
+      <div class="activity-line" style="color:#9dbde8; margin-top:6px">⟺ pairwise  winner=A</div>
     </div>
   </div>
 </div>
 
-<p>
-  <strong>◉</strong> = Conversation (generator's primary view) &nbsp;·&nbsp;
-  <strong>Sm/Ws/Wf</strong> = tool panels (unchanged) &nbsp;·&nbsp;
-  <strong class="new">Cr</strong> = Critic panel &nbsp;·&nbsp;
-  <strong class="new">🧠</strong> = Memory inspector (generator's episodic store)
-</p>
+<h3>Settings view (after tapping ⚙)</h3>
+<div class="layout-row">
+  <div class="window-mock">
+    <div class="window-titlebar">
+      <span class="back">← </span>
+      <span class="window-title">search_memory — settings</span>
+      <span style="width:16px"></span>
+    </div>
+    <div class="window-body">
+      <div class="yaml-editor">
+embed_model: nomic-embed-text
+n_results: 5
+critic_score_weight: 0.05</div>
+      <div style="text-align:right"><span class="save-btn">Save</span></div>
+    </div>
+  </div>
+</div>
 
-<h3>Stack pages — before and after</h3>
-<table>
-  <tr><th>Index</th><th>Before</th><th>After</th></tr>
-  <tr><td>0</td><td>Conversation</td><td>Conversation (unchanged)</td></tr>
-  <tr><td>1</td><td>Sm — search_memory</td><td>Sm — search_memory (unchanged)</td></tr>
-  <tr><td>2</td><td>Ws — web_search</td><td>Ws — web_search (unchanged)</td></tr>
-  <tr><td>3</td><td>Wf — web_fetch</td><td>Wf — web_fetch (unchanged)</td></tr>
-  <tr><td>4</td><td class="todo">—</td><td class="new">Cr — CriticPanel</td></tr>
-  <tr><td>5</td><td class="todo">—</td><td class="new">🧠 — MemoryInspectorPanel</td></tr>
-</table>
+<p>← returns to the activity view. Save writes the file and publishes
+<code>CONFIG_RELOAD</code> so the tool reloads on next invocation.</p>
 
-<h2>New Panels</h2>
+<h2>Reactive Window Spawning</h2>
 
-<h3>CriticPanel <code>src/local/ui/critic_panel.py</code></h3>
+<p>Tools already publish <code>tool.schema</code> on startup. The UI's BusLogger
+already receives this. The change: when a new tool schema arrives for a tool
+we haven't seen before, create a <code>ToolWindow</code> and call <code>show()</code>.</p>
 
-<p>Same two-tab structure as <code>ToolPanel</code>. No new bus subscription
-needed — it connects to <code>BusLogger.critique</code> which already exists
-and is emitted on every <code>critique.result</code> event.</p>
+<pre><code># In BusLogger / MainWindow._register_tool_schema():
+def _on_tool_schema(self, schema: dict) -> None:
+    name = schema.get("function", {}).get("name", "")
+    if name not in self._tool_windows:
+        win = ToolWindow(tool_name=name, publisher=self._publisher)
+        win.show()
+        self._tool_windows[name] = win
+    # route future activity events to this window</code></pre>
 
-<h4>Activity tab</h4>
-<p>Each grade event appended as a compact card:</p>
-<pre><code>[21:07:04.3]  ● 4/5  (pairwise: A won)
-  Q: What is the boiling point of water?
-  Feedback: Accurate and concise. Minor omission…</code></pre>
-<ul>
-  <li>Score badge colour-coded (same scheme as conversation panel)</li>
-  <li>Shows <code>respondent_id</code> and <code>pairwise_winner</code> when present</li>
-  <li>Feedback text truncated to ~120 chars, full text on hover (tooltip)</li>
-</ul>
+<p>The hardcoded <code>_TOOL_DEFS</code> list in <code>main_window.py</code> is removed.
+The <code>QStackedWidget</code> pages for tools are removed. Sidebar tool nav buttons
+are removed.</p>
 
-<h4>Settings tab</h4>
-<p>Reuses ToolPanel's YAML editor + Save pattern for <code>config/critic.yaml</code>.
-Note: critic saves do <em>not</em> trigger <code>TOOL_SCHEMA_REQUEST</code>
-(critic has no tool schema). Save writes the file only; critic picks it up
-on next restart.</p>
+<h3>Critic window</h3>
+<p>Critic is a system agent, not a tool — it doesn't publish <code>tool.schema</code>.
+Its window spawns at app startup unconditionally (same time as the conversation window),
+since critic is always running when the stack is up. It subscribes to
+<code>critique.result</code> and <code>pairwise.result</code> via BusLogger signals.</p>
 
-<h3>MemoryInspectorPanel <code>src/local/ui/memory_inspector.py</code></h3>
-
-<p>Pull model — no bus subscription. Queries <code>MemoryService</code> directly on
-Refresh. Safe to call from Qt thread (ChromaDB reads are thread-safe).</p>
-
-<h4>Layout</h4>
-<pre><code>┌──────────────────────────────────────────────┐
-│  Memory Inspector            [Refresh]        │
-├──────┬──────┬───────┬───────┬────────┬───────┤
-│ Age  │ Resp │ Score │ Senti │ Winner │ Query │
-├──────┼──────┼───────┼───────┼────────┼───────┤
-│ 2m   │  A   │  4/5  │  👍   │  ✓     │ What… │
-│ 8m   │  B   │  3/5  │  —    │  ✗     │ What… │
-│ 1h   │  A   │  —    │  —    │  —     │ Tell… │
-└──────┴──────┴───────┴───────┴────────┴───────┘</code></pre>
-
-<ul>
-  <li><strong>Age</strong>: human-readable relative time (seconds/minutes/hours)</li>
-  <li><strong>Resp</strong>: <code>A</code> or <code>B</code> from <code>respondent_id</code> metadata</li>
-  <li><strong>Score</strong>: <code>critic_score</code> if present, else <code>—</code></li>
-  <li><strong>Sentiment</strong>: 👍 / 👎 from <code>user_sentiment</code> (+1/-1), else <code>—</code></li>
-  <li><strong>Winner</strong>: ✓ / ✗ from <code>pairwise_winner</code> (True/False), else <code>—</code></li>
-  <li><strong>Query</strong>: <code>query</code> metadata field, truncated to ~60 chars</li>
-  <li>Rows sorted newest first; max 100 rows (configurable)</li>
-  <li>Click a row to show full content in a panel below the table</li>
-</ul>
+<h3>Memory Inspector window</h3>
+<p>Memory Inspector is also spawned at startup. It is not reactive to bus events —
+it's pull model (Refresh button queries MemoryService directly). It lives in its
+own floating window like the others.</p>
 
 <h2>New / Modified Files</h2>
 
 <table>
   <tr><th>File</th><th>Change</th></tr>
   <tr>
-    <td><code>src/local/services/memory_service.py</code></td>
-    <td class="new">Add <code>list_episodic(n=100)</code> — returns all episodic engrams sorted by timestamp desc</td>
+    <td><code>src/local/ui/tool_window.py</code></td>
+    <td class="new">New. Floating window with activity log + ⚙/← settings toggle (QStackedWidget internal to window: page 0=activity, page 1=YAML editor). Replaces <code>tool_panel.py</code>.</td>
   </tr>
   <tr>
-    <td><code>src/local/ui/critic_panel.py</code></td>
-    <td class="new">New CriticPanel widget — activity log (critique events) + settings (critic.yaml)</td>
+    <td><code>src/local/ui/critic_window.py</code></td>
+    <td class="new">New. Floating window for critic: activity log of absolute grades + pairwise results; ⚙ opens critic.yaml settings.</td>
   </tr>
   <tr>
-    <td><code>src/local/ui/memory_inspector.py</code></td>
-    <td class="new">New MemoryInspectorPanel widget — QTableWidget + Refresh + detail view</td>
+    <td><code>src/local/ui/memory_window.py</code></td>
+    <td class="new">New. Floating window: engram table (Age / Resp / Score / Sentiment / Winner / Query) + Refresh button + detail pane. Requires <code>MemoryService</code>. Needs <code>list_episodic()</code> on MemoryService.</td>
+  </tr>
+  <tr>
+    <td><code>src/local/ui/tool_panel.py</code></td>
+    <td>Retained for now; <code>ToolWindow</code> extracts the same logic. Can be deleted once <code>ToolWindow</code> is proven.</td>
   </tr>
   <tr>
     <td><code>src/local/ui/main_window.py</code></td>
-    <td>Accept <code>memory_service</code> param; add Cr and 🧠 to stack + sidebar; wire BusLogger.critique → CriticPanel; subscribe to PAIRWISE_RESULT in BusLogger for Cr panel enrichment</td>
+    <td>Remove <code>_TOOL_DEFS</code>, remove tool pages from QStackedWidget, remove tool sidebar nav buttons. Add reactive spawn in <code>_register_tool_schema()</code>. Add <code>memory_service</code> param. Spawn CriticWindow + MemoryWindow at init.</td>
+  </tr>
+  <tr>
+    <td><code>src/local/services/memory_service.py</code></td>
+    <td class="new">Add <code>list_episodic(n=100)</code>.</td>
   </tr>
   <tr>
     <td><code>run_local.py</code></td>
-    <td>Pass <code>shared_memory</code> to <code>MainWindow()</code></td>
+    <td>Pass <code>shared_memory</code> to <code>MainWindow</code>.</td>
   </tr>
 </table>
 
-<h2>BusLogger — pairwise enrichment</h2>
-<p>
-  <code>critique.result</code> payloads currently carry <code>respondent_id</code>
-  and <code>score</code> but not <code>pairwise_winner</code> (that lands later
-  via <code>pairwise.result</code>). The simplest approach for Phase 6: CriticPanel
-  also subscribes to <code>PAIRWISE_RESULT</code> via BusLogger. When a
-  <code>pairwise.result</code> arrives, append a separate compact line to the
-  activity log:
-</p>
-<pre><code>[21:07:18.1]  ⟺ pairwise  winner=A
-  A: 46868de7  B: 8a1c2f39</code></pre>
-<p>No need to retroactively update the absolute grade cards — the pairwise line
-lands a few seconds later and the sequence is self-explanatory.</p>
+<h2>ToolWindow internal layout</h2>
+
+<pre><code>ToolWindow (QWidget, top-level window)
+└── QVBoxLayout
+    ├── Header bar (QHBoxLayout)
+    │     ├── ← back button  [hidden on activity view]
+    │     ├── title label
+    │     └── ⚙ gear button  [hidden on settings view]
+    └── QStackedWidget
+          ├── page 0: activity log (QScrollArea → QVBoxLayout of QLabel rows)
+          └── page 1: settings (QPlainTextEdit YAML + Save button)</code></pre>
+
+<p>Gear button → switch to page 1, show ←, hide ⚙.<br>
+Back button → switch to page 0, hide ←, show ⚙.</p>
+
+<h2>Activity log entry format</h2>
+<p>Each tool request/result pair appended as two lines:</p>
+<pre><code>[21:07:04.3]  → request
+   query: eggs preference
+
+[21:07:04.8]  ← result
+   You like scrambled eggs [quality: 4/5]</code></pre>
+
+<p>Critic window uses the same pattern, different content:</p>
+<pre><code>[21:07:18.1]  ● 4/5  respondent=A
+   Q: What is the capital of Japan?
+   Feedback: Accurate and concise answer…
+
+[21:07:35.0]  ⟺ pairwise  winner=A
+   A: 46868de7  B: 8a1c2f39</code></pre>
 
 <h2>MemoryService — <code>list_episodic()</code></h2>
 <pre><code>def list_episodic(self, n: int = 100) -> list[dict]:
-    """Return the n most recent episodic engrams, newest first."""
     result = self._collection.get(
         where={"type": "episodic"},
         include=["metadatas", "documents"],
@@ -232,94 +256,117 @@ lands a few seconds later and the sequence is self-explanatory.</p>
         key=lambda x: x[2].get("timestamp", 0),
         reverse=True,
     )
-    return [
-        {"id": id_, "content": doc, "metadata": meta}
-        for id_, doc, meta in items[:n]
-    ]</code></pre>
-<div class="note">
-  ChromaDB <code>get()</code> returns all matching documents. For typical LoCAL2
-  usage (hundreds of engrams) this is fast. If the collection grows very large
-  (thousands), add a timestamp filter. For Phase 6, the simple approach is fine.
-</div>
+    return [{"id": id_, "content": doc, "metadata": meta}
+            for id_, doc, meta in items[:n]]</code></pre>
 
-<h2>MainWindow — constructor change</h2>
-<pre><code>class MainWindow(QMainWindow):
-    def __init__(
-        self,
-        publisher: ZmqPublisher,
-        model: str = "",
-        memory_service=None,        # new — passed in from run_local.py
-    ) -> None:</code></pre>
-<p>
-  <code>memory_service</code> is passed to <code>MemoryInspectorPanel</code>.
-  If <code>None</code> (e.g., headless test), the panel shows "No memory service".
-</p>
+<h2>State Transition Visibility</h2>
 
-<h2>BusLogger — new signals</h2>
+<p>Agents have explicit state machines (Generator, Critic, MemoryAgent) that cycle through
+states on every message. Currently those transitions are silent. Surfacing them in the
+agent's window gives a live picture of what the agent is doing — especially useful for
+seeing Critic's grading latency and MemoryAgent's ingest pipeline.</p>
+
+<h3>Mechanism — <code>agent.transition</code> bus subject</h3>
+
+<p>Each agent's <code>_StateMachine</code> accepts an optional <code>on_transition</code>
+callback. When set, the callback fires after every valid transition with
+<code>(agent_id, from_state, action, to_state)</code>. The agent passes a method
+that publishes an <code>agent.transition</code> envelope.</p>
+
+<pre><code># subjects.py
+AGENT_TRANSITION = "agent.transition"
+
+# In _StateMachine.transition():
+def transition(self, action):
+    ...
+    self._state = next_state
+    if self._on_transition:
+        self._on_transition(from_state, action, next_state)
+
+# In CriticAgent.__init__():
+self._sm = _StateMachine(on_transition=self._publish_transition)
+
+def _publish_transition(self, from_state, action, to_state):
+    self._pub.publish(MessageEnvelope.create(
+        subject=AGENT_TRANSITION,
+        payload={"agent": self.AGENT_ID,
+                 "from": from_state.value,
+                 "action": action.value,
+                 "to": to_state.value},
+        ...
+    ))</code></pre>
+
+<p>Same pattern for GeneratorAgent and MemoryAgent. Tools (WebSearchTool etc.) are
+synchronous and don't have state machines — their activity log already shows the full
+request/result pair, which is sufficient.</p>
+
+<h3>Display in agent windows</h3>
+
+<p>Transition lines appear in the activity log interleaved with request/result entries,
+in a dimmer colour so they don't dominate:</p>
+
+<pre><code>[21:07:04.0]  IDLE → RECEIVING           (dim grey)
+[21:07:04.1]  RECEIVING → GRADING
+[21:07:04.1]  ● 4/5  respondent=A        (bright — grade result)
+[21:07:18.1]  GRADING → PUBLISHING
+[21:07:18.2]  PUBLISHING → IDLE</code></pre>
+
+<p>The gap between RECEIVING → GRADING and the grade result line shows Prometheus latency
+directly — no need for separate timing instrumentation.</p>
+
+<h3>BusLogger change</h3>
+
+<p>BusLogger subscribes to <code>AGENT_TRANSITION</code>. When received, it routes to
+the correct window by <code>payload["agent"]</code>:</p>
+<ul>
+  <li><code>agent=critic</code> → CriticWindow</li>
+  <li><code>agent=memory_agent</code> → (displayed in CriticWindow or a future MemoryAgentWindow)</li>
+  <li><code>agent=generator</code> → main conversation window status bar (or omitted — generator transitions are fast and less interesting visually)</li>
+</ul>
+
+<h3>Files added for transitions</h3>
 <table>
-  <tr><th>Signal</th><th>Emitted on</th><th>Consumed by</th></tr>
-  <tr>
-    <td><code>critique</code></td>
-    <td><code>critique.result</code></td>
-    <td>Existing: score badge on response widget. New: CriticPanel activity tab</td>
-  </tr>
-  <tr>
-    <td class="new"><code>pairwise</code></td>
-    <td><code>pairwise.result</code></td>
-    <td>CriticPanel activity tab (pairwise result line)</td>
-  </tr>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>src/local/protocol/subjects.py</code></td><td class="new">Add <code>AGENT_TRANSITION = "agent.transition"</code></td></tr>
+  <tr><td><code>src/local/agents/critic_agent.py</code></td><td>Pass <code>on_transition</code> callback to <code>_StateMachine</code>; publish <code>AGENT_TRANSITION</code></td></tr>
+  <tr><td><code>src/local/agents/memory_agent.py</code></td><td>Same pattern</td></tr>
+  <tr><td><code>src/local/agents/generator_agent.py</code></td><td>Same pattern (optional — generator transitions are fast; include if useful)</td></tr>
 </table>
-<p>
-  <code>PAIRWISE_RESULT</code> needs to be added to <code>OBSERVE</code>
-  (or the bus monitor subscription list) so BusLogger sees it.
-</p>
+
+<h2>Activity routing after reactive spawn</h2>
+<p>Currently <code>_TOOL_ACTIVITY_SUBJECTS</code> and <code>_tool_panels</code> dict route
+bus activity events to the right panel. After the change, <code>_tool_windows</code>
+dict serves the same purpose. The routing logic in <code>_on_tool_activity()</code>
+stays the same — swap dict name only.</p>
+
+<div class="note">
+  Activity subjects (<code>tool.activity.search_memory</code> etc.) are still published
+  by tools. The bus monitor subscription list must include them — no change there.
+  The only difference is that events are routed to a <code>ToolWindow</code> instead
+  of a <code>ToolPanel</code>.
+</div>
 
 <h2>Build Order</h2>
 
 <table>
   <tr><th>Step</th><th>File</th><th>What</th></tr>
-  <tr>
-    <td>1</td>
-    <td><code>memory_service.py</code></td>
-    <td>Add <code>list_episodic(n=100)</code></td>
-  </tr>
-  <tr>
-    <td>2</td>
-    <td><code>src/local/ui/critic_panel.py</code></td>
-    <td>New CriticPanel: activity log + YAML settings for critic.yaml</td>
-  </tr>
-  <tr>
-    <td>3</td>
-    <td><code>src/local/ui/memory_inspector.py</code></td>
-    <td>New MemoryInspectorPanel: table + refresh + detail pane</td>
-  </tr>
-  <tr>
-    <td>4</td>
-    <td><code>main_window.py</code></td>
-    <td>Wire everything: memory_service param, add panels to stack, add Cr/🧠 sidebar buttons, BusLogger pairwise signal, connect CriticPanel</td>
-  </tr>
-  <tr>
-    <td>5</td>
-    <td><code>run_local.py</code></td>
-    <td>Pass <code>shared_memory</code> to MainWindow</td>
-  </tr>
+  <tr><td>1</td><td><code>memory_service.py</code></td><td>Add <code>list_episodic(n=100)</code> + unit test</td></tr>
+  <tr><td>2</td><td><code>subjects.py</code> + agents</td><td>Add <code>AGENT_TRANSITION</code>; instrument <code>_StateMachine</code> in CriticAgent + MemoryAgent with <code>on_transition</code> callback → publish <code>agent.transition</code></td></tr>
+  <tr><td>3</td><td><code>src/local/ui/tool_window.py</code></td><td>New ToolWindow: activity log + ⚙/← settings toggle + YAML save</td></tr>
+  <tr><td>4</td><td><code>src/local/ui/critic_window.py</code></td><td>New CriticWindow: grade/pairwise activity log + state transitions + critic.yaml settings</td></tr>
+  <tr><td>5</td><td><code>src/local/ui/memory_window.py</code></td><td>New MemoryWindow: engram table + Refresh + detail pane</td></tr>
+  <tr><td>6</td><td><code>main_window.py</code></td><td>Remove _TOOL_DEFS + stack pages + sidebar tool btns; reactive spawn on tool.schema; spawn CriticWindow + MemoryWindow at init; pass memory_service; BusLogger subscribes to AGENT_TRANSITION + pairwise.result</td></tr>
+  <tr><td>7</td><td><code>run_local.py</code></td><td>Pass <code>shared_memory</code> to MainWindow</td></tr>
 </table>
 
-<h2>What This Does NOT Include</h2>
-<ul>
-  <li>Generator settings panel (generator.yaml editable in UI) — can be a Phase 6b addition</li>
-  <li>Memory search / query from inspector UI — Phase 6b</li>
-  <li>Delete / prune engrams from inspector — Phase 6b</li>
-  <li>Real-time push updates to memory inspector (auto-refresh on new engram) — Phase 6b</li>
-</ul>
-
 <h2>Story S8</h2>
-<p>After Phase 6 is built, run a query and verify:</p>
 <ol>
-  <li>Cr panel shows the absolute grade within ~30s (score, feedback snippet)</li>
-  <li>If <code>--respondent-b</code> enabled: Cr panel shows the pairwise result line after both grades arrive</li>
-  <li>🧠 panel: click Refresh — the engram from the query appears with Age, Score, and (if B enabled) Winner column populated</li>
-  <li>Sentiment: give a 👍 on a response — click Refresh in 🧠 panel — that engram now shows 👍</li>
+  <li>Start stack — tool windows for search_memory, web_search, web_fetch appear automatically; CriticWindow and MemoryWindow open at startup</li>
+  <li>Send a query — activity entries appear in the relevant tool windows in real time</li>
+  <li>Click ⚙ on search_memory window — YAML settings appear; edit <code>n_results</code>, click Save — tool reloads; click ← to return to activity</li>
+  <li>After ~30s: CriticWindow shows grade entry with score and feedback snippet</li>
+  <li>Click Refresh in MemoryWindow — engram appears with Age, Score, Respondent columns populated</li>
+  <li>Give a 👍 on the response — Refresh MemoryWindow — Sentiment shows 👍</li>
 </ol>
 
 </body>

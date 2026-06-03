@@ -5,3 +5,4 @@ class MemoryAgentAction(Enum):
     START_INGEST = auto()
     COMPLETE = auto()
     UPDATE_SCORE = auto()
+    ANNOTATE_PAIRWISE = auto()

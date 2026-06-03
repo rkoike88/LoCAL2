@@ -32,3 +32,6 @@ CONFIG_RELOAD = "config.reload"
 CRITIQUE = "critique.result"
 USER_FEEDBACK = "user.feedback"
 REWARD_EVENT = "reward.event"
+
+# Phase 5 — pairwise comparison
+PAIRWISE_RESULT = "pairwise.result"

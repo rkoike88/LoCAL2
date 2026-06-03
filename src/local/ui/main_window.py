@@ -251,6 +251,8 @@ class BusLogger(QObject):
             return
 
         if subject == GENERATION_THINKING:
+            if raw.get("respondent_id", "A") == "B":
+                return
             self.thinking_chunk.emit({
                 "ts": ts,
                 "chunk": raw.get("chunk") or "",
@@ -259,6 +261,8 @@ class BusLogger(QObject):
             return
 
         if subject == RESPONSE_GENERATION:
+            if raw.get("respondent_id", "A") == "B":
+                return  # RespondentB answers are for pairwise comparison only
             self.response.emit({
                 "ts": ts,
                 "answer": (raw.get("answer") or "").strip(),
@@ -273,6 +277,8 @@ class BusLogger(QObject):
             text = f"[{ts}] QUERY\n  {query}"
 
         elif subject == ANSWER_DIALOG:
+            if raw.get("respondent_id", "A") == "B":
+                return
             text = f"[{ts}] DIALOG  (conversation recorded)"
 
         elif subject == CRITIQUE:

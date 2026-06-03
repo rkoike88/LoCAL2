@@ -5,3 +5,4 @@ class MemoryAgentState(Enum):
     IDLE = auto()
     INGESTING = auto()
     UPDATING_SCORE = auto()
+    ANNOTATING_PAIRWISE = auto()

@@ -94,10 +94,12 @@ class MemoryService:
         if metadata:
             intent = metadata.get("intent", "")
             entities = metadata.get("entities", [])
+            respondent_id = metadata.get("respondent_id", "A")
             if intent:
                 meta["intent"] = intent
             if entities:
                 meta["entities"] = json.dumps(entities)
+            meta["respondent_id"] = respondent_id
         self._collection.add(
             ids=[doc_id],
             documents=[content],
@@ -173,6 +175,24 @@ class MemoryService:
         merged = {**existing_meta, "critic_score": score}
         self._collection.update(ids=[query_id], metadatas=[merged])
         logger.debug("MemoryService: updated critic_score=%d on engram %s", score, query_id)
+
+    def annotate_pairwise(self, query_id_a: str, query_id_b: str, winner: str) -> None:
+        """Write pairwise_winner: True/False to both engrams.
+
+        winner: 'A' or 'B' — the respondent whose answer was judged better.
+        """
+        for qid, respondent in ((query_id_a, "A"), (query_id_b, "B")):
+            result = self._collection.get(ids=[qid])
+            if not result.get("ids"):
+                logger.warning("MemoryService: engram %s not found — skipping pairwise annotation", qid)
+                continue
+            existing_meta = (result.get("metadatas") or [{}])[0]
+            merged = {**existing_meta, "pairwise_winner": winner == respondent}
+            self._collection.update(ids=[qid], metadatas=[merged])
+            logger.debug(
+                "MemoryService: annotated pairwise_winner=%s on engram %s",
+                winner == respondent, qid,
+            )
 
     def update_engram_sentiment(self, query_id: str, sentiment: str) -> None:
         """Merge user_sentiment into an existing engram's metadata.

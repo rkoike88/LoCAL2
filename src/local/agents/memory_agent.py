@@ -17,7 +17,7 @@ from local.agents.memory_agent_actions import MemoryAgentAction
 from local.agents.memory_agent_states import MemoryAgentState
 from local.agents.memory_agent_transitions import TRANSITIONS
 from local.config_loader import get_config
-from local.protocol.subjects import CRITIQUE, RESPONSE_GENERATION
+from local.protocol.subjects import CRITIQUE, PAIRWISE_RESULT, RESPONSE_GENERATION
 from local.services.memory_service import MemoryService
 from local.services.ollama_backend import OllamaBackend
 from local.transport.bus_config import make_participant_bus
@@ -72,7 +72,7 @@ class MemoryAgent:
         self._memory = memory_service or MemoryService()
         self._llm = llm or OllamaBackend(model=model, agent_name=self.AGENT_ID)
         self._sm = _StateMachine()
-        self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION, CRITIQUE])
+        self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION, CRITIQUE, PAIRWISE_RESULT])
 
     def run(self) -> None:
         print(f"[memory_agent] ready")
@@ -86,12 +86,15 @@ class MemoryAgent:
                 self._handle_generation(envelope)
             elif envelope.subject == CRITIQUE:
                 self._handle_critique(envelope)
+            elif envelope.subject == PAIRWISE_RESULT:
+                self._handle_pairwise(envelope)
 
     def _handle_generation(self, envelope) -> None:
         payload = envelope.payload
         query: str = payload.get("query", "").strip()
         answer: str = payload.get("answer", "").strip()
         query_id: str = payload.get("query_id") or ""
+        respondent_id: str = payload.get("respondent_id", "A")
 
         if not query or not answer:
             return
@@ -101,9 +104,11 @@ class MemoryAgent:
         self._sm.transition(MemoryAgentAction.START_INGEST)
         try:
             classification = self._classify(query, answer)
+            classification["respondent_id"] = respondent_id
             self._memory.write_episodic(query, answer, metadata=classification, query_id=query_id or None)
             logger.info(
-                "MemoryAgent: ingested engram intent=%r entities=%r",
+                "MemoryAgent: ingested engram respondent=%s intent=%r entities=%r",
+                respondent_id,
                 classification.get("intent", ""),
                 classification.get("entities", []),
             )
@@ -126,6 +131,24 @@ class MemoryAgent:
             logger.info("MemoryAgent: scored engram %s → %d", query_id, score)
         except Exception as exc:
             logger.error("MemoryAgent: update_engram_score failed: %s", exc)
+        finally:
+            self._sm.transition(MemoryAgentAction.COMPLETE)
+
+    def _handle_pairwise(self, envelope) -> None:
+        payload = envelope.payload
+        query_id_a: str = payload.get("query_id_a") or ""
+        query_id_b: str = payload.get("query_id_b") or ""
+        winner: str = payload.get("winner") or ""
+
+        if not query_id_a or not query_id_b or winner not in ("A", "B"):
+            return
+
+        self._sm.transition(MemoryAgentAction.ANNOTATE_PAIRWISE)
+        try:
+            self._memory.annotate_pairwise(query_id_a, query_id_b, winner)
+            logger.info("MemoryAgent: annotated pairwise winner=%s", winner)
+        except Exception as exc:
+            logger.error("MemoryAgent: annotate_pairwise failed: %s", exc)
         finally:
             self._sm.transition(MemoryAgentAction.COMPLETE)
 

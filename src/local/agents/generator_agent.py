@@ -33,17 +33,23 @@ logger = logging.getLogger(__name__)
 class GeneratorAgent:
     AGENT_ID = "generator"
 
-    def __init__(self, model: str | None = None) -> None:
+    def __init__(
+        self,
+        model: str | None = None,
+        temperature: float | None = None,
+        respondent_id: str = "A",
+    ) -> None:
         cfg = get_config("generator")
         self._model: str = model or cfg.get("model", "gemma4:e2b")
         self._options: dict = {
             "num_ctx": cfg.get("num_ctx", 32000),
-            "temperature": cfg.get("temperature", 0.7),
+            "temperature": temperature if temperature is not None else cfg.get("temperature", 0.7),
         }
         self._system_prompt: str = cfg.get("system_prompt", "") or ""
         self._max_tool_iters: int = cfg.get("max_tool_iterations", 5)
         self._tool_timeout: float = cfg.get("tool_timeout", 20)
         self._tool_schemas: list = cfg.get("tools", [])
+        self._respondent_id: str = respondent_id
         self._conv = ConversationService()
         self._sm = GeneratorStateMachine()
         self._pub, self._sub = make_participant_bus([QUERY_RECEIVED, TOOL_SCHEMA])
@@ -53,7 +59,11 @@ class GeneratorAgent:
     # ------------------------------------------------------------------
 
     def run(self) -> None:
-        print(f"[generator] model={self._model}  num_ctx={self._options['num_ctx']}")
+        print(
+            f"[generator:{self._respondent_id}] model={self._model}"
+            f"  num_ctx={self._options['num_ctx']}"
+            f"  temperature={self._options['temperature']}"
+        )
         self._request_schemas()
         time.sleep(0.5)  # startup window: let tool schema responses queue up
         while True:
@@ -80,8 +90,16 @@ class GeneratorAgent:
         payload = envelope.payload
         query: str = payload.get("query", "")
         session_id: str | None = payload.get("session_id")
-        query_id: str = payload.get("query_id") or str(uuid.uuid4())
-        correlation_id: str = envelope.correlation_id or query_id
+        original_query_id: str = payload.get("query_id") or str(uuid.uuid4())
+
+        # RespondentB gets its own query_id to avoid ChromaDB collision;
+        # correlation_id links it back to the original query for pairwise matching.
+        if self._respondent_id == "B":
+            query_id = str(uuid.uuid4())
+            correlation_id = original_query_id
+        else:
+            query_id = original_query_id
+            correlation_id = envelope.correlation_id or query_id
 
         self._sm.transition(GeneratorAction.RECEIVE)
 
@@ -100,29 +118,32 @@ class GeneratorAgent:
                 RESPONSE_GENERATION, "response",
                 {"answer": f"[generation error: {exc}]", "thinking": "",
                  "tool_calls": [], "session_id": session_id, "query_id": query_id,
-                 "error": True},
+                 "respondent_id": self._respondent_id, "error": True},
                 correlation_id, session_id,
             ))
             self._sm.transition(GeneratorAction.RESET)
             return
 
-        # Save user message + all new assistant/tool messages from this turn.
-        # Slice from initial_len-1 to include the user query at the tail of _build_messages.
-        new_messages = [self._clean_for_history(m) for m in messages[initial_len - 1:]]
-        self._conv.append_messages(session_id, new_messages)
+        # Only RespondentA maintains the shared conversation history.
+        # B generates a comparison answer but doesn't pollute the context window.
+        if self._respondent_id == "A":
+            new_messages = [self._clean_for_history(m) for m in messages[initial_len - 1:]]
+            self._conv.append_messages(session_id, new_messages)
         self._sm.transition(GeneratorAction.PUBLISH)
 
         self._pub.publish(self._make_envelope(
             RESPONSE_GENERATION, "response",
             {"query": query, "answer": answer, "thinking": thinking,
              "tool_calls": tool_call_log,
-             "session_id": session_id, "query_id": query_id},
+             "session_id": session_id, "query_id": query_id,
+             "respondent_id": self._respondent_id},
             correlation_id, session_id,
         ))
         self._pub.publish(self._make_envelope(
             ANSWER_DIALOG, "dialog",
             {"query": query, "answer": answer,
-             "session_id": session_id, "query_id": query_id},
+             "session_id": session_id, "query_id": query_id,
+             "respondent_id": self._respondent_id},
             correlation_id, session_id,
         ))
 
@@ -171,7 +192,8 @@ class GeneratorAgent:
                     self._pub.publish(self._make_envelope(
                         GENERATION_THINKING, "thinking",
                         {"chunk": chunk.message.thinking,
-                         "session_id": session_id, "query_id": query_id},
+                         "session_id": session_id, "query_id": query_id,
+                         "respondent_id": self._respondent_id},
                         correlation_id, session_id,
                     ))
                 if chunk.message.content:

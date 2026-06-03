@@ -1,0 +1,74 @@
+story_id: S8
+title: "Phase 6 observability — tool windows, critic panel, memory inspector"
+description: >
+  Verifies the Phase 6 observability layer end-to-end. A web search query
+  exercises the full pipeline: tool.activity events feed tool windows,
+  critique.result feeds the critic window, memory ingest feeds the memory
+  inspector, and agent.transition events are published by CriticAgent and
+  MemoryAgent.
+
+startup_flags: []
+
+turns:
+  - query: >
+      What is the current version of Python?
+    expected_content:
+      - "3"
+    must_not_contain:
+      - "tool not available"
+      - "tool timeout"
+      - "generation error"
+
+response_generation_checks:
+  answer_not_empty: true
+
+notes: >
+  Start the stack normally (no extra flags needed):
+    python run_local.py
+
+  Run this story against the API:
+    python run_local.py --api
+    PYTHONPATH=src python tests/run_story.py tests/stories/s8_phase6_observability.yaml
+
+  After the story passes, verify the following manually:
+
+  1. TOOL WINDOWS — Three floating windows should appear within 1 second of
+     the UI starting (before any query is sent):
+       - "web_search"
+       - "web_fetch"
+       - "search_memory"
+     Each window shows an activity log and a ⚙ settings button that opens
+     the corresponding YAML editor. After a web_search query, the
+     web_search window should show request + result entries.
+
+  2. CRITIC WINDOW — A "critic" floating window appears at startup.
+     After the query completes, it should show a score badge (● N/5)
+     with a colour-coded line (green=5, red=1). State transition lines
+     (IDLE → RECEIVING etc.) appear as dim grey entries.
+
+  3. MEMORY WINDOW — A "memory" floating window appears at startup.
+     Click Refresh in Browse mode — the query's engram should appear in
+     the table (Age, Resp=A, Score=N/5, Query snippet).
+     Click a row to see the full engram content in the detail pane below.
+     Switch to Search mode, enter "Python version", press Search —
+     the same engram should appear ranked first.
+
+  4. AGENT TRANSITIONS — Monitor the bus to confirm agent.transition
+     events are published:
+       python -c "
+       import sys, time; sys.path.insert(0,'src')
+       from local.transport.bus_config import PROXY_BACKEND_ADDR
+       from local.transport.zmq_pubsub import ZmqSubscriber
+       sub = ZmqSubscriber(PROXY_BACKEND_ADDR, ['agent.transition'], bind=False)
+       print('waiting for agent.transition events (send a query)...')
+       for _ in range(10):
+           msg = sub.receive_with_timeout(5000)
+           if msg: print(msg.payload)
+       "
+     Expected: entries with agent='critic' and agent='memory_agent', each
+     showing from/action/to fields matching the state machine transitions.
+
+  5. SETTINGS SAVE — In any tool window, click ⚙, modify a value (e.g.
+     max_results in web_search), click Save. The tool should log a new
+     schema announcement in its activity window. The generator's tool
+     registry should reflect the updated schema on the next query.

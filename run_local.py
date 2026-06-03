@@ -58,6 +58,11 @@ def _start_memory_agent(memory_service) -> None:
     MemoryAgent(memory_service=memory_service).run()
 
 
+def _start_critic() -> None:
+    from local.agents.critic_agent import CriticAgent
+    CriticAgent().run()
+
+
 def _start_api(port: int) -> None:
     import uvicorn
     from local.api.gateway import app
@@ -98,6 +103,9 @@ def main() -> None:
 
     # -- Memory Agent --------------------------------------------------------
     threading.Thread(target=_start_memory_agent, args=(shared_memory,), daemon=True, name="memory_agent").start()
+
+    # -- Critic --------------------------------------------------------------
+    threading.Thread(target=_start_critic, daemon=True, name="critic").start()
 
     # -- API -----------------------------------------------------------------
     if args.api:

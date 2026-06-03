@@ -20,10 +20,10 @@ def _make_agent() -> tuple[MemoryAgent, MagicMock, MagicMock]:
     return agent, mock_memory, mock_llm
 
 
-def _make_envelope(query: str, answer: str, error: bool = False) -> MagicMock:
+def _make_envelope(query: str, answer: str, error: bool = False, query_id: str = "") -> MagicMock:
     env = MagicMock()
     env.subject = "response.generation"
-    env.payload = {"query": query, "answer": answer, "error": error}
+    env.payload = {"query": query, "answer": answer, "error": error, "query_id": query_id}
     return env
 
 
@@ -50,6 +50,13 @@ class TestStateMachine:
     def test_invalid_transition_is_ignored(self):
         sm = _StateMachine()
         sm.transition(MemoryAgentAction.COMPLETE)  # invalid from IDLE
+        assert sm.state == MemoryAgentState.IDLE
+
+    def test_update_score_path(self):
+        sm = _StateMachine()
+        sm.transition(MemoryAgentAction.UPDATE_SCORE)
+        assert sm.state == MemoryAgentState.UPDATING_SCORE
+        sm.transition(MemoryAgentAction.COMPLETE)
         assert sm.state == MemoryAgentState.IDLE
 
 
@@ -81,6 +88,13 @@ class TestIngestHappyPath:
         mock_llm.chat.return_value = ('{"intent": "fact", "entities": []}', "")
         agent._handle_generation(_make_envelope("Q", "A"))
         assert agent._sm.state == MemoryAgentState.IDLE
+
+    def test_passes_query_id_to_write_episodic(self):
+        agent, mock_memory, mock_llm = _make_agent()
+        mock_llm.chat.return_value = ('{"intent": "fact", "entities": []}', "")
+        agent._handle_generation(_make_envelope("Q", "A", query_id="test-qid-abc"))
+        kwargs = mock_memory.write_episodic.call_args.kwargs
+        assert kwargs.get("query_id") == "test-qid-abc"
 
 
 # ------------------------------------------------------------------
@@ -126,6 +140,45 @@ class TestClassificationFallback:
 # ------------------------------------------------------------------
 # Skip conditions
 # ------------------------------------------------------------------
+
+def _make_critique_envelope(query_id: str = "qid-1", score=4) -> MagicMock:
+    env = MagicMock()
+    env.subject = "critique.result"
+    env.payload = {"query_id": query_id, "score": score, "feedback": "Good answer."}
+    return env
+
+
+# ------------------------------------------------------------------
+# _handle_critique
+# ------------------------------------------------------------------
+
+class TestHandleCritique:
+    def test_calls_update_engram_score_with_correct_args(self):
+        agent, mock_memory, _ = _make_agent()
+        agent._handle_critique(_make_critique_envelope("qid-42", score=4))
+        mock_memory.update_engram_score.assert_called_once_with("qid-42", 4)
+
+    def test_skips_when_score_is_none(self):
+        agent, mock_memory, _ = _make_agent()
+        agent._handle_critique(_make_critique_envelope("qid-1", score=None))
+        mock_memory.update_engram_score.assert_not_called()
+
+    def test_skips_when_query_id_missing(self):
+        agent, mock_memory, _ = _make_agent()
+        agent._handle_critique(_make_critique_envelope(query_id="", score=3))
+        mock_memory.update_engram_score.assert_not_called()
+
+    def test_state_returns_to_idle_after_update(self):
+        agent, _, _ = _make_agent()
+        agent._handle_critique(_make_critique_envelope())
+        assert agent._sm.state == MemoryAgentState.IDLE
+
+    def test_state_returns_to_idle_on_update_failure(self):
+        agent, mock_memory, _ = _make_agent()
+        mock_memory.update_engram_score.side_effect = RuntimeError("db error")
+        agent._handle_critique(_make_critique_envelope())
+        assert agent._sm.state == MemoryAgentState.IDLE
+
 
 class TestSkipConditions:
     def test_skips_error_responses(self):

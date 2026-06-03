@@ -1,0 +1,42 @@
+story_id: S6
+title: "Critic absolute grading — Prometheus scores every generated answer"
+description: >
+  Single-turn factual question with a clear correct answer. Verifies the
+  generator produces a non-empty answer. The critique arrives asynchronously
+  after the response — assert it manually via the bus monitor and ChromaDB
+  (see notes below).
+
+turns:
+  - query: >
+      What is the capital of Japan?
+    expected_content:
+      - "Tokyo"
+    must_not_contain:
+      - "tool not available"
+      - "tool timeout"
+
+response_generation_checks:
+  answer_not_empty: true
+
+notes: >
+  After running this story, manually verify the full critic path:
+
+  1. Bus monitor: a critique.result event should appear within ~30s of the
+     response (Prometheus is slow on first call). Payload must contain
+     score (integer 1-5) and feedback (non-empty string).
+
+  2. UI: a colored ● N/5 badge should appear below the response in the
+     conversation panel. Hovering shows the feedback text.
+
+  3. ChromaDB engram: the engram written by MemoryAgent should have
+     critic_score set and type="episodic" still present (not wiped).
+     Check with:
+       python -c "
+       import sys; sys.path.insert(0,'src')
+       from local.services.memory_service import MemoryService
+       svc = MemoryService()
+       results = svc.search_episodic('capital of Japan', n=1)
+       print(results[0]['metadata'] if results else 'no engrams')
+       "
+
+  Requires prometheus-7b:latest pulled in Ollama (ollama list to verify).

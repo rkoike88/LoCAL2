@@ -292,42 +292,45 @@
   <h3>Implementation Phases</h3>
 
   <div class="phase">
-    <div class="phase-num">1a</div>
+    <div class="phase-num done">1a</div>
     <div class="phase-content">
-      <h4>Generator core — conversation history, bus, UI, API &nbsp;<a href="#phase1-detail" style="font-size:0.78rem; color:#7dd3fc; font-weight:400;">→ detailed plan</a></h4>
+      <h4>Generator core — conversation history, bus, UI, API &nbsp;<a href="#phase1-detail" style="font-size:0.78rem; color:#7dd3fc; font-weight:400;">→ detailed plan</a> &nbsp;<span style="font-size:0.78rem; color:#22c55e; font-weight:600;">DONE</span></h4>
       <ul>
-        <li>GeneratorAgent: <code>query.received</code> → <code>response.generation</code></li>
+        <li>GeneratorAgent: <code>query.received</code> → <code>response.generation</code>, streaming tool loop (max 5 iters)</li>
         <li>ConversationService — multi-turn history, thinking-clean turns</li>
-        <li>Bus, proxy, PySide6 UI, FastAPI gateway, LoCALSession</li>
-        <li><code>run_local.py</code> unified entry point</li>
+        <li>Bus, proxy, PySide6 UI, FastAPI gateway</li>
+        <li><code>run_local.py</code> unified entry point with <code>--api</code> / <code>--headless</code></li>
         <li>Thinking tokens surfaced in response payload and UI</li>
-        <li>Stories S1 (basic Q&amp;A) + S2 (multi-turn followup)</li>
+        <li>Dynamic schema registration — tools announce JSON schema on <code>tool.schema</code></li>
+        <li>Stories S1 (basic Q&amp;A) + S2 (multi-turn followup) passing</li>
       </ul>
     </div>
   </div>
 
   <div class="phase">
-    <div class="phase-num">1b</div>
+    <div class="phase-num done">1b</div>
     <div class="phase-content">
-      <h4>Tool bus — WebSearchTool + WebFetchTool &nbsp;<a href="plan_local2_1b.html" style="font-size:0.8rem; font-weight:400; color:#7dd3fc;">detailed plan →</a></h4>
+      <h4>Tool bus — WebSearchTool + WebFetchTool &nbsp;<a href="plan_local2_1b.html" style="font-size:0.8rem; font-weight:400; color:#7dd3fc;">detailed plan →</a> &nbsp;<span style="font-size:0.78rem; color:#22c55e; font-weight:600;">DONE</span></h4>
       <ul>
-        <li>WebSearchTool subscribes <code>tool.request.web_search</code> — configurable provider (SearXNG / Brave / Tavily)</li>
+        <li>WebSearchTool subscribes <code>tool.request.web_search</code> — SearXNG provider</li>
         <li>WebFetchTool subscribes <code>tool.request.web_fetch</code> — BeautifulSoup extraction</li>
         <li>GeneratorAgent: DISPATCHING_TOOL → WAITING_FOR_TOOL state transitions</li>
         <li>Timeout / no-response handling → error string appended, generation resumes</li>
-        <li>Stories S3 (web_search fires) + S4 (search→fetch two-step)</li>
+        <li>Stories S3 (web_search fires) + S4 (search→fetch two-step) passing</li>
       </ul>
     </div>
   </div>
 
   <div class="phase">
-    <div class="phase-num">2</div>
+    <div class="phase-num done">2</div>
     <div class="phase-content">
-      <h4>Memory as tool &nbsp;<a href="plan_local2_2.html" style="font-size:0.8rem; font-weight:400; color:#7dd3fc;">detailed plan →</a></h4>
+      <h4>Memory as tool — search_memory + MemoryAgent auto-ingest &nbsp;<span style="font-size:0.78rem; color:#22c55e; font-weight:600;">DONE</span></h4>
       <ul>
-        <li>recall_memory tool backed by ChromaDB / EmbeddingService</li>
-        <li>MemoryService ingesting answers on response.generation</li>
-        <li>Memory recall surfaced in observability output</li>
+        <li><code>search_memory</code> tool — semantic search over ChromaDB episodic store via nomic embeddings</li>
+        <li>MemoryAgent — subscribes to <code>response.generation</code>, auto-ingests every Q&amp;A turn with LLM classification (intent + entities)</li>
+        <li>Single memory tool design — Gemma calls <code>search_memory</code> for recall; MemoryAgent handles writes automatically. No explicit save tool.</li>
+        <li>Tool panel UI: Sm / Ws / Wf panels with Activity + Settings tabs</li>
+        <li>Story S5 (episodic recall — "how do I like my coffee?") passing</li>
       </ul>
     </div>
   </div>
@@ -335,13 +338,14 @@
   <div class="phase">
     <div class="phase-num">3</div>
     <div class="phase-content">
-      <h4>Dual respondents + Prometheus pairwise evaluation</h4>
+      <h4>CriticAgent — absolute grading + memory score annotation &nbsp;<a href="plan_local2_3.html" style="font-size:0.8rem; font-weight:400; color:#7dd3fc;">detailed plan →</a></h4>
       <ul>
-        <li>Second GeneratorAgent instance (RespondentB) with behavioural variation via config</li>
-        <li>Both respondents publish <code>response.generation</code> to the same query</li>
-        <li>Prometheus used <strong>strictly in pairwise mode</strong> — evaluates two candidate answers head-to-head; never used for single-answer scoring</li>
-        <li>Publishes <code>critique.result</code> identifying the preferred respondent</li>
-        <li>API / UI surfaces winning answer + Prometheus verdict</li>
+        <li>CriticAgent subscribes to <code>response.generation</code>; calls Prometheus for absolute 1–5 grading</li>
+        <li>Publishes <code>critique.result</code> (score, feedback, query_id, session_id)</li>
+        <li>MemoryAgent subscribes to <code>critique.result</code>; annotates the engram with <code>critic_score</code></li>
+        <li>UI shows score badge inline below each response (color-coded by score)</li>
+        <li>Prerequisite: <code>ollama pull prometheus:7b</code> (Prometheus-7B-v2.0-Q4_K_M)</li>
+        <li>Story S6 (critique.result published with integer score 1–5)</li>
       </ul>
     </div>
   </div>
@@ -349,11 +353,12 @@
   <div class="phase">
     <div class="phase-num">4</div>
     <div class="phase-content">
-      <h4>Reward and feedback signals</h4>
+      <h4>Dual respondents + Prometheus pairwise + reward signals</h4>
       <ul>
-        <li>user.feedback → RewardService → reward.event to winning respondent</li>
-        <li>Respondent updates episodic memory reward status on reward.event</li>
-        <li>Calibration stats for memory recall quality</li>
+        <li>Second GeneratorAgent instance (RespondentB) with behavioural variation via config</li>
+        <li>Prometheus pairwise comparison via <code>critic_agent_tool.py</code> (Gemma-callable)</li>
+        <li>user.feedback → RewardService → reward.event to producing agent</li>
+        <li>Score-weighted retrieval in SearchMemoryTool</li>
       </ul>
     </div>
   </div>

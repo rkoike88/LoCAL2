@@ -22,13 +22,15 @@ Download from [ollama.com](https://ollama.com) and install. Verify it's running:
 curl http://127.0.0.1:11434/api/tags
 ```
 
-### 2. Pull the model
+### 2. Pull the models
 
 ```bash
 ollama pull gemma4:e4b
 ```
 
-`gemma4:e4b` is the default. For stronger tool calling reliability, `gemma4:26b` is also supported — configure in `config/generator.yaml`. After pulling, do a quick sanity check:
+`gemma4:e4b` is the default model for both the generator and the critic. `gemma4:26b` is also supported for stronger tool calling reliability; configure in `config/generator.yaml`. A dedicated grading model can be used for the critic by setting `model` in `config/critic.yaml` — the default is `prometheus-7b:latest` (Prometheus-7B-v2.0).
+
+After pulling, do a quick sanity check:
 
 ```bash
 ollama run gemma4:e4b
@@ -127,6 +129,7 @@ All tunable parameters live in `config/`:
 | `config/generator.yaml` | Model, context size, temperature, tool schemas, tool timeout |
 | `config/web_search.yaml` | Search provider, max results, request timeout |
 | `config/web_fetch.yaml` | Max chars extracted, fetch timeout |
+| `config/critic.yaml` | Critic model, grading rubric, grade timeout |
 | `config/bus.yaml` | ZMQ proxy ports |
 | `config/system.yaml` | Debug flags |
 

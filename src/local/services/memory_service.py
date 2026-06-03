@@ -75,11 +75,17 @@ class MemoryService:
         query: str,
         answer: str,
         metadata: Optional[dict[str, Any]] = None,
+        query_id: Optional[str] = None,
     ) -> str:
-        """Write a Q+A pair as an episodic engram. Returns the engram ID."""
+        """Write a Q+A pair as an episodic engram. Returns the engram ID.
+
+        query_id, when provided, is used as the ChromaDB document ID so
+        CriticAgent can later call update_engram_score() with the same ID.
+        Falls back to a random UUID if omitted.
+        """
         content = f"{query}\n{answer}"
         embedding = self._embed_document(content)
-        doc_id = str(uuid.uuid4())
+        doc_id = query_id or str(uuid.uuid4())
         meta: dict[str, Any] = {
             "type": "episodic",
             "query": query[:500],
@@ -144,6 +150,23 @@ class MemoryService:
 
         candidates.sort(key=lambda c: c["score"], reverse=True)
         return candidates[:n]
+
+    def update_engram_score(self, query_id: str, score: int) -> None:
+        """Merge critic_score into an existing engram's metadata.
+
+        Reads existing metadata first so the update does not wipe type,
+        query, timestamp, intent, or entities — ChromaDB update() replaces
+        the entire metadata dict, not individual fields.
+        Logs a warning and returns cleanly if the engram is not found.
+        """
+        result = self._collection.get(ids=[query_id])
+        if not result.get("ids"):
+            logger.warning("MemoryService: engram %s not found — skipping score update", query_id)
+            return
+        existing_meta = (result.get("metadatas") or [{}])[0]
+        merged = {**existing_meta, "critic_score": score}
+        self._collection.update(ids=[query_id], metadatas=[merged])
+        logger.debug("MemoryService: updated critic_score=%d on engram %s", score, query_id)
 
     # ------------------------------------------------------------------
     # Embedding helpers

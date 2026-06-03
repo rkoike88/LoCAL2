@@ -130,6 +130,21 @@ class TestWriteEpisodic:
         assert "intent" not in meta
         assert "entities" not in meta
 
+    def test_uses_provided_query_id_as_doc_id(self):
+        col = MagicMock()
+        svc = _make_service(col)
+        with patch("local.services.memory_service.ollama.embeddings", return_value={"embedding": FAKE_EMBEDDING}):
+            returned_id = svc.write_episodic("Q", "A", query_id="test-query-id-123")
+        assert returned_id == "test-query-id-123"
+        assert col.add.call_args.kwargs["ids"] == ["test-query-id-123"]
+
+    def test_falls_back_to_uuid_when_query_id_absent(self):
+        col = MagicMock()
+        svc = _make_service(col)
+        with patch("local.services.memory_service.ollama.embeddings", return_value={"embedding": FAKE_EMBEDDING}):
+            returned_id = svc.write_episodic("Q", "A")
+        assert len(returned_id) == 36  # UUID4 format
+
 
 # ------------------------------------------------------------------
 # Episodic store — search
@@ -198,3 +213,52 @@ class TestSearchEpisodic:
             svc.search_episodic("query")
         kwargs = col.query.call_args.kwargs
         assert kwargs.get("where") == {"type": "episodic"}
+
+
+# ------------------------------------------------------------------
+# Episodic store — update_engram_score
+# ------------------------------------------------------------------
+
+class TestUpdateEngramScore:
+    def _existing_meta(self) -> dict:
+        return {
+            "type": "episodic",
+            "query": "what is Python?",
+            "timestamp": 1234567890.0,
+            "intent": "fact",
+            "entities": '["Python"]',
+        }
+
+    def test_merges_score_preserving_existing_metadata(self):
+        col = MagicMock()
+        col.get.return_value = {"ids": ["qid-1"], "metadatas": [self._existing_meta()]}
+        svc = _make_service(col)
+        svc.update_engram_score("qid-1", 4)
+        col.update.assert_called_once()
+        updated_meta = col.update.call_args.kwargs["metadatas"][0]
+        assert updated_meta["critic_score"] == 4
+        assert updated_meta["type"] == "episodic"
+        assert updated_meta["intent"] == "fact"
+        assert updated_meta["entities"] == '["Python"]'
+        assert updated_meta["timestamp"] == 1234567890.0
+
+    def test_update_called_with_correct_id(self):
+        col = MagicMock()
+        col.get.return_value = {"ids": ["qid-42"], "metadatas": [self._existing_meta()]}
+        svc = _make_service(col)
+        svc.update_engram_score("qid-42", 5)
+        assert col.update.call_args.kwargs["ids"] == ["qid-42"]
+
+    def test_skips_update_when_engram_not_found(self):
+        col = MagicMock()
+        col.get.return_value = {"ids": [], "metadatas": []}
+        svc = _make_service(col)
+        svc.update_engram_score("missing-id", 3)
+        col.update.assert_not_called()
+
+    def test_skips_update_when_get_returns_no_ids_key(self):
+        col = MagicMock()
+        col.get.return_value = {}
+        svc = _make_service(col)
+        svc.update_engram_score("missing-id", 3)
+        col.update.assert_not_called()

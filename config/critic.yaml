@@ -1,0 +1,12 @@
+model: "prometheus-7b:latest"
+temperature: 0.0
+num_ctx: 4096
+grade_timeout: 30          # seconds; Prometheus can be slow on first call
+
+rubric: |
+  [Is the response accurate, helpful, and well-reasoned?]
+  Score 1: The response is incorrect, harmful, or completely unhelpful.
+  Score 2: The response is mostly wrong or missing important information.
+  Score 3: The response is partially correct but incomplete or unclear.
+  Score 4: The response is mostly correct with minor gaps.
+  Score 5: The response is accurate, complete, and clearly explained.

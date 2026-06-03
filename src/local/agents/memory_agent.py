@@ -17,7 +17,7 @@ from local.agents.memory_agent_actions import MemoryAgentAction
 from local.agents.memory_agent_states import MemoryAgentState
 from local.agents.memory_agent_transitions import TRANSITIONS
 from local.config_loader import get_config
-from local.protocol.subjects import RESPONSE_GENERATION
+from local.protocol.subjects import CRITIQUE, RESPONSE_GENERATION
 from local.services.memory_service import MemoryService
 from local.services.ollama_backend import OllamaBackend
 from local.transport.bus_config import make_participant_bus
@@ -72,7 +72,7 @@ class MemoryAgent:
         self._memory = memory_service or MemoryService()
         self._llm = llm or OllamaBackend(model=model, agent_name=self.AGENT_ID)
         self._sm = _StateMachine()
-        self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION])
+        self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION, CRITIQUE])
 
     def run(self) -> None:
         print(f"[memory_agent] ready")
@@ -84,11 +84,14 @@ class MemoryAgent:
                 continue
             if envelope.subject == RESPONSE_GENERATION:
                 self._handle_generation(envelope)
+            elif envelope.subject == CRITIQUE:
+                self._handle_critique(envelope)
 
     def _handle_generation(self, envelope) -> None:
         payload = envelope.payload
         query: str = payload.get("query", "").strip()
         answer: str = payload.get("answer", "").strip()
+        query_id: str = payload.get("query_id") or ""
 
         if not query or not answer:
             return
@@ -98,7 +101,7 @@ class MemoryAgent:
         self._sm.transition(MemoryAgentAction.START_INGEST)
         try:
             classification = self._classify(query, answer)
-            self._memory.write_episodic(query, answer, metadata=classification)
+            self._memory.write_episodic(query, answer, metadata=classification, query_id=query_id or None)
             logger.info(
                 "MemoryAgent: ingested engram intent=%r entities=%r",
                 classification.get("intent", ""),
@@ -106,6 +109,23 @@ class MemoryAgent:
             )
         except Exception as exc:
             logger.error("MemoryAgent: ingest failed: %s", exc)
+        finally:
+            self._sm.transition(MemoryAgentAction.COMPLETE)
+
+    def _handle_critique(self, envelope) -> None:
+        payload = envelope.payload
+        query_id: str = payload.get("query_id") or ""
+        score = payload.get("score")
+
+        if not query_id or score is None:
+            return
+
+        self._sm.transition(MemoryAgentAction.UPDATE_SCORE)
+        try:
+            self._memory.update_engram_score(query_id, score)
+            logger.info("MemoryAgent: scored engram %s → %d", query_id, score)
+        except Exception as exc:
+            logger.error("MemoryAgent: update_engram_score failed: %s", exc)
         finally:
             self._sm.transition(MemoryAgentAction.COMPLETE)
 

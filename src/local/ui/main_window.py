@@ -105,8 +105,24 @@ class StreamingResponseWidget(QWidget):
         self._answer_label.setVisible(False)
         layout.addWidget(self._answer_label)
 
+        self._score_label = QLabel()
+        self._score_label.setObjectName("scoreLabel")
+        self._score_label.setAlignment(Qt.AlignRight)
+        self._score_label.setVisible(False)
+        layout.addWidget(self._score_label)
+
         self._thinking_visible = True
         self._toggle_btn.clicked.connect(self._toggle)
+
+    def set_score(self, score: int | None, feedback: str) -> None:
+        if score is None:
+            return
+        colors = {5: "#22c55e", 4: "#22c55e", 3: "#f59e0b", 2: "#ef4444", 1: "#ef4444"}
+        color = colors.get(score, "#666666")
+        self._score_label.setText(f"● {score}/5")
+        self._score_label.setStyleSheet(f"color: {color}; font-family: 'Menlo','Monaco','Courier New'; font-size: 12px;")
+        self._score_label.setToolTip(feedback or "")
+        self._score_label.setVisible(True)
 
     def append_thinking_chunk(self, chunk: str) -> None:
         if not self._toggle_btn.isVisible():
@@ -173,6 +189,7 @@ class BusLogger(QObject):
     message = Signal(str)
     thinking_chunk = Signal(dict)
     response = Signal(dict)
+    critique = Signal(dict)
     tool_activity = Signal(object)   # passes MessageEnvelope through
 
     def log_envelope(self, envelope: MessageEnvelope) -> None:
@@ -211,9 +228,12 @@ class BusLogger(QObject):
             text = f"[{ts}] DIALOG  (conversation recorded)"
 
         elif subject == CRITIQUE:
-            score = raw.get("score", "")
-            verdict = raw.get("verdict", "")
-            text = f"[{ts}] CRITIQUE  score={score}  verdict={verdict}"
+            self.critique.emit({
+                "score": raw.get("score"),
+                "feedback": raw.get("feedback", ""),
+                "query_id": raw.get("query_id", ""),
+            })
+            return
 
         elif subject in (TOOL_REQUEST_WEB_SEARCH, TOOL_REQUEST_WEB_FETCH):
             tool_name = subject.split(".")[-1]
@@ -242,6 +262,7 @@ class MainWindow(QMainWindow):
         self._publisher = publisher
         self._session_id = str(uuid.uuid4())
         self._pending: dict[str, StreamingResponseWidget] = {}
+        self._response_widgets: dict[str, StreamingResponseWidget] = {}
         title = "LoCAL2"
         if model:
             title += f"  [{model}]"
@@ -387,6 +408,7 @@ class MainWindow(QMainWindow):
         self._bus_logger.message.connect(self.append_log)
         self._bus_logger.thinking_chunk.connect(self._on_thinking_chunk)
         self._bus_logger.response.connect(self._on_response)
+        self._bus_logger.critique.connect(self._on_critique)
         self._bus_logger.tool_activity.connect(self._on_tool_activity)
 
         self._monitor_worker = BusMonitorWorker(PROXY_BACKEND_ADDR, subscriptions=all_subjects)
@@ -432,6 +454,7 @@ class MainWindow(QMainWindow):
 
     def _clear_log(self) -> None:
         self._pending.clear()
+        self._response_widgets.clear()
         while self._log_layout.count() > 1:
             item = self._log_layout.takeAt(0)
             if item.widget():
@@ -454,7 +477,15 @@ class MainWindow(QMainWindow):
             widget = StreamingResponseWidget(data["ts"])
             self._insert_log_widget(widget)
         widget.finalize(data["ts"], data["answer"], data["tool_calls"])
+        if query_id:
+            self._response_widgets[query_id] = widget
         self._scroll_to_bottom()
+
+    def _on_critique(self, data: dict) -> None:
+        query_id = data.get("query_id", "")
+        widget = self._response_widgets.get(query_id)
+        if widget:
+            widget.set_score(data.get("score"), data.get("feedback", ""))
 
     def append_log(self, text: str) -> None:
         label = QLabel(text)

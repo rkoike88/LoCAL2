@@ -48,6 +48,16 @@ def _start_web_fetch() -> None:
     WebFetchTool().run()
 
 
+def _start_datetime() -> None:
+    from local.tools.datetime_tool import DateTimeTool
+    DateTimeTool().run()
+
+
+def _start_location() -> None:
+    from local.tools.location_tool import LocationTool
+    LocationTool().run()
+
+
 def _start_search_memory(memory_service) -> None:
     from local.tools.search_memory_tool import SearchMemoryTool
     SearchMemoryTool(memory_service=memory_service).run()
@@ -99,6 +109,8 @@ def main() -> None:
     threading.Thread(target=_start_web_search, daemon=True, name="web_search").start()
     threading.Thread(target=_start_web_fetch, daemon=True, name="web_fetch").start()
     threading.Thread(target=_start_search_memory, args=(shared_memory,), daemon=True, name="search_memory").start()
+    threading.Thread(target=_start_datetime, daemon=True, name="datetime").start()
+    threading.Thread(target=_start_location, daemon=True, name="location").start()
     time.sleep(0.5)   # let all tools connect and subscribe to schema.request
 
     # -- Generator (AFTER tools) ---------------------------------------------

@@ -1,0 +1,41 @@
+story_id: S10
+title: "Date/time + location grounding"
+description: >
+  Phase 8 acceptance. Verifies that Gemma calls get_datetime for time/date questions
+  and get_location for location questions, rather than hallucinating from training data.
+
+  Automated: unit tests in test_datetime_tool.py and test_location_tool.py.
+  Live turns below require the full stack with both tools running.
+
+turns:
+  - query: "What day of the week is it today?"
+    expected_content:
+      - "Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday"
+    notes: "Answer must match the actual current day — verifies get_datetime was called"
+
+  - query: "What year is it right now?"
+    expected_content:
+      - "2026"
+    notes: "Verifies get_datetime returns current year, not training data year"
+
+  - query: "Where are you located?"
+    expected_content:
+      - "Cupertino"
+    notes: "Verifies get_location returns city from config/location.yaml"
+
+expected_bus_events:
+  present:
+    - "tool.request.get_datetime"
+    - "tool.result.get_datetime"
+    - "tool.request.get_location"
+    - "tool.result.get_location"
+    - "response.generation"
+
+notes: >
+  If Gemma answers date/time questions from training data instead of calling
+  get_datetime, escalate to lever 3 (context injection): add inject_datetime: true
+  to config/generator.yaml and prepend current datetime to system message in
+  GeneratorAgent._build_messages(). See .claude/plan_local2_phase8.html for details.
+
+  config/location.yaml must be configured with the user's actual location before
+  running S10 turn 3.

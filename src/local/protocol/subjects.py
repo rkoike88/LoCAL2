@@ -20,10 +20,18 @@ TOOL_SCHEMA_REQUEST = "schema.request"   # generator broadcasts on startup; tool
 TOOL_REQUEST_SEARCH_MEMORY = "tool.request.search_memory"
 TOOL_RESULT_SEARCH_MEMORY = "tool.result.search_memory"
 
+# Phase 8 — datetime + location tools
+TOOL_REQUEST_GET_DATETIME = "tool.request.get_datetime"
+TOOL_RESULT_GET_DATETIME = "tool.result.get_datetime"
+TOOL_REQUEST_GET_LOCATION = "tool.request.get_location"
+TOOL_RESULT_GET_LOCATION = "tool.result.get_location"
+
 # Tool activity — published by tools on every request/result cycle
 TOOL_ACTIVITY_SEARCH_MEMORY = "tool.activity.search_memory"
 TOOL_ACTIVITY_WEB_SEARCH = "tool.activity.web_search"
 TOOL_ACTIVITY_WEB_FETCH = "tool.activity.web_fetch"
+TOOL_ACTIVITY_GET_DATETIME = "tool.activity.get_datetime"
+TOOL_ACTIVITY_GET_LOCATION = "tool.activity.get_location"
 
 # Config hot-reload — UI publishes after saving a tool YAML; tool re-announces schema
 CONFIG_RELOAD = "config.reload"

@@ -16,6 +16,9 @@ system_prompt: |
     you CANNOT answer from your training data. You MUST call search_memory first.
     This includes phrasings like "how do I like X", "do you know my X", "what is my X".
     Do not say you don't know. Do not ask the user to remind you.
+  - When a question requires information you cannot reliably know from training data —
+    current time, the user's location, live web data — always call the appropriate
+    available tool. Do not guess or answer from training data.
   - If the user asks about current events or wants you to look something up — use web search tools.
   - If a tool returns an error (a message in brackets like [error: ...]), report it to the user.
 

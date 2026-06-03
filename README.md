@@ -140,6 +140,33 @@ PYTHONPATH=src python tests/run_story.py tests/stories/s1_basic_qa.yaml
 PYTHONPATH=src python tests/run_story.py tests/stories/s2_multi_turn.yaml
 ```
 
+## After a reboot
+
+Two services don't start automatically and need to be launched before running LoCAL2:
+
+**1. Docker Desktop** — SearXNG won't be running. Open Docker Desktop, wait for it to be ready, then verify:
+
+```bash
+docker compose ps   # searxng should show "Up"
+docker compose up -d   # if it's not running
+```
+
+**2. Ollama** — On macOS, a stale `ollama serve` process from before the reboot can persist alongside the freshly launched Ollama.app, splitting IPv4 and IPv6 across two processes. The Python `ollama` library may connect to the wrong one, causing `ollama.chat()` to hang silently with no error.
+
+Check before starting:
+
+```bash
+pgrep -fl ollama   # should show exactly one "ollama serve" process
+```
+
+If two appear (one from `/usr/local/bin/ollama`, one from `/Applications/Ollama.app`), kill the older one:
+
+```bash
+kill <old-pid>
+```
+
+The Ollama.app process will then own port 11434 on both IPv4 and IPv6.
+
 ## Architecture
 
 See `.claude/plan_local2.html` for the full architecture plan.

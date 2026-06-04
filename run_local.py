@@ -58,6 +58,11 @@ def _start_location() -> None:
     LocationTool().run()
 
 
+def _start_semantic_scholar() -> None:
+    from local.tools.semantic_scholar_tool import SemanticScholarTool
+    SemanticScholarTool().run()
+
+
 def _start_search_memory(memory_service) -> None:
     from local.tools.search_memory_tool import SearchMemoryTool
     SearchMemoryTool(memory_service=memory_service).run()
@@ -111,6 +116,7 @@ def main() -> None:
     threading.Thread(target=_start_search_memory, args=(shared_memory,), daemon=True, name="search_memory").start()
     threading.Thread(target=_start_datetime, daemon=True, name="datetime").start()
     threading.Thread(target=_start_location, daemon=True, name="location").start()
+    threading.Thread(target=_start_semantic_scholar, daemon=True, name="semantic_scholar").start()
     time.sleep(0.5)   # let all tools connect and subscribe to schema.request
 
     # -- Generator (AFTER tools) ---------------------------------------------

@@ -26,12 +26,17 @@ TOOL_RESULT_GET_DATETIME = "tool.result.get_datetime"
 TOOL_REQUEST_GET_LOCATION = "tool.request.get_location"
 TOOL_RESULT_GET_LOCATION = "tool.result.get_location"
 
+# Phase 9 — Semantic Scholar
+TOOL_REQUEST_SEARCH_PAPERS = "tool.request.search_papers"
+TOOL_RESULT_SEARCH_PAPERS = "tool.result.search_papers"
+
 # Tool activity — published by tools on every request/result cycle
 TOOL_ACTIVITY_SEARCH_MEMORY = "tool.activity.search_memory"
 TOOL_ACTIVITY_WEB_SEARCH = "tool.activity.web_search"
 TOOL_ACTIVITY_WEB_FETCH = "tool.activity.web_fetch"
 TOOL_ACTIVITY_GET_DATETIME = "tool.activity.get_datetime"
 TOOL_ACTIVITY_GET_LOCATION = "tool.activity.get_location"
+TOOL_ACTIVITY_SEARCH_PAPERS = "tool.activity.search_papers"
 
 # Config hot-reload — UI publishes after saving a tool YAML; tool re-announces schema
 CONFIG_RELOAD = "config.reload"

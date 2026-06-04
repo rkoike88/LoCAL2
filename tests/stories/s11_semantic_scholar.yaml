@@ -1,0 +1,29 @@
+story_id: s11
+title: Semantic Scholar paper search
+notes: >
+  Live stack required. Verifies that Gemma calls search_papers when asked
+  about academic literature and returns paper titles with citations.
+
+turns:
+  - query: "find papers on transformer attention mechanisms"
+    assertions:
+      - subject: tool.activity.search_papers
+        check: present
+      - answer_contains:
+          - "Attention"
+          - "transformer"
+    notes: "Gemma should call search_papers; result should mention at least one paper"
+
+  - query: "which of those has the most citations?"
+    assertions:
+      - answer_contains:
+          - "citation"
+    notes: "Follow-up uses conversation history — no second tool call needed"
+
+  - query: "can you find 3 papers on RLHF?"
+    assertions:
+      - subject: tool.activity.search_papers
+        check: present
+      - answer_contains:
+          - "reinforcement"
+    notes: "Explicit limit request; Gemma should pass limit=3 in tool arguments"

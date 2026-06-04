@@ -63,6 +63,11 @@ def _start_semantic_scholar() -> None:
     SemanticScholarTool().run()
 
 
+def _start_search_library(document_service) -> None:
+    from local.tools.search_library_tool import SearchLibraryTool
+    SearchLibraryTool(document_service=document_service).run()
+
+
 def _start_search_memory(memory_service) -> None:
     from local.tools.search_memory_tool import SearchMemoryTool
     SearchMemoryTool(memory_service=memory_service).run()
@@ -106,10 +111,12 @@ def main() -> None:
     time.sleep(0.3)   # let XSUB/XPUB sockets bind before agents connect
 
     # -- Tools (BEFORE generator) --------------------------------------------
-    # MemoryService created once in main thread — ChromaDB init is not thread-safe
-    # under concurrent construction on the same path.
+    # Both ChromaDB services created in main thread — PersistentClient is not
+    # thread-safe under concurrent construction on the same path.
     from local.services.memory_service import MemoryService
+    from local.services.document_service import DocumentService
     shared_memory = MemoryService()
+    shared_documents = DocumentService()
 
     threading.Thread(target=_start_web_search, daemon=True, name="web_search").start()
     threading.Thread(target=_start_web_fetch, daemon=True, name="web_fetch").start()
@@ -117,6 +124,7 @@ def main() -> None:
     threading.Thread(target=_start_datetime, daemon=True, name="datetime").start()
     threading.Thread(target=_start_location, daemon=True, name="location").start()
     threading.Thread(target=_start_semantic_scholar, daemon=True, name="semantic_scholar").start()
+    threading.Thread(target=_start_search_library, args=(shared_documents,), daemon=True, name="search_library").start()
     time.sleep(0.5)   # let all tools connect and subscribe to schema.request
 
     # -- Generator (AFTER tools) ---------------------------------------------
@@ -164,7 +172,7 @@ def main() -> None:
 
         app_qt = QApplication(sys.argv)
         publisher = ZmqPublisher(PROXY_FRONTEND_ADDR, bind=False)
-        window = MainWindow(publisher=publisher, model=args.model, memory_service=shared_memory)
+        window = MainWindow(publisher=publisher, model=args.model, memory_service=shared_memory, document_service=shared_documents)
         signal.signal(signal.SIGINT, lambda *_: app_qt.quit())
         # Wake Python every 200ms so the SIGINT handler can fire while Qt owns the loop.
         _sigint_timer = QTimer()

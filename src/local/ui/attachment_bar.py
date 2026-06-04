@@ -7,7 +7,6 @@ attachments() returns the current [{type, name, data}] list for the bus payload.
 from __future__ import annotations
 
 import base64
-from pathlib import Path
 
 try:
     from PySide6.QtCore import Qt
@@ -22,31 +21,7 @@ try:
 except ImportError as exc:
     raise RuntimeError("PySide6 is required.") from exc
 
-_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-_TEXT_EXTS  = {".txt", ".md", ".py", ".js", ".ts", ".yaml", ".json", ".csv"}
-
-
-def _extract_pdf_text(path: str) -> str:
-    from pypdf import PdfReader
-    reader = PdfReader(path)
-    return "\n".join(page.extract_text() or "" for page in reader.pages)
-
-
-def _process_file(path: str) -> dict:
-    ext = Path(path).suffix.lower()
-    name = Path(path).name
-    try:
-        if ext in _IMAGE_EXTS:
-            data = base64.b64encode(Path(path).read_bytes()).decode()
-            return {"type": "image", "name": name, "data": data}
-        elif ext == ".pdf":
-            return {"type": "text", "name": name, "data": _extract_pdf_text(path)}
-        elif ext in _TEXT_EXTS:
-            return {"type": "text", "name": name, "data": Path(path).read_text(errors="replace")}
-        else:
-            return {"type": "error", "name": name}
-    except Exception as exc:
-        return {"type": "error", "name": name, "error": str(exc)}
+from local.utils.file_extract import process_for_attachment as _process_file
 
 
 class AttachmentBar(QWidget):

@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LoCAL2 — Phase 10: RAG Document Knowledge Base</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; line-height: 1.6; }
+  h1 { border-bottom: 3px solid #2563eb; padding-bottom: .5rem; }
+  h2 { border-bottom: 1px solid #cbd5e1; margin-top: 2.5rem; padding-bottom: .3rem; color: #1e40af; }
+  h3 { color: #374151; margin-top: 1.5rem; }
+  pre { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 1rem; overflow-x: auto; font-size: .88em; }
+  code { background: #f1f5f9; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th { background: #e2e8f0; text-align: left; }
+  th, td { border: 1px solid #cbd5e1; padding: .5rem .75rem; }
+  .phase { background: #eff6ff; border-left: 4px solid #2563eb; padding: .75rem 1rem; margin: 1rem 0; border-radius: 0 6px 6px 0; }
+  .note  { background: #fefce8; border-left: 4px solid #ca8a04; padding: .75rem 1rem; margin: 1rem 0; border-radius: 0 6px 6px 0; }
+  .warn  { background: #fff1f2; border-left: 4px solid #e11d48; padding: .75rem 1rem; margin: 1rem 0; border-radius: 0 6px 6px 0; }
+  ul li { margin: .3rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Phase 10 — RAG: Persistent Document Knowledge Base</h1>
+
+<div class="phase">
+  <strong>Goal:</strong> Let Gemma search a user-curated knowledge base of documents that persists across sessions.
+  Complements Phase 7 (one-shot file questions) with durable, indexed storage — the user ingests documents once,
+  and Gemma can retrieve relevant passages from them in any future session.
+</div>
+
+<!-- ============================================================ -->
+<h2>1. Architecture Overview</h2>
+
+<p>A dedicated ChromaDB collection (<code>collective.documents</code>) holds chunked, embedded document passages.
+A <code>search_documents</code> tool lets Gemma query it semantically — same bus pattern as <code>search_memory</code>.</p>
+
+<pre>
+User ingest (CLI or UI)
+  → DocumentService.ingest_file(path)
+      → extract text (PDF / plain text / markdown)
+      → chunk into overlapping passages
+      → embed each chunk with nomic-embed-text
+      → store in ChromaDB collection: collective.documents
+
+Gemma tool call: search_documents(query="…")
+  → DocumentService.search(query)
+      → embed query with nomic-embed-text (search_query: prefix)
+      → ChromaDB similarity search
+      → return top-k passages with source filename + page
+</pre>
+
+<h3>Relationship to existing services</h3>
+<table>
+  <tr><th>Service</th><th>Collection</th><th>Content</th><th>Lifetime</th></tr>
+  <tr><td>MemoryService</td><td>local_memory</td><td>Q&amp;A conversation engrams</td><td>Auto-written every turn</td></tr>
+  <tr><td><strong>DocumentService</strong></td><td>collective.documents</td><td>Chunked document passages</td><td>Written on ingest only</td></tr>
+</table>
+
+<p>Both share the same ChromaDB path (<code>.chroma/</code>) and the same embedding model (<code>nomic-embed-text</code>),
+but use separate collections so searches don't cross-contaminate.</p>
+
+<!-- ============================================================ -->
+<h2>2. New Files</h2>
+
+<table>
+  <tr><th>File</th><th>Purpose</th></tr>
+  <tr><td><code>src/local/utils/file_extract.py</code></td><td>Shared text extraction — PDF, plain text, markdown. Extracted from <code>attachment_bar.py</code> so both AttachmentBar and DocumentService can reuse it without a UI dependency.</td></tr>
+  <tr><td><code>src/local/services/document_service.py</code></td><td>ChromaDB wrapper for the document collection — ingest, chunk, embed, search.</td></tr>
+  <tr><td><code>src/local/tools/search_documents_tool.py</code></td><td>Bus tool: receives <code>tool.request.search_documents</code>, calls DocumentService, publishes result.</td></tr>
+  <tr><td><code>scripts/ingest.py</code></td><td>CLI: <code>python scripts/ingest.py file.pdf [file2.txt …]</code>. Runs without the full stack.</td></tr>
+  <tr><td><code>config/documents.yaml</code></td><td>chunk_size, chunk_overlap, collection name, n_results, embed_model.</td></tr>
+</table>
+
+<h3>Modified files</h3>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>src/local/protocol/subjects.py</code></td><td>Add TOOL_REQUEST/RESULT/ACTIVITY_SEARCH_DOCUMENTS</td></tr>
+  <tr><td><code>src/local/ui/attachment_bar.py</code></td><td>Import <code>extract_text</code> from <code>file_extract.py</code> instead of duplicating logic</td></tr>
+  <tr><td><code>run_local.py</code></td><td>Create DocumentService; start SearchDocumentsTool daemon thread</td></tr>
+  <tr><td><code>src/local/ui/main_window.py</code></td><td>Add TOOL_ACTIVITY_SEARCH_DOCUMENTS to _TOOL_ACTIVITY_SUBJECTS</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>3. Chunking Strategy</h2>
+
+<p>Fixed-size character chunks with overlap. Character-based (not token-based) to avoid a tokenizer dependency.</p>
+
+<table>
+  <tr><th>Parameter</th><th>Default</th><th>Rationale</th></tr>
+  <tr><td>chunk_size</td><td>1500 chars</td><td>≈ 512 tokens for typical prose; fits comfortably in nomic-embed-text's 8192-token context</td></tr>
+  <tr><td>chunk_overlap</td><td>200 chars</td><td>Prevents sentence/idea boundary splits from losing context</td></tr>
+  <tr><td>n_results</td><td>5</td><td>Top-5 passages returned to Gemma; configurable</td></tr>
+</table>
+
+<p>Each chunk is stored with metadata:</p>
+<pre>
+{
+  "source_file": "attention_is_all_you_need.pdf",
+  "chunk_index": 3,
+  "page": 2,            # PDF only; omitted for text files
+  "ingested_at": 1717430000.0,
+  "type": "document"
+}
+</pre>
+
+<!-- ============================================================ -->
+<h2>4. file_extract.py — Shared Extraction</h2>
+
+<p>Currently <code>attachment_bar.py</code> has private <code>_extract_pdf_text()</code> and <code>_process_file()</code> functions.
+These will be moved to <code>src/local/utils/file_extract.py</code> as public functions, and <code>attachment_bar.py</code>
+will import from there. This is the only UI file touched.</p>
+
+<pre><code># src/local/utils/file_extract.py
+
+TEXT_EXTS = {".txt", ".md", ".py", ".js", ".ts", ".yaml", ".json", ".csv"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+
+def extract_text(path: str) -> str:
+    """Return plain text from a PDF or text file. Raises on unsupported types."""
+    ...
+
+def extract_for_attachment(path: str) -> dict:
+    """Return {type, name, data} dict for AttachmentBar — images as base64, text as str."""
+    ...
+</code></pre>
+
+<!-- ============================================================ -->
+<h2>5. DocumentService API</h2>
+
+<pre><code># src/local/services/document_service.py
+
+class DocumentService:
+    def __init__(self, chroma_path=None, collection_name=None, embed_model=None): ...
+
+    def ingest_file(self, path: str) -> int:
+        """Chunk, embed, and store file. Returns number of chunks written."""
+        ...
+
+    def ingest_text(self, text: str, source_name: str) -> int:
+        """Ingest already-extracted text (for programmatic use). Returns chunk count."""
+        ...
+
+    def search(self, query: str, n: int | None = None) -> list[dict]:
+        """Return top-n chunks by similarity: [{content, source_file, chunk_index, page, score}]"""
+        ...
+
+    def list_sources(self) -> list[str]:
+        """Return unique source filenames in the collection."""
+        ...
+
+    def delete_source(self, source_file: str) -> int:
+        """Delete all chunks for a given source file. Returns count deleted."""
+        ...
+</code></pre>
+
+<div class="note">
+  <strong>Deduplication:</strong> Chunk IDs are deterministic — <code>sha256(source_file + chunk_index)</code> — so
+  re-ingesting the same file is a safe upsert, not a duplicate accumulation.
+</div>
+
+<!-- ============================================================ -->
+<h2>6. search_documents Tool Schema</h2>
+
+<pre><code>{
+  "type": "function",
+  "function": {
+    "name": "search_documents",
+    "description": "Searches the user's personal document knowledge base for relevant passages. ...",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "What to look for in the knowledge base."
+        }
+      },
+      "required": ["query"]
+    }
+  }
+}
+</code></pre>
+
+<p>Trigger conditions live in the tool description (same principle as Phase 8/9). The description will say:</p>
+<blockquote>
+  "Searches the user's personal document knowledge base for relevant passages.
+   Call this tool when the user asks about content from documents they have added to their knowledge base,
+   or when a question is likely answered by their stored documents rather than general knowledge or the web."
+</blockquote>
+
+<!-- ============================================================ -->
+<h2>7. Tool Result Format</h2>
+
+<pre>
+[Knowledge base results for "transformer positional encoding"]
+
+1. attention_is_all_you_need.pdf (p.4, chunk 8)
+   Since our model contains no recurrence and no convolution, in order for the model
+   to make use of the order of the sequence, we must inject some information about
+   the relative or absolute position of the tokens in the sequence…
+
+2. transformer_survey.pdf (p.12, chunk 31)
+   Positional encodings can be fixed (sinusoidal, as in the original Transformer)
+   or learned. Both approaches yield similar results in practice…
+</pre>
+
+<!-- ============================================================ -->
+<h2>8. CLI Ingest Script</h2>
+
+<pre><code># scripts/ingest.py
+# Usage: python scripts/ingest.py file.pdf [file2.txt ...]
+# Runs without the full stack (no ZMQ, no Ollama chat endpoint).
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from local.services.document_service import DocumentService
+
+def main():
+    paths = sys.argv[1:]
+    if not paths:
+        print("Usage: python scripts/ingest.py file.pdf [file2.txt ...]")
+        sys.exit(1)
+    svc = DocumentService()
+    for path in paths:
+        n = svc.ingest_file(path)
+        print(f"  {path}: {n} chunks ingested")
+
+if __name__ == "__main__":
+    main()
+</code></pre>
+
+<!-- ============================================================ -->
+<h2>9. run_local.py Changes</h2>
+
+<pre><code># Create DocumentService alongside MemoryService (both are ChromaDB; init in main thread)
+from local.services.document_service import DocumentService
+shared_documents = DocumentService()
+
+# Start tool (after existing tools, before generator)
+threading.Thread(
+    target=_start_search_documents,
+    args=(shared_documents,),
+    daemon=True, name="search_documents"
+).start()
+</code></pre>
+
+<!-- ============================================================ -->
+<h2>10. config/documents.yaml</h2>
+
+<pre><code>collection: "collective.documents"
+chroma_path: ".chroma"
+embed_model: "nomic-embed-text"
+chunk_size: 1500
+chunk_overlap: 200
+n_results: 5
+
+description: |
+  Searches the user's personal document knowledge base for relevant passages.
+  Call this tool when the user asks about content from documents they have added,
+  or when a question is likely answered by stored documents rather than general
+  knowledge or the web. Do not call this for general research questions — use
+  search_papers or web_search for those.
+
+param_query: |
+  What to look for in the knowledge base. Be specific — use terms likely to
+  appear in the source documents.
+</code></pre>
+
+<!-- ============================================================ -->
+<h2>11. Testing Plan</h2>
+
+<h3>Unit tests — tests/test_document_service.py</h3>
+<table>
+  <tr><th>Test</th><th>What it checks</th></tr>
+  <tr><td>test_chunk_splits_text</td><td>Text longer than chunk_size produces multiple chunks</td></tr>
+  <tr><td>test_chunk_overlap</td><td>Adjacent chunks share <code>chunk_overlap</code> chars</td></tr>
+  <tr><td>test_chunk_short_text</td><td>Text shorter than chunk_size produces exactly 1 chunk</td></tr>
+  <tr><td>test_ingest_text_returns_chunk_count</td><td>ingest_text() returns correct count</td></tr>
+  <tr><td>test_search_returns_results</td><td>After ingesting, search() finds relevant passage</td></tr>
+  <tr><td>test_deterministic_ids_no_duplicates</td><td>Re-ingesting same text doesn't double chunk count</td></tr>
+  <tr><td>test_list_sources</td><td>list_sources() returns ingested filenames</td></tr>
+  <tr><td>test_delete_source</td><td>delete_source() removes all chunks for a file</td></tr>
+  <tr><td>test_metadata_stored</td><td>source_file, chunk_index present in search result metadata</td></tr>
+</table>
+
+<h3>Unit tests — tests/test_search_documents_tool.py</h3>
+<table>
+  <tr><th>Test</th><th>What it checks</th></tr>
+  <tr><td>test_announce_schema</td><td>Publishes tool.schema with name=search_documents</td></tr>
+  <tr><td>test_handle_request_publishes_result_and_activity</td><td>Both subjects published on tool call</td></tr>
+  <tr><td>test_empty_kb_returns_informative_message</td><td>Graceful result when collection is empty</td></tr>
+</table>
+
+<h3>Story — tests/stories/s12_rag.yaml</h3>
+<ul>
+  <li>Turn 1: ingest a short text via CLI first; then ask "what does the document say about X?"</li>
+  <li>Turn 2: follow-up question using conversation history</li>
+  <li>Turn 3: ask about something not in the document — Gemma should not hallucinate from the KB</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2>12. Build Order</h2>
+
+<ol>
+  <li>Create <code>src/local/utils/file_extract.py</code> — move extraction logic from attachment_bar</li>
+  <li>Update <code>attachment_bar.py</code> to import from file_extract</li>
+  <li>Write <code>src/local/services/document_service.py</code></li>
+  <li>Add subjects to <code>protocol/subjects.py</code></li>
+  <li>Write <code>src/local/tools/search_documents_tool.py</code></li>
+  <li>Wire <code>run_local.py</code></li>
+  <li>Add <code>TOOL_ACTIVITY_SEARCH_DOCUMENTS</code> to <code>main_window.py</code></li>
+  <li>Write <code>config/documents.yaml</code></li>
+  <li>Write <code>scripts/ingest.py</code></li>
+  <li>Write unit tests and story</li>
+  <li>Run full test suite</li>
+</ol>
+
+<div class="note">
+  <strong>ChromaDB init order:</strong> DocumentService must be created in the main thread alongside MemoryService —
+  ChromaDB's PersistentClient is not thread-safe under concurrent construction on the same path.
+  Both share <code>.chroma/</code> but use separate collections, so a single PersistentClient instance
+  could be shared. For simplicity, DocumentService creates its own client (same pattern as MemoryService).
+</div>
+
+<div class="note">
+  <strong>No UI changes beyond main_window.py:</strong> SearchDocumentsWindow is out of scope for Phase 10.
+  The ToolWindow reactive spawn (existing infrastructure) handles the activity log automatically.
+  A future phase can add a DocumentsWindow with list_sources / delete_source / drag-drop ingest.
+</div>
+
+</body>
+</html>

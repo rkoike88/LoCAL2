@@ -1,0 +1,12 @@
+collection: collective.documents
+chroma_path: .chroma
+embed_model: nomic-embed-text
+chunk_size: 1500
+chunk_overlap: 200
+n_results: 5
+topic: MBA Textbooks
+param_query: 'What to look for in the library. Use specific terms likely to appear
+
+  in the source documents.
+
+  '

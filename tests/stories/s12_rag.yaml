@@ -1,0 +1,26 @@
+story_id: s12
+title: RAG document knowledge base
+notes: >
+  Live stack required. Ingest a document first:
+    python scripts/ingest.py <some_pdf_or_txt>
+  Then run these turns. Verifies that Gemma calls search_documents for
+  document-specific questions and does not hallucinate from an empty KB.
+
+turns:
+  - query: "what does the document say about [topic from your ingested file]?"
+    assertions:
+      - subject: tool.activity.search_documents
+        check: present
+    notes: "Gemma should call search_documents; replace [topic] with something in your file"
+
+  - query: "can you summarize that?"
+    assertions:
+      - answer_contains:
+          - []
+    notes: "Follow-up uses conversation history — no second tool call needed"
+
+  - query: "what is the capital of France?"
+    assertions:
+      - subject: tool.activity.search_documents
+        check: absent
+    notes: "General knowledge question should NOT trigger search_documents"

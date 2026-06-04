@@ -44,6 +44,7 @@ from local.protocol.subjects import (
     TOOL_ACTIVITY_GET_DATETIME,
     TOOL_ACTIVITY_GET_LOCATION,
     TOOL_ACTIVITY_SEARCH_MEMORY,
+    TOOL_ACTIVITY_SEARCH_DOCUMENTS,
     TOOL_ACTIVITY_SEARCH_PAPERS,
     TOOL_ACTIVITY_WEB_FETCH,
     TOOL_ACTIVITY_WEB_SEARCH,
@@ -60,6 +61,7 @@ from local.transport.bus_config import PROXY_BACKEND_ADDR
 from local.transport.zmq_pubsub import ZmqPublisher, ZmqSubscriber
 from local.ui.attachment_bar import AttachmentBar
 from local.ui.critic_window import CriticWindow
+from local.ui.documents_window import DocumentsWindow
 from local.ui.memory_window import MemoryWindow
 from local.ui.tool_window import ToolWindow
 
@@ -70,6 +72,7 @@ _TOOL_ACTIVITY_SUBJECTS = [
     TOOL_ACTIVITY_GET_DATETIME,
     TOOL_ACTIVITY_GET_LOCATION,
     TOOL_ACTIVITY_SEARCH_PAPERS,
+    TOOL_ACTIVITY_SEARCH_DOCUMENTS,
 ]
 
 
@@ -388,7 +391,7 @@ class _InputContainer(QWidget):
 
 class MainWindow(QMainWindow):
 
-    def __init__(self, publisher: ZmqPublisher, model: str = "", memory_service=None) -> None:
+    def __init__(self, publisher: ZmqPublisher, model: str = "", memory_service=None, document_service=None) -> None:
         super().__init__()
         self._publisher = publisher
         self._session_id = str(uuid.uuid4())
@@ -409,6 +412,8 @@ class MainWindow(QMainWindow):
         self._critic_window.show()
         self._memory_window = MemoryWindow(memory_service=memory_service)
         self._memory_window.show()
+        self._documents_window = DocumentsWindow(document_service=document_service, publisher=publisher)
+        self._documents_window.show()
 
         # ── Stack: page 0 = conversation only ─────────────────────────
         self._stack = QStackedWidget()
@@ -534,6 +539,14 @@ class MainWindow(QMainWindow):
         strip_layout.addSpacing(4)
 
         strip_layout.addWidget(chat_btn, alignment=Qt.AlignHCenter)
+
+        lib_btn = QPushButton("📚")
+        lib_btn.setObjectName("sidebarBtn")
+        lib_btn.setToolTip("Library")
+        lib_btn.setFixedSize(36, 36)
+        lib_btn.clicked.connect(lambda: self._documents_window.show() or self._documents_window.raise_())
+        strip_layout.addWidget(lib_btn, alignment=Qt.AlignHCenter)
+
         strip_layout.addStretch()
         return icon_strip
 

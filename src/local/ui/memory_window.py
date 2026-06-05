@@ -422,7 +422,12 @@ class MemoryWindow(QWidget):
     def _message_preview(msg: dict) -> str:
         if "tool_calls" in msg and msg["tool_calls"]:
             calls = msg["tool_calls"]
-            names = ", ".join(c.get("function", {}).get("name", "?") for c in calls)
+            def _tc_name(c) -> str:
+                if isinstance(c, dict):
+                    return c.get("function", {}).get("name", "?")
+                fn = getattr(c, "function", None)
+                return getattr(fn, "name", "?") if fn else "?"
+            names = ", ".join(_tc_name(c) for c in calls)
             return f"→ {names}"
         content = msg.get("content") or ""
         if isinstance(content, list):
@@ -433,7 +438,10 @@ class MemoryWindow(QWidget):
     def _message_full(msg: dict) -> str:
         import json
         if "tool_calls" in msg and msg["tool_calls"]:
-            return json.dumps(msg["tool_calls"], indent=2)
+            try:
+                return json.dumps(msg["tool_calls"], indent=2)
+            except TypeError:
+                return str(msg["tool_calls"])
         content = msg.get("content") or ""
         if isinstance(content, list):
             return json.dumps(content, indent=2)

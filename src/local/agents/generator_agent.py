@@ -317,10 +317,30 @@ class GeneratorAgent:
 
     @staticmethod
     def _clean_for_history(m: dict) -> dict:
-        """Strip thinking and empty tool_calls from a message dict before saving to history."""
+        """Strip thinking and empty tool_calls from a message dict before saving to history.
+
+        Converts Ollama ToolCall SDK objects to plain dicts so the history is
+        JSON-serializable (required by MemoryWindow and any future persistence).
+        """
         result = {k: v for k, v in m.items() if k != "thinking"}
-        if not result.get("tool_calls"):
+        tool_calls = result.get("tool_calls")
+        if not tool_calls:
             result.pop("tool_calls", None)
+        else:
+            serialized = []
+            for tc in tool_calls:
+                if isinstance(tc, dict):
+                    serialized.append(tc)
+                else:
+                    # Ollama SDK ToolCall object
+                    fn = getattr(tc, "function", None) or {}
+                    serialized.append({
+                        "function": {
+                            "name": getattr(fn, "name", "") if not isinstance(fn, dict) else fn.get("name", ""),
+                            "arguments": getattr(fn, "arguments", {}) if not isinstance(fn, dict) else fn.get("arguments", {}),
+                        }
+                    })
+            result["tool_calls"] = serialized
         return result
 
     # ------------------------------------------------------------------

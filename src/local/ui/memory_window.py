@@ -230,6 +230,7 @@ class MemoryWindow(QWidget):
     def _activate_context(self) -> None:
         # Capture browsed_session_id BEFORE switching mode
         session_override = self._browsed_session_id
+        print(f"[MemoryWindow] activate_context: session_override={session_override!r}  current_session={self._get_session_id()!r}")
         self._mode = _MODE_CONTEXT
         self._set_mode_buttons(_MODE_CONTEXT)
         self._search_bar.setVisible(False)
@@ -312,6 +313,7 @@ class MemoryWindow(QWidget):
             return
         session_id = session_id_override or self._get_session_id()
         messages = self._conv.get_history(session_id)
+        print(f"[MemoryWindow] load_context: session={session_id!r}  messages={len(messages)}  conv_sessions={list(self._conv._sessions.keys())}")
         if not messages:
             if session_id_override:
                 self._detail.setPlaceholderText(
@@ -398,6 +400,7 @@ class MemoryWindow(QWidget):
         if self._mode in (_MODE_BROWSE, _MODE_SEARCH):
             col0 = self._table.item(r, 0)
             self._browsed_session_id = (col0.data(Qt.UserRole + 1) or None) if col0 else None
+            print(f"[MemoryWindow] row selected: row={r}  browsed_session_id={self._browsed_session_id!r}")
         # context mode: full text on preview column (col 2); episodic: col 0
         col = 2 if self._mode == _MODE_CONTEXT else 0
         item = self._table.item(r, col)

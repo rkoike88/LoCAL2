@@ -41,7 +41,7 @@ def _make_agent(model="test-model", system_prompt="", tool_schemas=None) -> Gene
         mock_pub = MagicMock()
         mock_sub = MagicMock()
         mock_bus.return_value = (mock_pub, mock_sub)
-        agent = GeneratorAgent(model=model)
+        agent = GeneratorAgent(model=model, conversation_service=ConversationService(persist_path=":memory:"))
         agent._pub = mock_pub
         agent._sub = mock_sub
     return agent

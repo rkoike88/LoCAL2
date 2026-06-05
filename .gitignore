@@ -10,3 +10,4 @@ build/
 *.log
 chroma_db/
 .chroma/
+.conversation_history.json

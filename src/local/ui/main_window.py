@@ -402,7 +402,7 @@ class _InputContainer(QWidget):
 
 class MainWindow(QMainWindow):
 
-    def __init__(self, publisher: ZmqPublisher, model: str = "", memory_service=None, document_service=None) -> None:
+    def __init__(self, publisher: ZmqPublisher, model: str = "", memory_service=None, document_service=None, conversation_service=None) -> None:
         super().__init__()
         self._publisher = publisher
         self._session_id = str(uuid.uuid4())
@@ -419,7 +419,11 @@ class MainWindow(QMainWindow):
         # ── Agent windows — spawned at startup ────────────────────────
         self._critic_window = CriticWindow(publisher=publisher)
         self._critic_window.show()
-        self._memory_window = MemoryWindow(memory_service=memory_service)
+        self._memory_window = MemoryWindow(
+            memory_service=memory_service,
+            conversation_service=conversation_service,
+            session_id_getter=lambda: self._session_id,
+        )
         self._memory_window.show()
         self._documents_window = DocumentsWindow(document_service=document_service, publisher=publisher)
         self._documents_window.show()

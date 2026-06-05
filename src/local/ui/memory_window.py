@@ -1,8 +1,10 @@
 """MemoryWindow — floating memory inspector for LoCAL2.
 
-Browse mode: list_episodic() — all engrams, newest first.
-Search mode: search_episodic() — semantic search, ranked as Gemma sees them.
-Embedding call runs in a QThread worker so the UI stays responsive.
+Browse mode:  list_episodic() — all engrams, newest first.
+Search mode:  search_episodic() — semantic search, ranked as Gemma sees them.
+Context mode: ConversationService.get_history() — live messages Gemma sees this session.
+
+Embedding search runs in a QThread worker so the UI stays responsive.
 Transition log strip at bottom shows memory_agent state transitions.
 """
 from __future__ import annotations
@@ -36,12 +38,12 @@ except ImportError as exc:
 
 class _SearchWorker(QObject):
     finished = Signal(list)
-    error = Signal(str)
+    error    = Signal(str)
 
     def __init__(self, memory_service, query: str) -> None:
         super().__init__()
         self._memory = memory_service
-        self._query = query
+        self._query  = query
 
     def run(self) -> None:
         try:
@@ -55,14 +57,32 @@ class _SearchWorker(QObject):
 # Memory window
 # ---------------------------------------------------------------------------
 
-class MemoryWindow(QWidget):
-    _COLS = ["Age", "Resp", "Score", "Senti", "Winner", "Query"]
+_MODE_BROWSE  = "browse"
+_MODE_SEARCH  = "search"
+_MODE_CONTEXT = "context"
 
-    def __init__(self, memory_service=None) -> None:
+# Role display config: (label, colour)
+_ROLE_STYLE: dict[str, tuple[str, str]] = {
+    "user":      ("user",      "#9dbde8"),
+    "assistant": ("asst",      "#7ec8a4"),
+    "tool":      ("tool_res",  "#c8a47e"),
+    "tool_call": ("tool_call", "#c8a47e"),
+    "system":    ("sys",       "#888888"),
+}
+
+
+class MemoryWindow(QWidget):
+    _EPISODIC_COLS = ["Age", "Resp", "Score", "Senti", "Winner", "Query"]
+    _CONTEXT_COLS  = ["#", "Role", "Preview"]
+
+    def __init__(self, memory_service=None, conversation_service=None, session_id_getter=None) -> None:
         super().__init__()
-        self._memory = memory_service
+        self._memory            = memory_service
+        self._conv              = conversation_service
+        self._get_session_id    = session_id_getter or (lambda: None)
         self._search_thread: QThread | None = None
-        self._search_mode = False
+        self._search_worker     = None   # strong ref — prevents GC before thread runs
+        self._mode              = _MODE_BROWSE
 
         self.setWindowTitle("memory")
         self.resize(680, 500)
@@ -77,6 +97,7 @@ class MemoryWindow(QWidget):
         layout.addWidget(self._build_transition_log())
 
         self._apply_styles()
+        self._refresh()
 
     # ------------------------------------------------------------------
     # Header
@@ -97,6 +118,11 @@ class MemoryWindow(QWidget):
         self._search_btn.setCheckable(True)
         self._search_btn.clicked.connect(self._activate_search)
 
+        self._context_btn = QPushButton("Context")
+        self._context_btn.setObjectName("memModeBtn")
+        self._context_btn.setCheckable(True)
+        self._context_btn.clicked.connect(self._activate_context)
+
         self._refresh_btn = QPushButton("Refresh")
         self._refresh_btn.setObjectName("memRefreshBtn")
         self._refresh_btn.clicked.connect(self._refresh)
@@ -107,6 +133,7 @@ class MemoryWindow(QWidget):
         row.addWidget(title, 1)
         row.addWidget(self._browse_btn)
         row.addWidget(self._search_btn)
+        row.addWidget(self._context_btn)
         row.addWidget(self._refresh_btn)
 
         header = QWidget()
@@ -115,7 +142,7 @@ class MemoryWindow(QWidget):
         return header
 
     # ------------------------------------------------------------------
-    # Search bar (hidden in Browse mode)
+    # Search bar (visible in Search mode only)
     # ------------------------------------------------------------------
 
     def _build_search_bar(self) -> QWidget:
@@ -149,9 +176,9 @@ class MemoryWindow(QWidget):
     # ------------------------------------------------------------------
 
     def _build_splitter(self) -> QWidget:
-        self._table = QTableWidget(0, len(self._COLS))
+        self._table = QTableWidget(0, len(self._EPISODIC_COLS))
         self._table.setObjectName("memTable")
-        self._table.setHorizontalHeaderLabels(self._COLS)
+        self._table.setHorizontalHeaderLabels(self._EPISODIC_COLS)
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self._table.horizontalHeader().setStretchLastSection(True)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -176,35 +203,57 @@ class MemoryWindow(QWidget):
     # Mode switching
     # ------------------------------------------------------------------
 
+    def _set_mode_buttons(self, mode: str) -> None:
+        self._browse_btn.setChecked(mode == _MODE_BROWSE)
+        self._search_btn.setChecked(mode == _MODE_SEARCH)
+        self._context_btn.setChecked(mode == _MODE_CONTEXT)
+
     def _activate_browse(self) -> None:
-        self._search_mode = False
-        self._browse_btn.setChecked(True)
-        self._search_btn.setChecked(False)
+        self._mode = _MODE_BROWSE
+        self._set_mode_buttons(_MODE_BROWSE)
         self._search_bar.setVisible(False)
-        self._refresh()
+        self._set_table_columns(self._EPISODIC_COLS)
+        self._load_browse()
 
     def _activate_search(self) -> None:
-        self._search_mode = True
-        self._search_btn.setChecked(True)
-        self._browse_btn.setChecked(False)
+        self._mode = _MODE_SEARCH
+        self._set_mode_buttons(_MODE_SEARCH)
         self._search_bar.setVisible(True)
+        self._set_table_columns(self._EPISODIC_COLS)
         self._search_input.setFocus()
+
+    def _activate_context(self) -> None:
+        self._mode = _MODE_CONTEXT
+        self._set_mode_buttons(_MODE_CONTEXT)
+        self._search_bar.setVisible(False)
+        self._set_table_columns(self._CONTEXT_COLS)
+        self._load_context()
+
+    def _set_table_columns(self, cols: list[str]) -> None:
+        self._table.setColumnCount(len(cols))
+        self._table.setHorizontalHeaderLabels(cols)
+        hdr = self._table.horizontalHeader()
+        for i in range(len(cols) - 1):
+            hdr.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(len(cols) - 1, QHeaderView.Stretch)
 
     # ------------------------------------------------------------------
     # Data loading
     # ------------------------------------------------------------------
 
     def _refresh(self) -> None:
-        if self._search_mode:
+        if self._mode == _MODE_BROWSE:
+            self._load_browse()
+        elif self._mode == _MODE_SEARCH:
             self._run_search()
         else:
-            self._load_browse()
+            self._load_context()
 
     def _load_browse(self) -> None:
         if not self._memory:
             return
         rows = self._memory.list_episodic(n=100)
-        self._populate_table(rows, score_col_label="Score")
+        self._populate_episodic(rows)
 
     def _run_search(self) -> None:
         if not self._memory:
@@ -228,37 +277,80 @@ class MemoryWindow(QWidget):
         worker.error.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
         self._search_thread = thread
+        self._search_worker  = worker  # keep alive until thread runs
         thread.start()
 
     def _on_search_done(self, results: list) -> None:
+        self._search_worker = None
         self._status_label.setText(f"{len(results)} results")
         self._refresh_btn.setEnabled(True)
-        self._populate_table(results, score_col_label="Score")
+        self._populate_episodic(results)
 
     def _on_search_error(self, msg: str) -> None:
+        self._search_worker = None
         self._status_label.setText(f"Error: {msg}")
         self._refresh_btn.setEnabled(True)
 
-    # ------------------------------------------------------------------
-    # Table population
-    # ------------------------------------------------------------------
-
-    def _populate_table(self, rows: list, score_col_label: str = "Score") -> None:
+    def _load_context(self) -> None:
         self._table.setRowCount(0)
         self._detail.clear()
-        self._table.horizontalHeaderItem(2).setText(score_col_label)
+        if not self._conv:
+            return
+        session_id = self._get_session_id()
+        messages = self._conv.get_history(session_id)
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "?")
+            # tool_calls list → synthetic "tool_call" role for display
+            if "tool_calls" in msg and msg["tool_calls"]:
+                role = "tool_call"
+            content = self._message_preview(msg)
+            full    = self._message_full(msg)
 
+            label, colour = _ROLE_STYLE.get(role, (role, "#888"))
+
+            r = self._table.rowCount()
+            self._table.insertRow(r)
+
+            num_item = QTableWidgetItem(str(i + 1))
+            num_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
+            self._table.setItem(r, 0, num_item)
+
+            role_item = QTableWidgetItem(label)
+            role_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
+            role_item.setForeground(Qt.GlobalColor.white)
+            self._table.setItem(r, 1, role_item)
+
+            preview_item = QTableWidgetItem(content)
+            preview_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+            preview_item.setData(Qt.UserRole, full)
+            self._table.setItem(r, 2, preview_item)
+
+            # colour the role cell
+            self._table.item(r, 1).setForeground(
+                __import__("PySide6.QtGui", fromlist=["QColor"]).QColor(colour)
+            )
+
+        n = len(messages)
+        self._status_label.setText(f"{n} message{'s' if n != 1 else ''}")
+
+    # ------------------------------------------------------------------
+    # Table helpers
+    # ------------------------------------------------------------------
+
+    def _populate_episodic(self, rows: list) -> None:
+        self._table.setRowCount(0)
+        self._detail.clear()
         for row_data in rows:
-            meta = row_data.get("metadata") or {}
+            meta    = row_data.get("metadata") or {}
             content = row_data.get("content") or ""
 
-            age = self._format_age(meta.get("timestamp"))
-            resp = meta.get("respondent_id", "A")
-            score = meta.get("critic_score")
-            score_str = f"{score}/5" if score is not None else "—"
-            sentiment = meta.get("user_sentiment")
-            senti_str = "👍" if sentiment == 1 else ("👎" if sentiment == -1 else "—")
-            winner = meta.get("pairwise_winner")
+            age        = self._format_age(meta.get("timestamp"))
+            resp       = meta.get("respondent_id", "A")
+            score      = meta.get("critic_score")
+            score_str  = f"{score}/5" if score is not None else "—"
+            sentiment  = meta.get("user_sentiment")
+            senti_str  = "👍" if sentiment == 1 else ("👎" if sentiment == -1 else "—")
+            winner     = meta.get("pairwise_winner")
             winner_str = "✓" if winner is True else ("✗" if winner is False else "—")
             query_text = (meta.get("query") or content[:60]).replace("\n", " ")
 
@@ -268,16 +360,38 @@ class MemoryWindow(QWidget):
                 item = QTableWidgetItem(val)
                 item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
                 self._table.setItem(r, col, item)
-
-            # store full content on the first cell for detail view
             self._table.item(r, 0).setData(Qt.UserRole, content)
 
     def _on_row_selected(self) -> None:
         rows = self._table.selectedItems()
         if not rows:
             return
-        content = self._table.item(rows[0].row(), 0).data(Qt.UserRole) or ""
-        self._detail.setPlainText(content)
+        # context mode: full text on preview column (col 2); episodic: col 0
+        col = 2 if self._mode == _MODE_CONTEXT else 0
+        item = self._table.item(rows[0].row(), col)
+        if item:
+            self._detail.setPlainText(item.data(Qt.UserRole) or item.text())
+
+    @staticmethod
+    def _message_preview(msg: dict) -> str:
+        if "tool_calls" in msg and msg["tool_calls"]:
+            calls = msg["tool_calls"]
+            names = ", ".join(c.get("function", {}).get("name", "?") for c in calls)
+            return f"→ {names}"
+        content = msg.get("content") or ""
+        if isinstance(content, list):
+            content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
+        return content.replace("\n", " ")[:120]
+
+    @staticmethod
+    def _message_full(msg: dict) -> str:
+        import json
+        if "tool_calls" in msg and msg["tool_calls"]:
+            return json.dumps(msg["tool_calls"], indent=2)
+        content = msg.get("content") or ""
+        if isinstance(content, list):
+            return json.dumps(content, indent=2)
+        return content
 
     # ------------------------------------------------------------------
     # Transition log
@@ -291,11 +405,11 @@ class MemoryWindow(QWidget):
         return self._transition_log
 
     def append_transition(self, data: dict) -> None:
-        ts = datetime.now().strftime("%H:%M:%S")
+        ts     = datetime.now().strftime("%H:%M:%S")
         from_s = data.get("from", "?")
         action = data.get("action", "?")
-        to_s = data.get("to", "?")
-        line = f'<span style="color:#444">[{ts}]  {from_s} → {to_s}  ({action})</span>'
+        to_s   = data.get("to", "?")
+        line   = f'<span style="color:#444">[{ts}]  {from_s} → {to_s}  ({action})</span>'
         self._transition_log.append(line)
 
     # ------------------------------------------------------------------

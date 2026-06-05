@@ -38,6 +38,7 @@ class GeneratorAgent:
         model: str | None = None,
         temperature: float | None = None,
         respondent_id: str = "A",
+        conversation_service=None,
     ) -> None:
         cfg = get_config("generator")
         self._model: str = model or cfg.get("model", "gemma4:e2b")
@@ -50,7 +51,7 @@ class GeneratorAgent:
         self._tool_timeout: float = cfg.get("tool_timeout", 20)
         self._tool_schemas: list = cfg.get("tools", [])
         self._respondent_id: str = respondent_id
-        self._conv = ConversationService()
+        self._conv = conversation_service or ConversationService()
         self._sm = GeneratorStateMachine()
         self._pub, self._sub = make_participant_bus([QUERY_RECEIVED, TOOL_SCHEMA])
 

@@ -32,9 +32,9 @@ def _start_proxy() -> None:
     run_proxy()
 
 
-def _start_generator(model: str, temperature: float | None = None, respondent_id: str = "A") -> None:
+def _start_generator(model: str, temperature: float | None = None, respondent_id: str = "A", conversation_service=None) -> None:
     from local.agents.generator_agent import GeneratorAgent
-    agent = GeneratorAgent(model=model or None, temperature=temperature, respondent_id=respondent_id)
+    agent = GeneratorAgent(model=model or None, temperature=temperature, respondent_id=respondent_id, conversation_service=conversation_service)
     agent.run()
 
 
@@ -115,8 +115,10 @@ def main() -> None:
     # thread-safe under concurrent construction on the same path.
     from local.services.memory_service import MemoryService
     from local.services.document_service import DocumentService
+    from local.services.conversation_service import ConversationService
     shared_memory = MemoryService()
     shared_documents = DocumentService()
+    shared_conv = ConversationService()
 
     threading.Thread(target=_start_web_search, daemon=True, name="web_search").start()
     threading.Thread(target=_start_web_fetch, daemon=True, name="web_fetch").start()
@@ -130,7 +132,8 @@ def main() -> None:
     # -- Generator (AFTER tools) ---------------------------------------------
     # Tools must be subscribed before generator publishes schema.request at startup.
     gen_thread = threading.Thread(
-        target=_start_generator, args=(args.model,), daemon=True, name="generator_a"
+        target=_start_generator, args=(args.model,), kwargs={"conversation_service": shared_conv},
+        daemon=True, name="generator_a"
     )
     gen_thread.start()
 
@@ -138,7 +141,7 @@ def main() -> None:
         model_b = args.model_b or args.model or ""
         threading.Thread(
             target=_start_generator,
-            kwargs={"model": model_b, "temperature": args.temperature_b, "respondent_id": "B"},
+            kwargs={"model": model_b, "temperature": args.temperature_b, "respondent_id": "B", "conversation_service": shared_conv},
             daemon=True,
             name="generator_b",
         ).start()
@@ -172,7 +175,7 @@ def main() -> None:
 
         app_qt = QApplication(sys.argv)
         publisher = ZmqPublisher(PROXY_FRONTEND_ADDR, bind=False)
-        window = MainWindow(publisher=publisher, model=args.model, memory_service=shared_memory, document_service=shared_documents)
+        window = MainWindow(publisher=publisher, model=args.model, memory_service=shared_memory, document_service=shared_documents, conversation_service=shared_conv)
         signal.signal(signal.SIGINT, lambda *_: app_qt.quit())
         # Wake Python every 200ms so the SIGINT handler can fire while Qt owns the loop.
         _sigint_timer = QTimer()

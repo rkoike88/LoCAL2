@@ -362,6 +362,17 @@ class MemoryWindow(QWidget):
         self._status_label.setText(count_str)
         self._context_btn.setText(f"Context ({n})")
 
+        # Pre-render full conversation thread in detail pane — readable without
+        # clicking row by row; individual row clicks override with that message.
+        thread_lines = []
+        for msg in messages:
+            role = msg.get("role", "?")
+            if "tool_calls" in msg and msg.get("tool_calls"):
+                role = "tool_call"
+            label = _ROLE_STYLE.get(role, (role, "#888"))[0].upper()
+            thread_lines.append(f"[{label}]\n{self._message_full(msg)}")
+        self._detail.setPlainText("\n\n─────\n\n".join(thread_lines))
+
     # ------------------------------------------------------------------
     # Table helpers
     # ------------------------------------------------------------------

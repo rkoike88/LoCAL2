@@ -115,6 +115,7 @@ class MemoryAgent:
         query: str = payload.get("query", "").strip()
         answer: str = payload.get("answer", "").strip()
         query_id: str = payload.get("query_id") or ""
+        session_id: str = payload.get("session_id") or ""
         respondent_id: str = payload.get("respondent_id", "A")
 
         if not query or not answer:
@@ -126,6 +127,8 @@ class MemoryAgent:
         try:
             classification = self._classify(query, answer)
             classification["respondent_id"] = respondent_id
+            if session_id:
+                classification["session_id"] = session_id
             self._memory.write_episodic(query, answer, metadata=classification, query_id=query_id or None)
             logger.info(
                 "MemoryAgent: ingested engram respondent=%s intent=%r entities=%r",

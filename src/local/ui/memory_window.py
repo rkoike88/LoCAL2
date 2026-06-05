@@ -83,6 +83,7 @@ class MemoryWindow(QWidget):
         self._search_thread: QThread | None = None
         self._search_worker     = None   # strong ref — prevents GC before thread runs
         self._mode              = _MODE_BROWSE
+        self._browsed_session_id: str | None = None  # session_id of selected memory row
 
         self.setWindowTitle("memory")
         self.resize(680, 500)
@@ -210,6 +211,7 @@ class MemoryWindow(QWidget):
 
     def _activate_browse(self) -> None:
         self._mode = _MODE_BROWSE
+        self._browsed_session_id = None
         self._set_mode_buttons(_MODE_BROWSE)
         self._search_bar.setVisible(False)
         self._context_btn.setText("Context")
@@ -218,6 +220,7 @@ class MemoryWindow(QWidget):
 
     def _activate_search(self) -> None:
         self._mode = _MODE_SEARCH
+        self._browsed_session_id = None
         self._set_mode_buttons(_MODE_SEARCH)
         self._search_bar.setVisible(True)
         self._context_btn.setText("Context")
@@ -225,12 +228,14 @@ class MemoryWindow(QWidget):
         self._search_input.setFocus()
 
     def _activate_context(self) -> None:
+        # Capture browsed_session_id BEFORE switching mode
+        session_override = self._browsed_session_id
         self._mode = _MODE_CONTEXT
         self._set_mode_buttons(_MODE_CONTEXT)
         self._search_bar.setVisible(False)
         self._set_table_columns(self._CONTEXT_COLS)
         self._context_btn.setText("Context")
-        self._load_context()
+        self._load_context(session_id_override=session_override)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -299,20 +304,24 @@ class MemoryWindow(QWidget):
         self._status_label.setText(f"Error: {msg}")
         self._refresh_btn.setEnabled(True)
 
-    def _load_context(self) -> None:
+    def _load_context(self, session_id_override: str | None = None) -> None:
         self._table.setRowCount(0)
         self._detail.clear()
         if not self._conv:
-            print("[MemoryWindow] context: no conversation_service — stack may need restart")
             self._detail.setPlaceholderText("No conversation service. Restart the stack and try again.")
             return
-        session_id = self._get_session_id()
+        session_id = session_id_override or self._get_session_id()
         messages = self._conv.get_history(session_id)
-        print(f"[MemoryWindow] context: session={session_id!r}  messages={len(messages)}")
         if not messages:
-            self._detail.setPlaceholderText(
-                "No conversation messages yet.\nSend a message first, then click Refresh."
-            )
+            if session_id_override:
+                self._detail.setPlaceholderText(
+                    "Session history not available.\n"
+                    "This memory is from a previous run — conversation history is in-memory only."
+                )
+            else:
+                self._detail.setPlaceholderText(
+                    "No conversation messages yet.\nSend a message first, then click Refresh."
+                )
             return
         for i, msg in enumerate(messages):
             role = msg.get("role", "?")
@@ -379,14 +388,19 @@ class MemoryWindow(QWidget):
                 item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
                 self._table.setItem(r, col, item)
             self._table.item(r, 0).setData(Qt.UserRole, content)
+            self._table.item(r, 0).setData(Qt.UserRole + 1, meta.get("session_id", ""))
 
     def _on_row_selected(self) -> None:
         rows = self._table.selectedItems()
         if not rows:
             return
+        r = rows[0].row()
+        if self._mode in (_MODE_BROWSE, _MODE_SEARCH):
+            col0 = self._table.item(r, 0)
+            self._browsed_session_id = (col0.data(Qt.UserRole + 1) or None) if col0 else None
         # context mode: full text on preview column (col 2); episodic: col 0
         col = 2 if self._mode == _MODE_CONTEXT else 0
-        item = self._table.item(rows[0].row(), col)
+        item = self._table.item(r, col)
         if item:
             self._detail.setPlainText(item.data(Qt.UserRole) or item.text())
 

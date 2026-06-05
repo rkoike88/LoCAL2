@@ -95,11 +95,14 @@ class MemoryService:
             intent = metadata.get("intent", "")
             entities = metadata.get("entities", [])
             respondent_id = metadata.get("respondent_id", "A")
+            session_id = metadata.get("session_id", "")
             if intent:
                 meta["intent"] = intent
             if entities:
                 meta["entities"] = json.dumps(entities)
             meta["respondent_id"] = respondent_id
+            if session_id:
+                meta["session_id"] = session_id
         self._collection.add(
             ids=[doc_id],
             documents=[content],

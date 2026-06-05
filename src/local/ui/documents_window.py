@@ -42,10 +42,10 @@ _ACCEPTED_EXTS = "Documents (*.pdf *.txt *.md *.py *.yaml *.json *.csv)"
 # ---------------------------------------------------------------------------
 
 class _IngestWorker(QObject):
-    file_started  = Signal(str, int)   # filename, total_chunks (emitted after chunking, before embedding)
+    status        = Signal(str)            # free-form status string for immediate display
     chunk_done    = Signal(str, int, int)  # filename, current, total
-    file_done     = Signal(str, int)   # filename, chunk_count
-    error         = Signal(str, str)   # filename, error_message
+    file_done     = Signal(str, int)       # filename, chunk_count
+    error         = Signal(str, str)       # filename, error_message
     finished      = Signal()
 
     def __init__(self, document_service, paths: list[str]) -> None:
@@ -54,8 +54,10 @@ class _IngestWorker(QObject):
         self._paths = paths
 
     def run(self) -> None:
-        for path in self._paths:
+        total_files = len(self._paths)
+        for file_num, path in enumerate(self._paths, 1):
             name = Path(path).name
+            self.status.emit(f"[{file_num}/{total_files}] Extracting text from {name}…")
             try:
                 def on_progress(current: int, total: int, _name=name) -> None:
                     self.chunk_done.emit(_name, current, total)
@@ -80,6 +82,7 @@ class DocumentsWindow(QWidget):
         self._docs              = document_service
         self._publisher         = publisher
         self._thread: QThread | None = None
+        self._worker = None
         self._ingest_total_files = 0
         self._ingest_file_num    = 0
 
@@ -266,6 +269,7 @@ class DocumentsWindow(QWidget):
         thread = QThread(self)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
+        worker.status.connect(self._set_status)
         worker.chunk_done.connect(self._on_chunk_done)
         worker.file_done.connect(self._on_file_done)
         worker.error.connect(self._on_ingest_error)
@@ -273,12 +277,16 @@ class DocumentsWindow(QWidget):
         worker.finished.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
         self._thread = thread
+        self._worker = worker  # keep alive until thread runs; cleared in _on_ingest_finished
         thread.start()
 
     def _on_chunk_done(self, name: str, current: int, total: int) -> None:
         pct = int(current / total * 100) if total else 0
         self._progress.setValue(pct)
-        self._set_status(f"{name} — chunk {current} / {total}")
+        self._set_status(
+            f"[{self._ingest_file_num + 1}/{self._ingest_total_files}] "
+            f"Embedding {name} — {current} / {total}"
+        )
 
     def _on_file_done(self, name: str, chunks: int) -> None:
         self._ingest_file_num += 1
@@ -294,6 +302,7 @@ class DocumentsWindow(QWidget):
         self._set_status(f"Error — {name}: {error}")
 
     def _on_ingest_finished(self) -> None:
+        self._worker = None
         self._progress.setVisible(False)
         self._refresh()
         total = self._docs.count() if self._docs else 0
@@ -329,7 +338,7 @@ class DocumentsWindow(QWidget):
             count_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
             self._table.setItem(r, 1, count_item)
 
-            del_btn = QPushButton("Delete")
+            del_btn = QPushButton("Del")
             del_btn.setObjectName("libDelBtn")
             del_btn.clicked.connect(lambda checked=False, n=name: self._delete_source(n))
             self._table.setCellWidget(r, 2, del_btn)

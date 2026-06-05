@@ -19,7 +19,7 @@ import chromadb
 import ollama
 
 from local.config_loader import get_config
-from local.utils.file_extract import PDF_EXT, TEXT_EXTS, extract_pdf_pages, extract_text
+from local.utils.file_extract import PDF_EXT, TEXT_EXTS, extract_text
 
 logger = logging.getLogger(__name__)
 
@@ -94,36 +94,43 @@ class DocumentService:
         return len(chunks)
 
     def _ingest_pdf(self, path: str, source_name: str, on_progress=None) -> int:
-        """Ingest a PDF page-by-page, preserving page numbers in metadata."""
-        pages = extract_pdf_pages(path)
-        all_chunks: list[tuple[str, int]] = []  # (chunk_text, page_number)
-        for page_num, page_text in pages:
-            for chunk in _chunk_text(page_text, self._chunk_size, self._chunk_overlap):
-                all_chunks.append((chunk, page_num))
+        """Ingest a PDF one page at a time, emitting progress after each page.
 
-        if not all_chunks:
+        Processes extract+embed per page so on_progress fires from the start
+        rather than only after all pages are extracted upfront.
+        """
+        from pypdf import PdfReader
+        reader = PdfReader(path)
+        total_pages = len(reader.pages)
+        if total_pages == 0:
             return 0
 
-        total = len(all_chunks)
         now = time.time()
         ids, docs, embeddings, metas = [], [], [], []
-        for i, (chunk_text, page_num) in enumerate(all_chunks):
-            ids.append(_chunk_id(source_name, i))
-            docs.append(chunk_text)
-            embeddings.append(self._embed_document(chunk_text))
-            metas.append({
-                "source_file": source_name,
-                "chunk_index": i,
-                "page": page_num,
-                "ingested_at": now,
-                "type": "document",
-            })
-            if on_progress:
-                on_progress(i + 1, total)
+        chunk_index = 0
 
+        for page_num, page in enumerate(reader.pages, 1):
+            page_text = page.extract_text() or ""
+            for chunk_text in _chunk_text(page_text, self._chunk_size, self._chunk_overlap):
+                ids.append(_chunk_id(source_name, chunk_index))
+                docs.append(chunk_text)
+                embeddings.append(self._embed_document(chunk_text))
+                metas.append({
+                    "source_file": source_name,
+                    "chunk_index": chunk_index,
+                    "page": page_num,
+                    "ingested_at": now,
+                    "type": "document",
+                })
+                chunk_index += 1
+            if on_progress:
+                on_progress(page_num, total_pages)
+
+        if not ids:
+            return 0
         self._collection.upsert(ids=ids, documents=docs, embeddings=embeddings, metadatas=metas)
-        logger.info("DocumentService: ingested %d chunks from %s", len(ids), source_name)
-        return len(ids)
+        logger.info("DocumentService: ingested %d chunks from %s", chunk_index, source_name)
+        return chunk_index
 
     def _upsert_chunks(self, chunks: list[str], source_name: str, page: Optional[int], on_progress=None) -> None:
         total = len(chunks)

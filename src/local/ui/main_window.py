@@ -75,6 +75,17 @@ _TOOL_ACTIVITY_SUBJECTS = [
     TOOL_ACTIVITY_SEARCH_DOCUMENTS,
 ]
 
+# col, row within the 5×2 panel grid (right 5/7 of screen)
+_TOOL_PANEL_SLOTS: dict[str, tuple[int, int]] = {
+    "search_memory":  (0, 0),
+    "search_library": (1, 0),
+    "web_search":     (2, 0),
+    "search_papers":  (3, 0),
+    "get_datetime":   (4, 0),
+    "web_fetch":      (2, 1),
+    "get_location":   (4, 1),
+}
+
 
 # ---------------------------------------------------------------------------
 # Streaming response widget
@@ -402,8 +413,6 @@ class MainWindow(QMainWindow):
         if model:
             title += f"  [{model}]"
         self.setWindowTitle(title)
-        self.resize(960, 720)
-
         # ── Tool windows — spawned reactively on tool.schema ──────────
         self._tool_windows: dict[str, ToolWindow] = {}  # keyed by tool name
 
@@ -414,6 +423,8 @@ class MainWindow(QMainWindow):
         self._memory_window.show()
         self._documents_window = DocumentsWindow(document_service=document_service, publisher=publisher)
         self._documents_window.show()
+
+        self._tile_windows()
 
         # ── Stack: page 0 = conversation only ─────────────────────────
         self._stack = QStackedWidget()
@@ -604,6 +615,59 @@ class MainWindow(QMainWindow):
             win = ToolWindow(tool_name=tool_name, publisher=self._publisher)
             win.show()
             self._tool_windows[tool_name] = win
+            self._tile_windows()
+
+    def _tile_windows(self) -> None:
+        """Tile all windows across the full screen.
+
+        MainWindow occupies the left 2/7.  The remaining 5/7 is a 5-column × 2-row
+        grid of tool and agent panels, grouped by function:
+          col 0 — memory    (search_memory / MemoryWindow)
+          col 1 — library   (search_library / DocumentsWindow)
+          col 2 — web       (web_search / web_fetch)
+          col 3 — research  (search_papers / CriticWindow)
+          col 4 — utility   (get_datetime / get_location)
+
+        setGeometry() positions the CONTENT area (title bar is outside/above it).
+        To keep each row's outer frame within its H/2 budget:
+          content_y  = row_start + tb_h
+          content_h  = H/2 - tb_h
+        so the frame runs from row_start to row_start + H/2.
+        """
+        screen = QApplication.primaryScreen().availableGeometry()
+        W, H = screen.width(), screen.height()
+        x0, y0 = screen.x(), screen.y()
+
+        main_w  = W * 2 // 7
+        panel_w = W // 7
+
+        # Measure actual title bar height from a shown window
+        fg   = self._critic_window.frameGeometry()
+        g    = self._critic_window.geometry()
+        tb_h = fg.height() - g.height()
+        if tb_h <= 0:
+            tb_h = 28  # macOS default fallback
+
+        panel_h = H // 2 - tb_h
+
+        def _place(win, col: int, row: int) -> None:
+            x = x0 + main_w + col * panel_w
+            y = y0 + row * (H // 2) + tb_h
+            win.setGeometry(x, y, panel_w, panel_h)
+
+        # Main window: left 2/7, full height
+        self.setGeometry(x0, y0 + tb_h, main_w, H - tb_h)
+
+        # Static agent panels
+        _place(self._memory_window,    col=0, row=1)
+        _place(self._documents_window, col=1, row=1)
+        _place(self._critic_window,    col=3, row=1)
+
+        # Tool panels: position each one that has been spawned so far
+        for name, win in self._tool_windows.items():
+            slot = _TOOL_PANEL_SLOTS.get(name)
+            if slot:
+                _place(win, col=slot[0], row=slot[1])
 
     def _on_agent_transition(self, data: dict) -> None:
         agent = data.get("agent", "")

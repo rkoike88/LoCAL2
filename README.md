@@ -26,9 +26,12 @@ curl http://127.0.0.1:11434/api/tags
 
 ```bash
 ollama pull gemma4:e4b
+ollama pull nomic-embed-text
 ```
 
-`gemma4:e4b` is the default model for both the generator and the critic. `gemma4:26b` is also supported for stronger tool calling reliability; configure in `config/generator.yaml`. A dedicated grading model can be used for the critic by setting `model` in `config/critic.yaml` — the default is `prometheus-7b:latest` (Prometheus-7B-v2.0).
+`gemma4:e4b` is the default model for the generator and critic. `gemma4:26b` is also supported for stronger tool calling reliability; configure in `config/generator.yaml`. A dedicated grading model can be used for the critic by setting `model` in `config/critic.yaml` — the default is `prometheus-7b:latest` (Prometheus-7B-v2.0).
+
+`nomic-embed-text` is required for episodic memory and the RAG library. Both use it to embed and retrieve passages.
 
 After pulling, do a quick sanity check:
 
@@ -90,6 +93,15 @@ Paste the output as `MY_SEARX_SECRET=<value>` in `.env`. You only need to do thi
 
 `BRAVE_API_KEY` and `TAVILY_API_KEY` are only needed if you switch the search provider in `config/web_search.yaml` away from the default SearXNG.
 
+`SEMANTIC_SCHOLAR_API_KEY` is optional but recommended — the free tier rate-limits to 1 req/sec without a key. Add it to your shell environment (not `.env`):
+
+```bash
+echo 'export SEMANTIC_SCHOLAR_API_KEY=<your-key>' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Get a free key at [semanticscholar.org/product/api](https://www.semanticscholar.org/product/api).
+
 ### 6. Start SearXNG
 
 ```bash
@@ -130,8 +142,38 @@ All tunable parameters live in `config/`:
 | `config/web_search.yaml` | Search provider, max results, request timeout |
 | `config/web_fetch.yaml` | Max chars extracted, fetch timeout |
 | `config/critic.yaml` | Critic model, grading rubric, grade timeout |
+| `config/memory.yaml` | ChromaDB path, episodic memory collection name |
+| `config/search_memory.yaml` | Max results returned by `search_memory` tool |
+| `config/semantic_scholar.yaml` | Max results, timeout, API fields returned |
+| `config/documents.yaml` | Chunk size/overlap, topic, ChromaDB collection for RAG library |
+| `config/location.yaml` | Optional static location override (skips live IP geolocation) |
 | `config/bus.yaml` | ZMQ proxy ports |
 | `config/system.yaml` | Debug flags |
+
+## Document library (RAG)
+
+LoCAL2 maintains a persistent local knowledge base you can query with `search_library`. Use the **library** window (📚 button in the sidebar) to ingest files.
+
+### Ingest from the UI
+
+1. Click **📚** in the sidebar to open the library window.
+2. Set a **Topic** (e.g. "MBA textbooks covering strategy, finance, and marketing") and click **Save** — Gemma uses this to decide when to search the library instead of the web.
+3. Click **+ Files** to pick individual files, or **+ Folder** to ingest an entire folder recursively. Supported formats: PDF, TXT, MD, PY, YAML, JSON, CSV.
+
+A progress bar shows embedding progress per file. Files are chunked into 1500-character segments and embedded with `nomic-embed-text`. Re-ingesting the same file is safe — chunks are upserted by deterministic ID.
+
+### Ingest from the CLI
+
+```bash
+# Ingest one or more files
+PYTHONPATH=src python scripts/ingest.py path/to/file.pdf path/to/file.txt
+
+# List all ingested sources
+PYTHONPATH=src python scripts/ingest.py --list
+
+# Delete a source by filename
+PYTHONPATH=src python scripts/ingest.py --delete "file.pdf"
+```
 
 ## Running stories
 

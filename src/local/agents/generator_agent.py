@@ -131,6 +131,7 @@ class GeneratorAgent:
         if self._respondent_id == "A":
             new_messages = [self._clean_for_history(m) for m in messages[initial_len - 1:]]
             self._conv.append_messages(session_id, new_messages)
+            print(f"[generator] stored {len(new_messages)} messages for session={session_id!r}  total={len(self._conv.get_history(session_id))}")
         self._sm.transition(GeneratorAction.PUBLISH)
 
         self._pub.publish(self._make_envelope(

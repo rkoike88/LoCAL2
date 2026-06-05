@@ -229,7 +229,13 @@ class MemoryWindow(QWidget):
         self._set_mode_buttons(_MODE_CONTEXT)
         self._search_bar.setVisible(False)
         self._set_table_columns(self._CONTEXT_COLS)
+        self._context_btn.setText("Context")
         self._load_context()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._mode == _MODE_CONTEXT:
+            self._load_context()
 
     def _set_table_columns(self, cols: list[str]) -> None:
         self._table.setColumnCount(len(cols))

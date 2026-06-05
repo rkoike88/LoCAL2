@@ -19,8 +19,10 @@ try:
         QHeaderView,
         QLabel,
         QLineEdit,
+        QMessageBox,
         QProgressBar,
         QPushButton,
+        QStyle,
         QTableWidget,
         QTableWidgetItem,
         QVBoxLayout,
@@ -338,13 +340,24 @@ class DocumentsWindow(QWidget):
             count_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
             self._table.setItem(r, 1, count_item)
 
-            del_btn = QPushButton("🗑")
+            del_btn = QPushButton()
+            del_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
             del_btn.setObjectName("libDelBtn")
+            del_btn.setToolTip(f"Delete {name}")
             del_btn.clicked.connect(lambda checked=False, n=name: self._delete_source(n))
             self._table.setCellWidget(r, 2, del_btn)
 
     def _delete_source(self, name: str) -> None:
         if not self._docs:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Remove from library",
+            f"Remove '{name}' from the library?\nThis cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
             return
         n = self._docs.delete_source(name)
         self._set_status(f"Deleted {name} ({n} chunks removed)")

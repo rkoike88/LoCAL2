@@ -338,7 +338,7 @@ class DocumentsWindow(QWidget):
             count_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
             self._table.setItem(r, 1, count_item)
 
-            del_btn = QPushButton("Del")
+            del_btn = QPushButton("🗑")
             del_btn.setObjectName("libDelBtn")
             del_btn.clicked.connect(lambda checked=False, n=name: self._delete_source(n))
             self._table.setCellWidget(r, 2, del_btn)

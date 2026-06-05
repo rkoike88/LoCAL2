@@ -212,6 +212,7 @@ class MemoryWindow(QWidget):
         self._mode = _MODE_BROWSE
         self._set_mode_buttons(_MODE_BROWSE)
         self._search_bar.setVisible(False)
+        self._context_btn.setText("Context")
         self._set_table_columns(self._EPISODIC_COLS)
         self._load_browse()
 
@@ -219,6 +220,7 @@ class MemoryWindow(QWidget):
         self._mode = _MODE_SEARCH
         self._set_mode_buttons(_MODE_SEARCH)
         self._search_bar.setVisible(True)
+        self._context_btn.setText("Context")
         self._set_table_columns(self._EPISODIC_COLS)
         self._search_input.setFocus()
 
@@ -295,9 +297,17 @@ class MemoryWindow(QWidget):
         self._table.setRowCount(0)
         self._detail.clear()
         if not self._conv:
+            print("[MemoryWindow] context: no conversation_service — stack may need restart")
+            self._detail.setPlaceholderText("No conversation service. Restart the stack and try again.")
             return
         session_id = self._get_session_id()
         messages = self._conv.get_history(session_id)
+        print(f"[MemoryWindow] context: session={session_id!r}  messages={len(messages)}")
+        if not messages:
+            self._detail.setPlaceholderText(
+                "No conversation messages yet.\nSend a message first, then click Refresh."
+            )
+            return
         for i, msg in enumerate(messages):
             role = msg.get("role", "?")
             # tool_calls list → synthetic "tool_call" role for display
@@ -331,7 +341,9 @@ class MemoryWindow(QWidget):
             )
 
         n = len(messages)
-        self._status_label.setText(f"{n} message{'s' if n != 1 else ''}")
+        count_str = f"{n} message{'s' if n != 1 else ''}"
+        self._status_label.setText(count_str)
+        self._context_btn.setText(f"Context ({n})")
 
     # ------------------------------------------------------------------
     # Table helpers

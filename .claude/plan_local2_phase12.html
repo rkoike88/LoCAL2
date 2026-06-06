@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LoCAL2 Phase 12 — Multi-Collection RAG Library</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#0d0d0d; color:#d4d4d4; max-width:900px; margin:40px auto; padding:0 24px 80px; line-height:1.6; }
+  h1 { color:#7ec8a4; border-bottom:1px solid #2a2a2a; padding-bottom:12px; }
+  h2 { color:#9dbde8; margin-top:40px; border-left:3px solid #9dbde8; padding-left:12px; }
+  h3 { color:#c8a47e; margin-top:24px; }
+  p, li { color:#aaa; }
+  code { background:#1a1a1a; border:1px solid #2a2a2a; border-radius:4px; padding:2px 6px; font-family:"Menlo","Monaco","Courier New"; font-size:13px; color:#c8a47e; }
+  pre { background:#111; border:1px solid #2a2a2a; border-radius:6px; padding:16px; overflow-x:auto; font-family:"Menlo","Monaco","Courier New"; font-size:12px; color:#c8c8c8; line-height:1.5; }
+  .phase { background:#141414; border:1px solid #2a2a2a; border-radius:8px; padding:20px 24px; margin:24px 0; }
+  .phase-tag { display:inline-block; padding:2px 10px; border-radius:12px; font-size:11px; font-weight:bold; margin-right:8px; }
+  .tag-data { background:#1a2a1a; color:#7ec8a4; }
+  .tag-ui   { background:#1a2a3a; color:#9dbde8; }
+  .tag-tool { background:#2a1a2a; color:#c87ec8; }
+  table { width:100%; border-collapse:collapse; margin:16px 0; }
+  th { background:#1a1a1a; color:#888; text-align:left; padding:8px 12px; font-size:12px; border-bottom:1px solid #2a2a2a; }
+  td { padding:8px 12px; border-bottom:1px solid #1a1a1a; font-size:13px; color:#aaa; vertical-align:top; }
+  td:first-child { color:#d4d4d4; font-family:"Menlo","Monaco","Courier New"; font-size:12px; }
+  .decision { background:#1a1a10; border-left:3px solid #c8a47e; padding:12px 16px; margin:12px 0; border-radius:0 4px 4px 0; }
+  .decision strong { color:#c8a47e; }
+  ul { padding-left:20px; }
+  li { margin:4px 0; }
+  .ascii { font-family:"Menlo","Monaco","Courier New"; font-size:12px; color:#7ec8a4; background:#0a0a0a; border:1px solid #2a2a2a; border-radius:6px; padding:16px; line-height:1.4; white-space:pre; }
+</style>
+</head>
+<body>
+
+<h1>Phase 12 — Multi-Collection RAG Library</h1>
+
+<p>Extends the single-topic document library into a named, multi-collection store.
+Each collection has its own description used in the tool schema so Gemma can route queries
+to the right collection. The UI gains two-level navigation (collections → sources) and
+CRUD for collections.</p>
+
+<h2>Motivation</h2>
+<ul>
+  <li>A single "MBA Textbooks" topic works while the library is coherent. Adding Economics papers creates an ambiguous mixed collection.</li>
+  <li>Gemma needs per-collection descriptions to route <code>search_library</code> calls correctly.</li>
+  <li>Users need to promote files from conversations or Semantic Scholar results directly into long-term library collections.</li>
+  <li>Move rather than re-ingest: collections as metadata fields mean moving a source is a cheap metadata update, not a re-embedding job.</li>
+</ul>
+
+<h2>Key Design Decisions</h2>
+
+<div class="decision">
+  <strong>Metadata field, not separate ChromaDB collections.</strong>
+  Each chunk gets a <code>collection</code> metadata field (e.g. <code>"mba"</code>). Moving a source between collections updates metadata only — no re-embedding. A single ChromaDB collection (<code>collective.documents</code>) is retained.
+</div>
+
+<div class="decision">
+  <strong>Single tool, <code>collection</code> enum parameter when &gt;1 collection exists.</strong>
+  When only one collection exists, the schema is identical to today (no parameter, tight description). When multiple exist, a <code>collection</code> string enum is added. Gemma selects the collection via the parameter — each enum value has an inline description.
+</div>
+
+<div class="decision">
+  <strong>Collection metadata lives in <code>documents.yaml</code>.</strong>
+  The existing <code>topic</code> key is replaced by a <code>collections</code> list. <code>ConfigManager</code> already handles dynamic saves. No new file format needed.
+</div>
+
+<div class="decision">
+  <strong>Backward-compatible migration.</strong>
+  Existing chunks without a <code>collection</code> field are treated as belonging to the first collection. No bulk re-tagging on startup. Users can move old sources via the UI if desired.
+</div>
+
+<h2>Config Schema Change</h2>
+
+<p>Current <code>config/documents.yaml</code>:</p>
+<pre>topic: "MBA textbooks covering strategy, finance, marketing, and operations"
+chunk_size: 800
+chunk_overlap: 80</pre>
+
+<p>New <code>config/documents.yaml</code>:</p>
+<pre>chunk_size: 800
+chunk_overlap: 80
+collections:
+  - name: mba
+    display_name: "MBA Textbooks"
+    description: "MBA textbooks covering strategy, finance, marketing, and operations"</pre>
+
+<p>Migration: if <code>collections</code> is absent, auto-create one collection from the existing <code>topic</code> field. Old chunks (no <code>collection</code> metadata) are treated as belonging to the first collection.</p>
+
+<h2>UI Layout</h2>
+
+<p><strong>Collections view</strong> (new top level):</p>
+<div class="ascii">library                           + Collection   Refresh
+────────────────────────────────────────────────────────
+ Collection                  Sources    Description
+────────────────────────────────────────────────────────
+ MBA Textbooks                    6     MBA textbooks covering…    ✎ 🗑
+ Economics Research                2     Macro and micro theory…    ✎ 🗑
+────────────────────────────────────────────────────────</div>
+
+<p><strong>Source view</strong> (drill-down, current table enhanced):</p>
+<div class="ascii">← Collections  /  MBA Textbooks                + Files  + Folder  Refresh
+────────────────────────────────────────────────────────────────────────────
+ Source                        Chunks   Move to…
+────────────────────────────────────────────────────────────────────────────
+ Finance.pdf                     1249   [Economics ▾]  🗑
+ MergersAndAcquisitions.pdf      2277   [Economics ▾]  🗑
+────────────────────────────────────────────────────────────────────────────
+[Description: MBA textbooks covering strategy…]  [Save Description]</pre>
+</div>
+
+<h2>Implementation Plan</h2>
+
+<div class="phase">
+  <span class="phase-tag tag-data">12a · Data Layer</span>
+  <h3>DocumentService — collection-aware CRUD</h3>
+  <table>
+    <tr><th>Change</th><th>Detail</th></tr>
+    <tr><td>ingest_file(path, collection, …)</td><td>Adds <code>collection</code> field to each chunk's metadata</td></tr>
+    <tr><td>search(query, collection=None, …)</td><td>Where-filters on <code>collection</code> if provided; searches all if None</td></tr>
+    <tr><td>list_collections()</td><td>Returns distinct collection values from chunk metadata</td></tr>
+    <tr><td>list_sources(collection=None)</td><td>Optional filter; sources without <code>collection</code> field belong to first collection</td></tr>
+    <tr><td>move_source(name, to_collection)</td><td>Updates <code>collection</code> metadata on all chunks for that source (ChromaDB <code>update()</code>)</td></tr>
+    <tr><td>delete_collection(name)</td><td>Deletes all chunks where <code>collection == name</code></td></tr>
+    <tr><td>rename_collection(old, new)</td><td>Updates <code>collection</code> metadata on all matching chunks</td></tr>
+  </table>
+</div>
+
+<div class="phase">
+  <span class="phase-tag tag-tool">12b · Tool Layer</span>
+  <h3>SearchLibraryTool — dynamic schema</h3>
+  <ul>
+    <li>On startup and on schema re-announce, reads <code>collections</code> from <code>documents.yaml</code></li>
+    <li>One collection → schema identical to current (description = collection description, no collection param)</li>
+    <li>Multiple collections → adds <code>collection</code> string enum; each enum value's description is the collection description</li>
+    <li>Tool re-announces whenever DocumentsWindow saves a collection change (existing <code>TOOL_SCHEMA_REQUEST</code> mechanism)</li>
+  </ul>
+  <pre>
+# Single collection (unchanged from today)
+{
+  "name": "search_library",
+  "description": "Search MBA Textbooks: MBA textbooks covering strategy, finance…",
+  "parameters": { "query": {"type": "string", "description": "…"} }
+}
+
+# Multiple collections
+{
+  "name": "search_library",
+  "description": "Search the document library. Choose the collection that best matches your query.",
+  "parameters": {
+    "query": {"type": "string"},
+    "collection": {
+      "type": "string",
+      "enum": ["mba", "economics"],
+      "description": "mba: MBA textbooks (strategy, finance, ops); economics: macro/micro research papers"
+    }
+  }
+}</pre>
+</div>
+
+<div class="phase">
+  <span class="phase-tag tag-ui">12c · UI Layer</span>
+  <h3>DocumentsWindow — two-level navigation</h3>
+  <ul>
+    <li><strong>Collections view:</strong> table of collections (display_name, source count, description snippet); ✎ rename inline, 🗑 delete with confirmation</li>
+    <li><strong>"+ Collection" button:</strong> prompts for name + description in a dialog</li>
+    <li><strong>Source view:</strong> click a collection row to drill in; breadcrumb header shows current collection; back button returns to collections view</li>
+    <li><strong>Move to…:</strong> combo box on each source row listing other collections; selecting one calls <code>move_source()</code> and refreshes</li>
+    <li><strong>Description bar:</strong> shown in source view below the table; editable, Save triggers schema re-announce</li>
+    <li><strong>+ Files / + Folder:</strong> ingest into the currently viewed collection</li>
+  </ul>
+</div>
+
+<div class="phase">
+  <span class="phase-tag tag-ui">12d · Promote to Library</span>
+  <h3>"Save to library" from attachment bar and Semantic Scholar</h3>
+  <ul>
+    <li><strong>Attachment bar:</strong> each attached file gets a "→ Library" button; clicking opens a collection picker dialog and triggers background ingest</li>
+    <li><strong>Semantic Scholar results:</strong> after a paper is fetched, Gemma can call a <code>save_to_library(url_or_text, collection)</code> tool — or a manual button in the tool activity panel</li>
+    <li>This phase is lower priority and can be deferred after 12a–12c</li>
+  </ul>
+</div>
+
+<h2>Files Changed</h2>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td>config/documents.yaml</td><td>Replace <code>topic</code> with <code>collections</code> list</td></tr>
+  <tr><td>src/local/services/document_service.py</td><td>Add <code>collection</code> param throughout; add <code>list_collections</code>, <code>move_source</code>, <code>rename_collection</code>, <code>delete_collection</code></td></tr>
+  <tr><td>src/local/tools/search_library_tool.py</td><td>Dynamic schema generation from collections list</td></tr>
+  <tr><td>src/local/ui/documents_window.py</td><td>Two-level nav (collections ↔ sources), collection CRUD, Move to… combo</td></tr>
+  <tr><td>tests/test_document_service.py</td><td>New tests for collection CRUD and move</td></tr>
+</table>
+
+<h2>Out of Scope</h2>
+<ul>
+  <li>Auto-categorization via background LLM — adds unpredictability; manual assignment is preferred</li>
+  <li>Cross-collection search (no <code>collection</code> param) remains available for Gemma if needed</li>
+  <li>Semantic Scholar "promote to library" (12d) — deferred after core 12a–12c</li>
+</ul>
+
+</body>
+</html>

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LoCAL2 Phase 13 — Conversation Session Navigator</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#0d0d0d; color:#d4d4d4; max-width:900px; margin:40px auto; padding:0 24px 80px; line-height:1.6; }
+  h1 { color:#7ec8a4; border-bottom:1px solid #2a2a2a; padding-bottom:12px; }
+  h2 { color:#9dbde8; margin-top:40px; border-left:3px solid #9dbde8; padding-left:12px; }
+  h3 { color:#c8a47e; margin-top:24px; }
+  p, li { color:#aaa; }
+  code { background:#1a1a1a; border:1px solid #2a2a2a; border-radius:4px; padding:2px 6px; font-family:"Menlo","Monaco","Courier New"; font-size:13px; color:#c8a47e; }
+  pre { background:#111; border:1px solid #2a2a2a; border-radius:6px; padding:16px; overflow-x:auto; font-family:"Menlo","Monaco","Courier New"; font-size:12px; color:#c8c8c8; line-height:1.5; }
+  .phase { background:#141414; border:1px solid #2a2a2a; border-radius:8px; padding:20px 24px; margin:24px 0; }
+  .phase-tag { display:inline-block; padding:2px 10px; border-radius:12px; font-size:11px; font-weight:bold; margin-right:8px; }
+  .tag-data { background:#1a2a1a; color:#7ec8a4; }
+  .tag-ui   { background:#1a2a3a; color:#9dbde8; }
+  .tag-wire { background:#2a1a2a; color:#c87ec8; }
+  table { width:100%; border-collapse:collapse; margin:16px 0; }
+  th { background:#1a1a1a; color:#888; text-align:left; padding:8px 12px; font-size:12px; border-bottom:1px solid #2a2a2a; }
+  td { padding:8px 12px; border-bottom:1px solid #1a1a1a; font-size:13px; color:#aaa; vertical-align:top; }
+  td:first-child { color:#d4d4d4; font-family:"Menlo","Monaco","Courier New"; font-size:12px; }
+  .decision { background:#1a1a10; border-left:3px solid #c8a47e; padding:12px 16px; margin:12px 0; border-radius:0 4px 4px 0; }
+  .decision strong { color:#c8a47e; }
+  ul { padding-left:20px; }
+  li { margin:4px 0; }
+  .ascii { font-family:"Menlo","Monaco","Courier New"; font-size:12px; color:#7ec8a4; background:#0a0a0a; border:1px solid #2a2a2a; border-radius:6px; padding:16px; line-height:1.4; white-space:pre; margin:12px 0; }
+  .note { background:#1a1a2a; border-left:3px solid #9dbde8; padding:10px 14px; margin:12px 0; border-radius:0 4px 4px 0; font-size:13px; color:#9dbde8; }
+</style>
+</head>
+<body>
+
+<h1>Phase 13 — Conversation Session Navigator</h1>
+
+<p>Adds a <code>ConversationsWindow</code> that lists all past sessions with title and age,
+and lets the user rejoin any session — loading its full message history back into
+Gemma's context window. A new session starts fresh as today; rejoin continues
+from where the conversation left off.</p>
+
+<h2>What Already Exists</h2>
+<ul>
+  <li><code>ConversationService</code> persists sessions to <code>.conversation_history.json</code> on every <code>append_messages</code></li>
+  <li>Rejoining is mechanically trivial — <code>MainWindow._session_id</code> is just a UUID; setting it to an old session ID makes <code>_build_messages</code> load that session's history automatically</li>
+  <li><code>MemoryWindow</code> Context tab already shows the message array for a session — confirms the data is there</li>
+</ul>
+
+<h2>What Needs Building</h2>
+<ul>
+  <li>Session metadata: <code>started_at</code>, <code>last_active</code>, <code>title</code> — not currently stored</li>
+  <li><code>list_sessions()</code> method on <code>ConversationService</code></li>
+  <li><code>ConversationsWindow</code> — floating panel showing sessions table</li>
+  <li>Rejoin wiring: <code>MainWindow.rejoin_session(session_id)</code></li>
+  <li>Sidebar button to open the window</li>
+  <li>Tile slot in the layout grid</li>
+</ul>
+
+<h2>Design Decisions</h2>
+
+<div class="decision">
+  <strong>Floating ConversationsWindow, not a sidebar expansion.</strong>
+  Consistent with existing MemoryWindow / CriticWindow / DocumentsWindow pattern.
+  Gets its own tile slot (col 2, row 1 — currently empty in the grid).
+  Can be opened from a new sidebar button.
+</div>
+
+<div class="decision">
+  <strong>Session title = first 60 chars of first user message.</strong>
+  Auto-derived; no manual naming needed. Stored in session metadata so
+  it doesn't require re-scanning messages on every list refresh.
+</div>
+
+<div class="decision">
+  <strong>Rejoin clears the conversation log but keeps the session.</strong>
+  The log widget is visual-only — clearing it doesn't affect ConversationService.
+  A "── rejoined session ──" marker is appended so the user knows the context is loaded.
+</div>
+
+<div class="decision">
+  <strong>Schema migration on load.</strong>
+  Current file format is <code>{session_id: [messages]}</code>.
+  New format: <code>{session_id: {messages: [...], started_at: float, last_active: float, title: str}}</code>.
+  Old format detected on load (value is a list) and auto-migrated: title derived from
+  first message, timestamps set to current time. No manual migration step.
+</div>
+
+<h2>UI Layout</h2>
+
+<div class="ascii">conversations                                        Refresh
+────────────────────────────────────────────────────────
+ Title                                  Msgs    Age
+────────────────────────────────────────────────────────
+ ● here is the URL that gives an outl…    24    13h     🔁 🗑
+   how about client-server architectu…     8     9m     🔁 🗑
+   what is Alexander the Great known …     4    49s     🔁 🗑
+────────────────────────────────────────────────────────
+  ● = current session     🔁 = rejoin     🗑 = delete</div>
+
+<p>Current session highlighted (●). Clicking 🔁 on any row rejoins that session.
+Clicking 🗑 deletes the session (with confirmation). Sessions ordered newest first by <code>last_active</code>.</p>
+
+<h2>Implementation Plan</h2>
+
+<div class="phase">
+  <span class="phase-tag tag-data">13a · ConversationService</span>
+  <h3>Schema migration + session metadata</h3>
+  <table>
+    <tr><th>Change</th><th>Detail</th></tr>
+    <tr><td>New storage format</td><td><code>{session_id: {messages, started_at, last_active, title}}</code></td></tr>
+    <tr><td>Migration on load</td><td>Detect list value → wrap, derive title from first user message, timestamps = now</td></tr>
+    <tr><td>append_messages()</td><td>Update <code>last_active</code> on every write; set <code>started_at</code> + <code>title</code> on first write</td></tr>
+    <tr><td>list_sessions()</td><td>Returns <code>[{session_id, title, message_count, started_at, last_active}]</code> sorted by <code>last_active</code> desc</td></tr>
+    <tr><td>delete_session(session_id)</td><td>Remove from dict and save</td></tr>
+    <tr><td>get_history() unchanged</td><td>Still returns messages list — no callers need to change</td></tr>
+  </table>
+  <p class="note">The schema change is internal to ConversationService. All callers use <code>get_history()</code> and <code>append_messages()</code> which keep the same signatures. Tests use <code>:memory:</code> sentinel so no disk interaction.</p>
+</div>
+
+<div class="phase">
+  <span class="phase-tag tag-ui">13b · ConversationsWindow</span>
+  <h3>Floating session list panel</h3>
+  <ul>
+    <li>Table: Title | Msgs | Age | Actions (🔁 rejoin, 🗑 delete)</li>
+    <li>Current session row marked with ● bullet and highlighted</li>
+    <li>Sessions ordered newest first; refreshed on <code>showEvent</code> and Refresh button</li>
+    <li>Delete: <code>QMessageBox</code> confirmation, then <code>conv.delete_session()</code> + refresh</li>
+    <li>Rejoin: calls <code>self._rejoin_callback(session_id)</code> — callback injected by MainWindow at construction</li>
+    <li>Constructor: <code>ConversationsWindow(conversation_service, session_id_getter, rejoin_callback)</code></li>
+  </ul>
+</div>
+
+<div class="phase">
+  <span class="phase-tag tag-wire">13c · MainWindow wiring</span>
+  <h3>Rejoin, sidebar button, tile slot</h3>
+  <table>
+    <tr><th>Change</th><th>Detail</th></tr>
+    <tr><td>rejoin_session(session_id)</td><td>Sets <code>self._session_id</code>, clears log widget, appends "── rejoined ──" marker, raises ConversationsWindow to refresh</td></tr>
+    <tr><td>ConversationsWindow construction</td><td>Created at startup alongside MemoryWindow; injected with <code>shared_conv</code>, session_id_getter, and <code>self.rejoin_session</code> callback</td></tr>
+    <tr><td>Sidebar button</td><td>💬 icon; opens/raises ConversationsWindow</td></tr>
+    <tr><td>Tile slot</td><td>col 2, row 1 (currently empty) in <code>_tile_windows()</code></td></tr>
+    <tr><td>New session (⟳) button</td><td>Already exists; no change needed — it sets a new UUID which naturally creates a new session on next <code>append_messages</code></td></tr>
+  </table>
+</div>
+
+<h2>Files Changed</h2>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td>src/local/services/conversation_service.py</td><td>Schema migration, metadata fields, list_sessions(), delete_session()</td></tr>
+  <tr><td>src/local/ui/conversations_window.py</td><td>New file — sessions table, rejoin/delete actions</td></tr>
+  <tr><td>src/local/ui/main_window.py</td><td>Construct ConversationsWindow, rejoin_session(), sidebar button, tile slot</td></tr>
+  <tr><td>tests/test_conversation_service.py</td><td>Tests for list_sessions, delete_session, schema migration</td></tr>
+</table>
+
+<h2>Out of Scope</h2>
+<ul>
+  <li>Session renaming — title is auto-derived for now; can add later</li>
+  <li>Compaction — addressed in a future phase; rejoining a long session still hits the 40-message cap (raising the cap is a quick config change, separate from this)</li>
+  <li>Engram-as-pointer architecture — the current ConversationService-as-source-of-truth is retained; the pointer design is a future refactor once session navigation is proven out</li>
+  <li>num_ctx increase — quick config change, can be done independently</li>
+</ul>
+
+</body>
+</html>

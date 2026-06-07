@@ -16,76 +16,128 @@
   .tag-data { background:#1a2a1a; color:#7ec8a4; }
   .tag-ui   { background:#1a2a3a; color:#9dbde8; }
   .tag-tool { background:#2a1a2a; color:#c87ec8; }
+  .tag-cli  { background:#2a2a1a; color:#c8c87e; }
   table { width:100%; border-collapse:collapse; margin:16px 0; }
   th { background:#1a1a1a; color:#888; text-align:left; padding:8px 12px; font-size:12px; border-bottom:1px solid #2a2a2a; }
   td { padding:8px 12px; border-bottom:1px solid #1a1a1a; font-size:13px; color:#aaa; vertical-align:top; }
   td:first-child { color:#d4d4d4; font-family:"Menlo","Monaco","Courier New"; font-size:12px; }
   .decision { background:#1a1a10; border-left:3px solid #c8a47e; padding:12px 16px; margin:12px 0; border-radius:0 4px 4px 0; }
   .decision strong { color:#c8a47e; }
+  .review { background:#1a101a; border-left:3px solid #c87ec8; padding:12px 16px; margin:12px 0; border-radius:0 4px 4px 0; }
+  .review strong { color:#c87ec8; }
   ul { padding-left:20px; }
   li { margin:4px 0; }
-  .ascii { font-family:"Menlo","Monaco","Courier New"; font-size:12px; color:#7ec8a4; background:#0a0a0a; border:1px solid #2a2a2a; border-radius:6px; padding:16px; line-height:1.4; white-space:pre; }
+  .ascii { font-family:"Menlo","Monaco","Courier New"; font-size:12px; color:#7ec8a4; background:#0a0a0a; border:1px solid #2a2a2a; border-radius:6px; padding:16px; line-height:1.4; white-space:pre; margin:12px 0; }
+  .note { background:#1a1a2a; border-left:3px solid #9dbde8; padding:10px 14px; margin:12px 0; border-radius:0 4px 4px 0; font-size:13px; color:#9dbde8; }
 </style>
 </head>
 <body>
 
-<h1>Phase 12 — Multi-Collection RAG Library</h1>
+<h1>Phase 12 — Multi-Collection RAG Library <span style="font-size:14px;color:#555">(rev 2 — post Codex review)</span></h1>
 
 <p>Extends the single-topic document library into a named, multi-collection store.
 Each collection has its own description used in the tool schema so Gemma can route queries
 to the right collection. The UI gains two-level navigation (collections → sources) and
 CRUD for collections.</p>
 
-<h2>Motivation</h2>
-<ul>
-  <li>A single "MBA Textbooks" topic works while the library is coherent. Adding Economics papers creates an ambiguous mixed collection.</li>
-  <li>Gemma needs per-collection descriptions to route <code>search_library</code> calls correctly.</li>
-  <li>Users need to promote files from conversations or Semantic Scholar results directly into long-term library collections.</li>
-  <li>Move rather than re-ingest: collections as metadata fields mean moving a source is a cheap metadata update, not a re-embedding job.</li>
-</ul>
+<h2>Codex Review — Issues Addressed</h2>
+
+<div class="review">
+  <strong>Issue 1 resolved: Chunk ID includes collection.</strong>
+  Old: <code>sha256(source_file::chunk_index)</code>.
+  New: <code>sha256(collection::source_file::chunk_index)</code>.
+  The same filename in two collections gets distinct IDs — no upsert collision.
+</div>
+
+<div class="review">
+  <strong>Issue 2 resolved: No backward compatibility — clean slate.</strong>
+  User re-ingests all files into named collections. No migration code, no legacy fallback paths.
+  All ChromaDB reads assume every chunk has a <code>collection</code> metadata field.
+</div>
+
+<div class="review">
+  <strong>Issue 3 resolved: move_source is delete+upsert, not metadata update.</strong>
+  ChromaDB <code>update()</code> replaces metadata entirely. Instead:
+  get chunks (with documents + embeddings), upsert with new IDs + merged metadata, delete old IDs.
+  Embeddings are reused — no Ollama call needed.
+</div>
+
+<div class="review">
+  <strong>Issue 4 resolved: documents.yaml is authoritative for collection definitions.</strong>
+  <code>list_collections()</code> reads from config, not from Chroma metadata.
+  Empty collections (no chunks yet) still appear. Chunk counts come from Chroma as a secondary query.
+</div>
+
+<div class="review">
+  <strong>Issue 5 resolved: Tool layer gets explicit collection param parsing and tests.</strong>
+  <code>_handle_request</code> extracts <code>collection</code> arg; passes to <code>DocumentService.search()</code>.
+  Tests added in <code>tests/test_search_library_tool.py</code>.
+</div>
+
+<div class="review">
+  <strong>Issue 6 resolved: scripts/ingest.py gets --collection flag.</strong>
+  All commands updated: <code>--list</code> shows per-collection breakdown, <code>--delete</code> requires <code>--collection</code>.
+</div>
 
 <h2>Key Design Decisions</h2>
 
 <div class="decision">
   <strong>Metadata field, not separate ChromaDB collections.</strong>
-  Each chunk gets a <code>collection</code> metadata field (e.g. <code>"mba"</code>). Moving a source between collections updates metadata only — no re-embedding. A single ChromaDB collection (<code>collective.documents</code>) is retained.
+  Each chunk gets a <code>collection</code> metadata field (e.g. <code>"mba"</code>). Single ChromaDB collection
+  (<code>collective.documents</code>) retained. Moving a source = delete old chunks + upsert new chunks
+  with updated collection — embeddings reused from Chroma, no re-embedding.
+</div>
+
+<div class="decision">
+  <strong>Chunk ID includes collection name.</strong>
+  <code>sha256(f"{collection}::{source_file}::{chunk_index}")</code>.
+  Finance.pdf in "mba" and Finance.pdf in "econ" are fully independent rows with no ID collision.
+</div>
+
+<div class="decision">
+  <strong>documents.yaml is authoritative for collection definitions.</strong>
+  <code>list_collections()</code> reads the <code>collections</code> list from config — not from Chroma.
+  Chroma is queried only for chunk/source counts.  Empty collections appear in the UI immediately.
+  Renaming/deleting a collection updates both the config and the Chroma metadata field.
 </div>
 
 <div class="decision">
   <strong>Single tool, <code>collection</code> enum parameter when &gt;1 collection exists.</strong>
-  When only one collection exists, the schema is identical to today (no parameter, tight description). When multiple exist, a <code>collection</code> string enum is added. Gemma selects the collection via the parameter — each enum value has an inline description.
+  One collection → schema identical to current (description = collection description, no enum).
+  Multiple collections → <code>collection</code> string enum added; each value's description is the collection description.
 </div>
 
 <div class="decision">
-  <strong>Collection metadata lives in <code>documents.yaml</code>.</strong>
-  The existing <code>topic</code> key is replaced by a <code>collections</code> list. <code>ConfigManager</code> already handles dynamic saves. No new file format needed.
-</div>
-
-<div class="decision">
-  <strong>Backward-compatible migration.</strong>
-  Existing chunks without a <code>collection</code> field are treated as belonging to the first collection. No bulk re-tagging on startup. Users can move old sources via the UI if desired.
+  <strong>Clean slate — no migration.</strong>
+  User clears the library and re-ingests into named collections. No legacy chunk handling anywhere.
 </div>
 
 <h2>Config Schema Change</h2>
 
 <p>Current <code>config/documents.yaml</code>:</p>
-<pre>topic: "MBA textbooks covering strategy, finance, marketing, and operations"
-chunk_size: 800
-chunk_overlap: 80</pre>
+<pre>collection: collective.documents
+topic: "MBA Textbooks"
+chunk_size: 1500
+…</pre>
 
 <p>New <code>config/documents.yaml</code>:</p>
-<pre>chunk_size: 800
-chunk_overlap: 80
+<pre>collection: collective.documents   # ChromaDB collection name — unchanged
+chunk_size: 1500
+chunk_overlap: 200
+n_results: 5
+embed_model: nomic-embed-text
+chroma_path: .chroma
 collections:
   - name: mba
     display_name: "MBA Textbooks"
     description: "MBA textbooks covering strategy, finance, marketing, and operations"</pre>
 
-<p>Migration: if <code>collections</code> is absent, auto-create one collection from the existing <code>topic</code> field. Old chunks (no <code>collection</code> metadata) are treated as belonging to the first collection.</p>
+<p>The old <code>topic</code> key is removed. If <code>collections</code> is absent, the tool falls back to a generic
+description with no enum parameter (same as today with no topic).</p>
 
 <h2>UI Layout</h2>
 
-<p><strong>Collections view</strong> (new top level):</p>
+<p><strong>Collections view</strong> (default):</p>
 <div class="ascii">library                           + Collection   Refresh
 ────────────────────────────────────────────────────────
  Collection                  Sources    Description
@@ -94,49 +146,53 @@ collections:
  Economics Research                2     Macro and micro theory…    ✎ 🗑
 ────────────────────────────────────────────────────────</div>
 
-<p><strong>Source view</strong> (drill-down, current table enhanced):</p>
-<div class="ascii">← Collections  /  MBA Textbooks                + Files  + Folder  Refresh
-────────────────────────────────────────────────────────────────────────────
+<p><strong>Sources view</strong> (drill-down on collection row click):</p>
+<div class="ascii">← MBA Textbooks                              + Files  + Folder  Refresh
+────────────────────────────────────────────────────────────────────────
  Source                        Chunks   Move to…
-────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────
  Finance.pdf                     1249   [Economics ▾]  🗑
  MergersAndAcquisitions.pdf      2277   [Economics ▾]  🗑
-────────────────────────────────────────────────────────────────────────────
-[Description: MBA textbooks covering strategy…]  [Save Description]</pre>
-</div>
+────────────────────────────────────────────────────────────────────────
+[Description: MBA textbooks covering strategy…]  [Save]</div>
 
 <h2>Implementation Plan</h2>
 
 <div class="phase">
-  <span class="phase-tag tag-data">12a · Data Layer</span>
-  <h3>DocumentService — collection-aware CRUD</h3>
+  <span class="phase-tag tag-data">12a · DocumentService</span>
+  <h3>Collection-aware data layer</h3>
   <table>
     <tr><th>Change</th><th>Detail</th></tr>
-    <tr><td>ingest_file(path, collection, …)</td><td>Adds <code>collection</code> field to each chunk's metadata</td></tr>
-    <tr><td>search(query, collection=None, …)</td><td>Where-filters on <code>collection</code> if provided; searches all if None</td></tr>
-    <tr><td>list_collections()</td><td>Returns distinct collection values from chunk metadata</td></tr>
-    <tr><td>list_sources(collection=None)</td><td>Optional filter; sources without <code>collection</code> field belong to first collection</td></tr>
-    <tr><td>move_source(name, to_collection)</td><td>Updates <code>collection</code> metadata on all chunks for that source (ChromaDB <code>update()</code>)</td></tr>
-    <tr><td>delete_collection(name)</td><td>Deletes all chunks where <code>collection == name</code></td></tr>
-    <tr><td>rename_collection(old, new)</td><td>Updates <code>collection</code> metadata on all matching chunks</td></tr>
+    <tr><td>_chunk_id(collection, source, idx)</td><td>Add collection to hash key. Old signature was (source, idx) — update all callers.</td></tr>
+    <tr><td>ingest_file(path, collection, …)</td><td>Pass collection through to _ingest_pdf and _upsert_chunks. Stored in chunk metadata.</td></tr>
+    <tr><td>ingest_text(text, source, collection, …)</td><td>Same — collection required parameter.</td></tr>
+    <tr><td>search(query, collection=None, n=None)</td><td>collection=None → where={"type":"document"} (all). collection=X → $and filter on type + collection.</td></tr>
+    <tr><td>list_sources(collection=None)</td><td>Returns list[str] of unique source_file values. If collection given, filter by metadata; else all.</td></tr>
+    <tr><td>list_sources_detail(collection=None)</td><td>Returns list[dict] with source_file + chunk_count. Used by UI for table display.</td></tr>
+    <tr><td>list_collections()</td><td>Reads collections list from documents.yaml config. Returns list[dict] with name, display_name, description + chunk_count from Chroma.</td></tr>
+    <tr><td>delete_source(source, collection)</td><td>Filter by source_file AND collection, delete matching IDs.</td></tr>
+    <tr><td>move_source(source, from_col, to_col)</td><td>Get chunks (docs + embeddings + metas) → new IDs with to_col → upsert → delete old IDs. No Ollama call.</td></tr>
+    <tr><td>delete_collection(name)</td><td>Delete all chunks where collection == name. Then remove from documents.yaml.</td></tr>
+    <tr><td>count(collection=None)</td><td>Count chunks matching type=document (+ optional collection filter).</td></tr>
   </table>
+  <p class="note">move_source implementation: <code>result = coll.get(where={…}, include=["documents","embeddings","metadatas"])</code> → build new_ids with new collection → <code>coll.upsert(ids=new_ids, documents=…, embeddings=…, metadatas=new_metas)</code> → <code>coll.delete(ids=old_ids)</code>. Metadata merge is simply <code>{**old_meta, "collection": to_col}</code>.</p>
 </div>
 
 <div class="phase">
-  <span class="phase-tag tag-tool">12b · Tool Layer</span>
-  <h3>SearchLibraryTool — dynamic schema</h3>
-  <ul>
-    <li>On startup and on schema re-announce, reads <code>collections</code> from <code>documents.yaml</code></li>
-    <li>One collection → schema identical to current (description = collection description, no collection param)</li>
-    <li>Multiple collections → adds <code>collection</code> string enum; each enum value's description is the collection description</li>
-    <li>Tool re-announces whenever DocumentsWindow saves a collection change (existing <code>TOOL_SCHEMA_REQUEST</code> mechanism)</li>
-  </ul>
+  <span class="phase-tag tag-tool">12b · SearchLibraryTool</span>
+  <h3>Dynamic schema + collection routing</h3>
+  <table>
+    <tr><th>Change</th><th>Detail</th></tr>
+    <tr><td>_build_schema()</td><td>Reads collections list from documents.yaml. Zero/one collection → no enum, description = collection description (or generic). Two+ collections → add collection enum parameter; each enum value's description = collection description.</td></tr>
+    <tr><td>_handle_request()</td><td>Extract args["collection"] (optional). Pass to _search().</td></tr>
+    <tr><td>_search(query, collection=None)</td><td>Pass collection to docs.search(). Result header shows collection name if provided.</td></tr>
+  </table>
   <pre>
-# Single collection (unchanged from today)
+# Single collection (no enum)
 {
   "name": "search_library",
   "description": "Search MBA Textbooks: MBA textbooks covering strategy, finance…",
-  "parameters": { "query": {"type": "string", "description": "…"} }
+  "parameters": { "query": {"type": "string"} }
 }
 
 # Multiple collections
@@ -147,51 +203,53 @@ collections:
     "query": {"type": "string"},
     "collection": {
       "type": "string",
-      "enum": ["mba", "economics"],
-      "description": "mba: MBA textbooks (strategy, finance, ops); economics: macro/micro research papers"
+      "enum": ["mba", "econ"],
+      "description": "mba: MBA textbooks (strategy, finance, ops); econ: macro/micro research papers"
     }
   }
 }</pre>
 </div>
 
 <div class="phase">
-  <span class="phase-tag tag-ui">12c · UI Layer</span>
-  <h3>DocumentsWindow — two-level navigation</h3>
+  <span class="phase-tag tag-ui">12c · DocumentsWindow</span>
+  <h3>Two-level navigation</h3>
   <ul>
-    <li><strong>Collections view:</strong> table of collections (display_name, source count, description snippet); ✎ rename inline, 🗑 delete with confirmation</li>
-    <li><strong>"+ Collection" button:</strong> prompts for name + description in a dialog</li>
-    <li><strong>Source view:</strong> click a collection row to drill in; breadcrumb header shows current collection; back button returns to collections view</li>
-    <li><strong>Move to…:</strong> combo box on each source row listing other collections; selecting one calls <code>move_source()</code> and refreshes</li>
-    <li><strong>Description bar:</strong> shown in source view below the table; editable, Save triggers schema re-announce</li>
-    <li><strong>+ Files / + Folder:</strong> ingest into the currently viewed collection</li>
+    <li><strong>QStackedWidget</strong> with page 0 = collections view, page 1 = sources view</li>
+    <li><strong>Collections view:</strong> table rows from <code>list_collections()</code>; ✎ inline rename dialog; 🗑 delete with confirmation; "+ Collection" dialog (name + display_name + description); click row to drill in</li>
+    <li><strong>Sources view:</strong> breadcrumb "← {display_name}" back button; table from <code>list_sources_detail(collection)</code>; "Move to…" QComboBox per row; 🗑 delete source; "+ Files" / "+ Folder" ingests into current collection; editable description bar with Save → triggers schema re-announce</li>
+    <li><strong>Ingest worker:</strong> <code>_IngestWorker</code> gains <code>collection</code> field; passed to <code>ingest_file(path, collection)</code></li>
+    <li><strong>Schema re-announce</strong> on: collection add, rename, delete, description save</li>
   </ul>
 </div>
 
 <div class="phase">
-  <span class="phase-tag tag-ui">12d · Promote to Library</span>
-  <h3>"Save to library" from attachment bar and Semantic Scholar</h3>
-  <ul>
-    <li><strong>Attachment bar:</strong> each attached file gets a "→ Library" button; clicking opens a collection picker dialog and triggers background ingest</li>
-    <li><strong>Semantic Scholar results:</strong> after a paper is fetched, Gemma can call a <code>save_to_library(url_or_text, collection)</code> tool — or a manual button in the tool activity panel</li>
-    <li>This phase is lower priority and can be deferred after 12a–12c</li>
-  </ul>
+  <span class="phase-tag tag-cli">12d · scripts/ingest.py</span>
+  <h3>Collection-aware CLI</h3>
+  <table>
+    <tr><th>Change</th><th>Detail</th></tr>
+    <tr><td>--collection NAME</td><td>Required for ingest; optional for --list (show all if omitted); required for --delete.</td></tr>
+    <tr><td>--list</td><td>With no --collection: show all collections from config with source/chunk counts. With --collection: show sources in that collection.</td></tr>
+    <tr><td>--delete FILE --collection NAME</td><td>Delete named source from named collection.</td></tr>
+  </table>
 </div>
 
 <h2>Files Changed</h2>
 <table>
   <tr><th>File</th><th>Change</th></tr>
-  <tr><td>config/documents.yaml</td><td>Replace <code>topic</code> with <code>collections</code> list</td></tr>
-  <tr><td>src/local/services/document_service.py</td><td>Add <code>collection</code> param throughout; add <code>list_collections</code>, <code>move_source</code>, <code>rename_collection</code>, <code>delete_collection</code></td></tr>
-  <tr><td>src/local/tools/search_library_tool.py</td><td>Dynamic schema generation from collections list</td></tr>
-  <tr><td>src/local/ui/documents_window.py</td><td>Two-level nav (collections ↔ sources), collection CRUD, Move to… combo</td></tr>
-  <tr><td>tests/test_document_service.py</td><td>New tests for collection CRUD and move</td></tr>
+  <tr><td>config/documents.yaml</td><td>Remove <code>topic</code>; add <code>collections</code> list</td></tr>
+  <tr><td>src/local/services/document_service.py</td><td>collection in chunk ID; collection param throughout; list_collections, list_sources_detail, move_source, delete_collection</td></tr>
+  <tr><td>src/local/tools/search_library_tool.py</td><td>Dynamic schema; collection arg extraction; result labeling</td></tr>
+  <tr><td>src/local/ui/documents_window.py</td><td>Full rewrite — QStackedWidget, collections view, sources view, move/rename/delete</td></tr>
+  <tr><td>scripts/ingest.py</td><td>--collection flag; collection-aware --list and --delete</td></tr>
+  <tr><td>tests/test_document_service.py</td><td>Tests for collection CRUD, move_source, same filename in two collections, count per collection</td></tr>
+  <tr><td>tests/test_search_library_tool.py</td><td>New file — schema generation (1 vs N collections), collection arg routing, result labeling</td></tr>
 </table>
 
 <h2>Out of Scope</h2>
 <ul>
-  <li>Auto-categorization via background LLM — adds unpredictability; manual assignment is preferred</li>
-  <li>Cross-collection search (no <code>collection</code> param) remains available for Gemma if needed</li>
-  <li>Semantic Scholar "promote to library" (12d) — deferred after core 12a–12c</li>
+  <li>Auto-categorization — manual assignment preferred</li>
+  <li>Cross-collection search without a collection param — remains available (collection=None)</li>
+  <li>Phase 12e: promote-to-library from attachment bar / Semantic Scholar — deferred</li>
 </ul>
 
 </body>

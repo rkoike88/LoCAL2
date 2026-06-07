@@ -47,39 +47,74 @@ class SearchLibraryTool:
 
     def _build_schema(self) -> dict:
         cfg = get_config(CONFIG_NAME) or {}
-        topic = cfg.get("topic", "").strip()
+        collections = cfg.get("collections") or []
 
-        if topic:
-            description = (
-                f"Searches the user's personal library of {topic}. "
-                f"Call this tool when the user asks about {topic}. "
-                f"Do not use this for general web searches or academic papers — "
-                f"use web_search or search_papers for those."
-            )
-        else:
+        if len(collections) == 0:
             description = (
                 "Searches the user's personal document library. "
                 "Call this when the user asks about content from documents they have added. "
                 "Do not use this for general research — use web_search or search_papers for those."
             )
+            parameters: dict = {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string",
+                              "description": "What to look for. Use specific terms likely to appear in the documents."},
+                },
+                "required": ["query"],
+            }
 
-        param_query = cfg.get("param_query",
-            "What to look for in the library. Use specific terms likely to appear "
-            "in the source documents."
-        ).strip()
+        elif len(collections) == 1:
+            col = collections[0]
+            desc = col.get("description", "")
+            display = col.get("display_name", col.get("name", ""))
+            description = (
+                f"Search {display}: {desc} "
+                f"Call this tool when the user asks about {display}. "
+                f"Do not use this for general web searches or academic papers — "
+                f"use web_search or search_papers for those."
+            )
+            parameters = {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string",
+                              "description": "What to look for. Use specific terms likely to appear in the documents."},
+                },
+                "required": ["query"],
+            }
+
+        else:
+            # Build enum description: "name: description; name2: description2"
+            enum_desc_parts = []
+            for col in collections:
+                name = col.get("name", "")
+                desc = col.get("description", "")
+                display = col.get("display_name", name)
+                enum_desc_parts.append(f"{name}: {display} — {desc}")
+
+            description = (
+                "Search the document library. Choose the collection that best matches your query."
+            )
+            parameters = {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string",
+                              "description": "What to look for. Use specific terms likely to appear in the documents."},
+                    "collection": {
+                        "type": "string",
+                        "enum": [col.get("name", "") for col in collections],
+                        "description": " | ".join(enum_desc_parts),
+                    },
+                },
+                "required": ["query"],
+            }
 
         return {
             "type": "function",
             "function": {
                 "name": TOOL_NAME,
                 "description": description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": param_query},
-                    },
-                    "required": ["query"],
-                },
+                "parameters": parameters,
             },
         }
 
@@ -94,18 +129,20 @@ class SearchLibraryTool:
     def _handle_request(self, envelope: MessageEnvelope) -> None:
         args: dict = envelope.payload.get("args", {})
         query: str = (args.get("query") or "").strip()
+        collection: str | None = args.get("collection") or None
         correlation_id = envelope.correlation_id
 
         self._pub.publish(MessageEnvelope.create(
             message_type="tool_activity",
             subject=TOOL_ACTIVITY_SEARCH_DOCUMENTS,
             sender_id=self.TOOL_ID,
-            payload={"event": "request", "tool": TOOL_NAME, "query": query},
+            payload={"event": "request", "tool": TOOL_NAME, "query": query,
+                     "collection": collection},
             correlation_id=correlation_id,
         ))
 
         try:
-            result = self._search(query)
+            result = self._search(query, collection)
         except Exception as exc:
             logger.error("SearchLibraryTool: search failed: %s", exc)
             result = f"[search_library error: {exc}]"
@@ -125,19 +162,26 @@ class SearchLibraryTool:
             correlation_id=correlation_id,
         ))
 
-    def _search(self, query: str) -> str:
+    def _search(self, query: str, collection: str | None = None) -> str:
         if not query:
             return "[search_library: query is required]"
         if self._docs.count() == 0:
-            return "[Library is empty — add documents via the library window or: python scripts/ingest.py <file>]"
+            return "[Library is empty — add documents via the library window]"
 
-        hits = self._docs.search(query)
+        hits = self._docs.search(query, collection=collection)
         if not hits:
             return "[No relevant passages found in the library]"
 
+        # Label header with collection scope
         cfg = get_config(CONFIG_NAME) or {}
-        topic = cfg.get("topic", "library")
-        lines = [f'[Library results for "{query}"]\n']
+        collections_cfg = cfg.get("collections") or []
+        col_display = collection or "library"
+        for col in collections_cfg:
+            if col.get("name") == collection:
+                col_display = col.get("display_name", collection)
+                break
+
+        lines = [f'[{col_display} — results for "{query}"]\n']
         for i, hit in enumerate(hits, 1):
             source = hit["source_file"]
             page = f"p.{hit['page']}, " if "page" in hit else ""

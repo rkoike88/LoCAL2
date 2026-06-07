@@ -4,9 +4,11 @@ embed_model: nomic-embed-text
 chunk_size: 1500
 chunk_overlap: 200
 n_results: 5
-topic: MBA Textbooks
-param_query: 'What to look for in the library. Use specific terms likely to appear
-
-  in the source documents.
-
-  '
+collections:
+- name: mba
+  display_name: MBA Textbooks
+  description: MBA textbooks covering strategy, finance, marketing, and operations
+- name: cs
+  display_name: Comp Sci
+  description: Computer Science textbooks including Software Engineering, Artificial
+    Intelligence, Data Structures and Algorithms, Database Systems, and Java

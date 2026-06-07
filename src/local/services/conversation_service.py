@@ -6,6 +6,11 @@ to append_turn() or pass pre-cleaned dicts to append_messages().
 
 Persistence: sessions are written to .conversation_history.json on every
 append so history survives process restarts. The file is loaded at startup.
+
+Storage format:
+  {session_id: {messages: [...], started_at: float, last_active: float, title: str}}
+
+Old format ({session_id: [messages]}) is auto-migrated on load.
 """
 
 from __future__ import annotations
@@ -13,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from collections import OrderedDict
 from pathlib import Path
 
@@ -23,9 +29,17 @@ _MAX_TURNS_PER_SESSION = 20
 _DEFAULT_PERSIST_PATH = ".conversation_history.json"
 
 
+def _derive_title(messages: list[dict]) -> str:
+    for msg in messages:
+        if msg.get("role") == "user":
+            text = msg.get("content") or ""
+            return text[:60].strip()
+    return "(no title)"
+
+
 class ConversationService:
     def __init__(self, persist_path: str | None = None) -> None:
-        self._sessions: OrderedDict[str, list[dict]] = OrderedDict()
+        self._sessions: OrderedDict[str, dict] = OrderedDict()
         # ":memory:" sentinel disables disk I/O (useful in tests)
         raw = persist_path or _DEFAULT_PERSIST_PATH
         self._persist_path: Path | None = None if raw == ":memory:" else Path(raw)
@@ -41,8 +55,18 @@ class ConversationService:
         try:
             with open(self._persist_path) as f:
                 data = json.load(f)
-            for sid, msgs in data.items():
-                self._sessions[sid] = msgs
+            now = time.time()
+            for sid, value in data.items():
+                if isinstance(value, list):
+                    # Migrate old format: {session_id: [messages]}
+                    self._sessions[sid] = {
+                        "messages": value,
+                        "started_at": now,
+                        "last_active": now,
+                        "title": _derive_title(value),
+                    }
+                else:
+                    self._sessions[sid] = value
             # Enforce session cap on load
             while len(self._sessions) > _MAX_SESSIONS:
                 self._sessions.popitem(last=False)
@@ -61,6 +85,18 @@ class ConversationService:
         except Exception as exc:
             logger.warning("ConversationService: could not save history: %s", exc)
 
+    def _ensure_session(self, session_id: str) -> dict:
+        if session_id not in self._sessions:
+            if len(self._sessions) >= _MAX_SESSIONS:
+                self._sessions.popitem(last=False)
+            self._sessions[session_id] = {
+                "messages": [],
+                "started_at": time.time(),
+                "last_active": time.time(),
+                "title": "",
+            }
+        return self._sessions[session_id]
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -69,27 +105,26 @@ class ConversationService:
         """Return a copy of the messages array for session_id, or [] if unknown."""
         if not session_id:
             return []
-        turns = self._sessions.get(session_id)
-        if not turns:
+        entry = self._sessions.get(session_id)
+        if not entry:
             return []
         self._sessions.move_to_end(session_id)
-        return [dict(turn) for turn in turns]
+        return [dict(msg) for msg in entry["messages"]]
 
     def append_turn(self, session_id: str | None, user: str, assistant: str) -> None:
         """Append a user+assistant exchange to session history."""
         if not session_id:
             return
-        if session_id not in self._sessions:
-            if len(self._sessions) >= _MAX_SESSIONS:
-                self._sessions.popitem(last=False)
-            self._sessions[session_id] = []
-
-        turns = self._sessions[session_id]
-        turns.append({"role": "user", "content": user})
-        turns.append({"role": "assistant", "content": assistant})
+        entry = self._ensure_session(session_id)
+        msgs = entry["messages"]
+        msgs.append({"role": "user", "content": user})
+        msgs.append({"role": "assistant", "content": assistant})
         max_entries = _MAX_TURNS_PER_SESSION * 2
-        if len(turns) > max_entries:
-            self._sessions[session_id] = turns[-max_entries:]
+        if len(msgs) > max_entries:
+            entry["messages"] = msgs[-max_entries:]
+        if not entry["title"]:
+            entry["title"] = user[:60].strip()
+        entry["last_active"] = time.time()
         self._sessions.move_to_end(session_id)
         self._save()
 
@@ -97,17 +132,39 @@ class ConversationService:
         """Append a pre-cleaned list of messages (user/assistant/tool) to session history."""
         if not session_id or not messages:
             return
-        if session_id not in self._sessions:
-            if len(self._sessions) >= _MAX_SESSIONS:
-                self._sessions.popitem(last=False)
-            self._sessions[session_id] = []
-
-        turns = self._sessions[session_id]
-        turns.extend(messages)
+        entry = self._ensure_session(session_id)
+        msgs = entry["messages"]
+        msgs.extend(messages)
         max_entries = _MAX_TURNS_PER_SESSION * 2
-        if len(turns) > max_entries:
-            self._sessions[session_id] = turns[-max_entries:]
+        if len(msgs) > max_entries:
+            entry["messages"] = msgs[-max_entries:]
+        if not entry["title"]:
+            entry["title"] = _derive_title(entry["messages"])
+        entry["last_active"] = time.time()
         self._sessions.move_to_end(session_id)
+        self._save()
+        print(f"[generator] stored {len(messages)} msgs session={session_id!r}")
+
+    def list_sessions(self) -> list[dict]:
+        """Return session metadata sorted by last_active descending.
+
+        Each item: {session_id, title, message_count, started_at, last_active}
+        """
+        result = []
+        for sid, entry in self._sessions.items():
+            result.append({
+                "session_id": sid,
+                "title": entry.get("title") or "(no title)",
+                "message_count": len(entry.get("messages", [])),
+                "started_at": entry.get("started_at", 0.0),
+                "last_active": entry.get("last_active", 0.0),
+            })
+        result.sort(key=lambda x: x["last_active"], reverse=True)
+        return result
+
+    def delete_session(self, session_id: str) -> None:
+        """Remove a session entirely."""
+        self._sessions.pop(session_id, None)
         self._save()
 
     def clear(self, session_id: str | None) -> None:

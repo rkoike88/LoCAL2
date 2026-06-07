@@ -12,6 +12,14 @@ import uuid
 from datetime import datetime
 
 try:
+    import markdown as _md_lib
+    def _to_html(text: str) -> str:
+        return _md_lib.markdown(text, extensions=["tables", "fenced_code"])
+except ImportError:
+    def _to_html(text: str) -> str:
+        return text
+
+try:
     from PySide6.QtCore import QBuffer, QByteArray, QObject, QThread, QTimer, Qt, Signal
     from PySide6.QtWidgets import (
         QApplication,
@@ -25,6 +33,7 @@ try:
         QScrollArea,
         QSizePolicy,
         QStackedWidget,
+        QTextBrowser,
         QTextEdit,
         QVBoxLayout,
         QWidget,
@@ -60,6 +69,7 @@ from local.session.local_session import OBSERVE
 from local.transport.bus_config import PROXY_BACKEND_ADDR
 from local.transport.zmq_pubsub import ZmqPublisher, ZmqSubscriber
 from local.ui.attachment_bar import AttachmentBar
+from local.ui.conversations_window import ConversationsWindow
 from local.ui.critic_window import CriticWindow
 from local.ui.documents_window import DocumentsWindow
 from local.ui.memory_window import MemoryWindow
@@ -129,13 +139,33 @@ class StreamingResponseWidget(QWidget):
         self._thinking_box.setVisible(False)
         layout.addWidget(self._thinking_box)
 
-        self._answer_label = QLabel()
-        self._answer_label.setObjectName("logAnswer")
-        self._answer_label.setWordWrap(True)
-        self._answer_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self._answer_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self._answer_label.setVisible(False)
-        layout.addWidget(self._answer_label)
+        self._answer_browser = QTextBrowser()
+        self._answer_browser.setObjectName("answerBrowser")
+        self._answer_browser.setReadOnly(True)
+        self._answer_browser.setOpenExternalLinks(True)
+        self._answer_browser.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._answer_browser.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._answer_browser.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._answer_browser.setFixedHeight(20)
+        self._answer_browser.document().setDefaultStyleSheet(
+            "body { color:#ececec; font-family:'Menlo','Monaco','Courier New'; font-size:13px; }"
+            "h1,h2,h3,h4 { color:#9dbde8; margin:6px 0 3px 0; }"
+            "code { background-color:#1a1a1a; padding:1px 4px; }"
+            "pre { background-color:#111111; padding:8px; margin:6px 0; }"
+            "pre code { background-color:transparent; padding:0; }"
+            "table { border-collapse:collapse; margin:6px 0; }"
+            "th { background-color:#1a1a1a; padding:5px 10px; border:1px solid #333; }"
+            "td { padding:4px 10px; border:1px solid #222; }"
+            "ul,ol { margin:4px 0; padding-left:20px; }"
+            "li { margin:2px 0; }"
+            "p { margin:4px 0; }"
+            "strong { color:#d4d4d4; }"
+        )
+        self._answer_browser.document().documentLayout().documentSizeChanged.connect(
+            lambda sz: self._answer_browser.setFixedHeight(int(sz.height()) + 8)
+        )
+        self._answer_browser.setVisible(False)
+        layout.addWidget(self._answer_browser)
 
         # Bottom row: score label (left) + thumbs (right)
         bottom_row = QHBoxLayout()
@@ -211,8 +241,8 @@ class StreamingResponseWidget(QWidget):
             self._thinking_visible = False
             self._thinking_box.setVisible(False)
             self._toggle_btn.setText("◈ thinking  ▶")
-        self._answer_label.setText(answer or "(empty)")
-        self._answer_label.setVisible(True)
+        self._answer_browser.setHtml(_to_html(answer or "(empty)"))
+        self._answer_browser.setVisible(True)
         if query_id:
             self._thumb_up.setVisible(True)
             self._thumb_down.setVisible(True)
@@ -405,6 +435,7 @@ class MainWindow(QMainWindow):
     def __init__(self, publisher: ZmqPublisher, model: str = "", memory_service=None, document_service=None, conversation_service=None) -> None:
         super().__init__()
         self._publisher = publisher
+        self._conv = conversation_service
         self._session_id = str(uuid.uuid4())
         self._pending: dict[str, StreamingResponseWidget] = {}
         self._response_widgets: dict[str, StreamingResponseWidget] = {}
@@ -427,6 +458,12 @@ class MainWindow(QMainWindow):
         self._memory_window.show()
         self._documents_window = DocumentsWindow(document_service=document_service, publisher=publisher)
         self._documents_window.show()
+        self._conversations_window = ConversationsWindow(
+            conversation_service=conversation_service,
+            session_id_getter=lambda: self._session_id,
+            rejoin_callback=self.rejoin_session,
+        )
+        self._conversations_window.show()
 
         self._tile_windows()
 
@@ -562,6 +599,13 @@ class MainWindow(QMainWindow):
         lib_btn.clicked.connect(lambda: self._documents_window.show() or self._documents_window.raise_())
         strip_layout.addWidget(lib_btn, alignment=Qt.AlignHCenter)
 
+        conv_btn = QPushButton("💬")
+        conv_btn.setObjectName("sidebarBtn")
+        conv_btn.setToolTip("Conversations")
+        conv_btn.setFixedSize(36, 36)
+        conv_btn.clicked.connect(lambda: self._conversations_window.show() or self._conversations_window.raise_())
+        strip_layout.addWidget(conv_btn, alignment=Qt.AlignHCenter)
+
         strip_layout.addStretch()
         return icon_strip
 
@@ -663,9 +707,10 @@ class MainWindow(QMainWindow):
         self.setGeometry(x0, y0 + tb_h, main_w, H - tb_h)
 
         # Static agent panels
-        _place(self._memory_window,    col=0, row=1)
-        _place(self._documents_window, col=1, row=1)
-        _place(self._critic_window,    col=3, row=1)
+        _place(self._memory_window,        col=0, row=1)
+        _place(self._documents_window,     col=1, row=1)
+        _place(self._conversations_window, col=2, row=1)
+        _place(self._critic_window,        col=3, row=1)
 
         # Tool panels: position each one that has been spawned so far
         for name, win in self._tool_windows.items():
@@ -726,8 +771,49 @@ class MainWindow(QMainWindow):
         if paths:
             self._attachment_bar.add_files(paths)
 
+    def rejoin_session(self, session_id: str) -> None:
+        self._session_id = session_id
+        self._clear_log()
+
+        messages = self._conv.get_history(session_id) if self._conv else []
+        i = 0
+        while i < len(messages):
+            msg = messages[i]
+            role = msg.get("role", "")
+            content = (msg.get("content") or "").strip()
+
+            if role == "user" and content:
+                snippet = content[:100].replace("\n", " ")
+                self.append_log(f"QUERY\n  {snippet}")
+                i += 1
+            elif role == "assistant":
+                # Collect contiguous assistant/tool turns as one response card
+                tool_calls = msg.get("tool_calls") or []
+                j = i + 1
+                # Skip intermediate tool results and assistant tool-call turns
+                # to find the final answer (last assistant turn in this exchange)
+                final_content = content
+                final_tool_calls = tool_calls
+                while j < len(messages) and messages[j].get("role") in ("tool", "assistant"):
+                    if messages[j].get("role") == "assistant":
+                        c = (messages[j].get("content") or "").strip()
+                        if c:
+                            final_content = c
+                        final_tool_calls = messages[j].get("tool_calls") or []
+                    j += 1
+                widget = StreamingResponseWidget("─")
+                widget.finalize("─", final_content, final_tool_calls)
+                self._insert_log_widget(widget)
+                i = j
+            else:
+                i += 1
+
+        self.append_log(f"── rejoined  {session_id[:8]}… ──")
+        self._conversations_window._refresh()
+
     def _new_session(self) -> None:
         self._session_id = str(uuid.uuid4())
+        self._clear_log()
         self.append_log(f"── new conversation  session={self._session_id[:8]}… ──")
 
     def _clear_log(self) -> None:
@@ -884,11 +970,13 @@ class MainWindow(QMainWindow):
                 font-family: "Menlo", "Monaco", "Courier New";
                 font-size: 12px;
             }
-            QLabel#logAnswer {
+            QTextBrowser#answerBrowser {
+                background: transparent;
                 color: #ececec;
+                border: none;
                 font-family: "Menlo", "Monaco", "Courier New";
                 font-size: 13px;
-                padding: 4px 0px;
+                padding: 0px;
             }
             QPushButton#thinkingToggle {
                 background: transparent;

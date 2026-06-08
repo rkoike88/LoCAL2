@@ -182,6 +182,81 @@ class TestSchemaMigration:
 
 
 # ---------------------------------------------------------------------------
+# token_count
+# ---------------------------------------------------------------------------
+
+class TestTokenCount:
+    def test_default_is_zero(self):
+        svc = _svc()
+        svc.append_turn("s1", "hi", "hello")
+        assert svc.get_token_count("s1") == 0
+
+    def test_set_and_get(self):
+        svc = _svc()
+        svc.append_turn("s1", "hi", "hello")
+        svc.set_token_count("s1", 42000)
+        assert svc.get_token_count("s1") == 42000
+
+    def test_none_session_returns_zero(self):
+        svc = _svc()
+        assert svc.get_token_count(None) == 0
+
+    def test_unknown_session_returns_zero(self):
+        svc = _svc()
+        assert svc.get_token_count("no-such") == 0
+
+    def test_set_none_session_is_noop(self):
+        svc = _svc()
+        svc.set_token_count(None, 9999)  # must not raise
+
+    def test_overwrite(self):
+        svc = _svc()
+        svc.append_turn("s1", "hi", "hello")
+        svc.set_token_count("s1", 1000)
+        svc.set_token_count("s1", 2000)
+        assert svc.get_token_count("s1") == 2000
+
+
+# ---------------------------------------------------------------------------
+# replace_messages
+# ---------------------------------------------------------------------------
+
+class TestReplaceMessages:
+    def test_replaces_history(self):
+        svc = _svc()
+        svc.append_turn("s1", "original", "answer")
+        new_msgs = [{"role": "assistant", "content": "[SUMMARY] summary here"}]
+        svc.replace_messages("s1", new_msgs)
+        assert svc.get_history("s1") == new_msgs
+
+    def test_none_session_is_noop(self):
+        svc = _svc()
+        svc.replace_messages(None, [{"role": "user", "content": "x"}])  # must not raise
+
+    def test_creates_session_if_missing(self):
+        svc = _svc()
+        msgs = [{"role": "assistant", "content": "[SUMMARY] hi"}]
+        svc.replace_messages("brand-new", msgs)
+        assert svc.get_history("brand-new") == msgs
+
+    def test_returns_copy_not_reference(self):
+        svc = _svc()
+        msgs = [{"role": "assistant", "content": "summary"}]
+        svc.replace_messages("s1", msgs)
+        msgs.clear()
+        assert len(svc.get_history("s1")) == 1
+
+    def test_updates_last_active(self):
+        svc = _svc()
+        svc.append_turn("s1", "hi", "hello")
+        before = svc.list_sessions()[0]["last_active"]
+        time.sleep(0.01)
+        svc.replace_messages("s1", [{"role": "assistant", "content": "summary"}])
+        after = svc.list_sessions()[0]["last_active"]
+        assert after >= before
+
+
+# ---------------------------------------------------------------------------
 # clear()
 # ---------------------------------------------------------------------------
 

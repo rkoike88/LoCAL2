@@ -150,7 +150,7 @@ class TestGenerate:
         agent = _make_agent()
         mock_resp = _make_ollama_response("Paris", thinking="France → Paris")
         with patch("ollama.chat", return_value=mock_resp):
-            answer, thinking, tool_calls = agent._generate(
+            answer, thinking, tool_calls, _ = agent._generate(
                 [{"role": "user", "content": "Capital of France?"}], "corr-1"
             )
         assert answer == "Paris"
@@ -162,7 +162,7 @@ class TestGenerate:
         # thinking=None in model_dump() — raw_msg.get("thinking") returns None
         mock_resp = _make_ollama_response("42", thinking="")
         with patch("ollama.chat", return_value=mock_resp):
-            _, thinking, _ = agent._generate(
+            _, thinking, _, _ = agent._generate(
                 [{"role": "user", "content": "?"}], "corr-2"
             )
         assert thinking == ""

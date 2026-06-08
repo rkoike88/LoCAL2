@@ -20,7 +20,8 @@ except ImportError:
         return text
 
 try:
-    from PySide6.QtCore import QBuffer, QByteArray, QObject, QThread, QTimer, Qt, Signal
+    from PySide6.QtCore import QBuffer, QByteArray, QObject, QRectF, QThread, QTimer, Qt, Signal
+    from PySide6.QtGui import QColor, QFont, QPainter, QPen
     from PySide6.QtWidgets import (
         QApplication,
         QFileDialog,
@@ -42,9 +43,12 @@ except ImportError as exc:
     raise RuntimeError("PySide6 is required. Install pyside6 first.") from exc
 
 from local.protocol.envelope import MessageEnvelope
+from local.config_loader import get_config
 from local.protocol.subjects import (
     AGENT_TRANSITION,
     ANSWER_DIALOG,
+    COMPACTION_REQUEST,
+    COMPACTION_RESULT,
     CRITIQUE,
     GENERATION_THINKING,
     PAIRWISE_RESULT,
@@ -302,6 +306,7 @@ class BusLogger(QObject):
     critique = Signal(dict)
     pairwise = Signal(dict)
     agent_transition = Signal(dict)
+    compaction_result = Signal(dict)
     tool_schema = Signal(str)        # emits tool name on tool.schema arrival
     tool_activity = Signal(object)   # passes MessageEnvelope through
 
@@ -348,7 +353,12 @@ class BusLogger(QObject):
                 "thinking": (raw.get("thinking") or "").strip(),
                 "tool_calls": raw.get("tool_calls") or [],
                 "query_id": raw.get("query_id") or "",
+                "prompt_tokens": raw.get("prompt_tokens") or 0,
             })
+            return
+
+        if subject == COMPACTION_RESULT:
+            self.compaction_result.emit(raw)
             return
 
         if subject == QUERY_RECEIVED:
@@ -424,6 +434,128 @@ class _InputContainer(QWidget):
         if paths:
             self.files_dropped.emit(paths)
             event.acceptProposedAction()
+
+
+# ---------------------------------------------------------------------------
+# Context gauge — arc fill showing token usage vs num_ctx
+# ---------------------------------------------------------------------------
+
+class ContextGauge(QWidget):
+    """Circular arc gauge showing context window utilisation. Click to compact."""
+
+    compact_requested = Signal()
+
+    _COLOR_LOW    = QColor("#7ec8a4")   # green  < 60%
+    _COLOR_MID    = QColor("#c8a47e")   # amber  60–85%
+    _COLOR_HIGH   = QColor("#c87e7e")   # red    > 85%
+    _COLOR_TRACK  = QColor("#2a2a2a")   # background ring
+    _COLOR_TEXT   = QColor("#666666")
+
+    def __init__(self, num_ctx: int, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._num_ctx = max(num_ctx, 1)
+        self._tokens = 0
+        self._compacting = False
+        self._spin_angle = 0
+        self._spin_timer = QTimer(self)
+        self._spin_timer.setInterval(50)
+        self._spin_timer.timeout.connect(self._tick_spinner)
+        self.setFixedSize(36, 36)
+        self.setCursor(Qt.PointingHandCursor)
+        self._update_tooltip()
+
+    def _tick_spinner(self) -> None:
+        self._spin_angle = (self._spin_angle + 12) % 360
+        self.update()
+
+    def set_tokens(self, count: int) -> None:
+        self._tokens = max(count, 0)
+        self._compacting = False
+        self._spin_timer.stop()
+        self._update_tooltip()
+        self.update()
+
+    def set_compacting(self, active: bool) -> None:
+        self._compacting = active
+        self.setEnabled(not active)
+        if active:
+            self._spin_angle = 0
+            self._spin_timer.start()
+        else:
+            self._spin_timer.stop()
+        self.update()
+
+    def _fill(self) -> float:
+        return min(self._tokens / self._num_ctx, 1.0)
+
+    def _arc_color(self) -> QColor:
+        f = self._fill()
+        if f > 0.85:
+            return self._COLOR_HIGH
+        if f > 0.60:
+            return self._COLOR_MID
+        return self._COLOR_LOW
+
+    def _update_tooltip(self) -> None:
+        if self._tokens == 0:
+            self.setToolTip("Context usage unknown — waiting for first response")
+        else:
+            pct = int(self._fill() * 100)
+            self.setToolTip(
+                f"{self._tokens:,} / {self._num_ctx:,} tokens ({pct}%) — click to compact"
+            )
+
+    def paintEvent(self, event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        margin = 4
+        rect = QRectF(margin, margin, self.width() - 2 * margin, self.height() - 2 * margin)
+        pen_w = 3
+
+        # Track ring
+        p.setPen(QPen(self._COLOR_TRACK, pen_w))
+        p.setBrush(Qt.NoBrush)
+        p.drawEllipse(rect)
+
+        if self._compacting:
+            # Spinning arc: 90° comet that rotates clockwise
+            pen = QPen(self._COLOR_HIGH, pen_w)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(pen)
+            start_angle = (90 - self._spin_angle) * 16
+            p.drawArc(rect, start_angle, -90 * 16)
+        else:
+            fill = self._fill()
+            if fill > 0:
+                span = int(fill * 360 * 16)
+                pen = QPen(self._arc_color(), pen_w)
+                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                p.setPen(pen)
+                p.drawArc(rect, 90 * 16, -span)
+
+        # Centre text
+        if self._compacting:
+            label = "…"
+        elif self._tokens == 0:
+            label = ""
+        else:
+            k = self._tokens // 1000
+            label = f"{k}K" if k < 1000 else f"{k//1000}M"
+
+        if label:
+            font = QFont()
+            font.setPointSize(7)
+            font.setFamily("Menlo")
+            p.setFont(font)
+            p.setPen(QPen(self._COLOR_TEXT))
+            p.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
+
+        p.end()
+
+    def mousePressEvent(self, event) -> None:
+        if not self._compacting:
+            self.compact_requested.emit()
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +738,11 @@ class MainWindow(QMainWindow):
         conv_btn.clicked.connect(lambda: self._conversations_window.show() or self._conversations_window.raise_())
         strip_layout.addWidget(conv_btn, alignment=Qt.AlignHCenter)
 
+        num_ctx = (get_config("generator") or {}).get("num_ctx", 128000)
+        self._context_gauge = ContextGauge(num_ctx=num_ctx)
+        self._context_gauge.compact_requested.connect(self._compact_session)
+        strip_layout.addWidget(self._context_gauge, alignment=Qt.AlignHCenter)
+
         strip_layout.addStretch()
         return icon_strip
 
@@ -616,7 +753,7 @@ class MainWindow(QMainWindow):
     def _start_bus_monitor(self) -> None:
         all_subjects = (
             list(OBSERVE) + _TOOL_ACTIVITY_SUBJECTS
-            + [TOOL_SCHEMA, PAIRWISE_RESULT, AGENT_TRANSITION]
+            + [TOOL_SCHEMA, PAIRWISE_RESULT, AGENT_TRANSITION, COMPACTION_RESULT]
         )
         self._bus_logger = BusLogger()
         self._bus_logger.message.connect(self.append_log)
@@ -627,6 +764,7 @@ class MainWindow(QMainWindow):
         self._bus_logger.tool_schema.connect(self._on_tool_schema)
         self._bus_logger.pairwise.connect(self._critic_window.append_pairwise)
         self._bus_logger.agent_transition.connect(self._on_agent_transition)
+        self._bus_logger.compaction_result.connect(self._on_compaction_result)
 
         self._monitor_worker = BusMonitorWorker(PROXY_BACKEND_ADDR, subscriptions=all_subjects)
         self._monitor_worker.envelope_received.connect(self._bus_logger.log_envelope)
@@ -837,6 +975,10 @@ class MainWindow(QMainWindow):
         self._scroll_to_bottom()
 
     def _on_response(self, data: dict) -> None:
+        prompt_tokens = data.get("prompt_tokens") or 0
+        if prompt_tokens:
+            self._context_gauge.set_tokens(prompt_tokens)
+
         query_id = data["query_id"]
         widget = self._pending.pop(query_id, None)
         if widget is None:
@@ -856,6 +998,32 @@ class MainWindow(QMainWindow):
         if widget:
             widget.set_score(data.get("score"), data.get("feedback", ""))
         self._critic_window.append_critique(data)
+
+    def _compact_session(self) -> None:
+        self._context_gauge.set_compacting(True)
+        self.append_log("── compacting conversation… ──")
+        self._publisher.publish(MessageEnvelope.create(
+            message_type="compaction_request",
+            subject=COMPACTION_REQUEST,
+            sender_id="ui",
+            payload={"session_id": self._session_id},
+            correlation_id=self._session_id,
+        ))
+
+    def _on_compaction_result(self, data: dict) -> None:
+        self._context_gauge.set_compacting(False)
+        error = data.get("error")
+        if error:
+            self.append_log(f"── compaction failed: {error} ──")
+            return
+        tokens_before = data.get("tokens_before", 0)
+        tokens_after = data.get("tokens_after", 0)
+        freed = tokens_before - tokens_after
+        self.append_log(
+            f"── compacted: {tokens_before:,} → ~{tokens_after:,} tokens  ({freed:,} freed) ──"
+        )
+        if tokens_after:
+            self._context_gauge.set_tokens(tokens_after)
 
     def _on_user_feedback(self, query_id: str, sentiment: str) -> None:
         envelope = MessageEnvelope.create(

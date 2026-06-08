@@ -56,3 +56,7 @@ PAIRWISE_RESULT = "pairwise.result"
 
 # Phase 6 — agent state transition visibility
 AGENT_TRANSITION = "agent.transition"
+
+# Phase 14 — conversation compaction
+COMPACTION_REQUEST = "compaction.request"
+COMPACTION_RESULT  = "compaction.result"

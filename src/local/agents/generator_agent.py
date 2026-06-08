@@ -20,7 +20,8 @@ from local.agents.generator_transitions import GeneratorStateMachine
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
-    ANSWER_DIALOG, GENERATION_THINKING, QUERY_RECEIVED, RESPONSE_GENERATION,
+    ANSWER_DIALOG, COMPACTION_REQUEST, COMPACTION_RESULT,
+    GENERATION_THINKING, QUERY_RECEIVED, RESPONSE_GENERATION,
     TOOL_SCHEMA, TOOL_SCHEMA_REQUEST,
 )
 from local.services.conversation_service import ConversationService
@@ -53,7 +54,7 @@ class GeneratorAgent:
         self._respondent_id: str = respondent_id
         self._conv = conversation_service or ConversationService()
         self._sm = GeneratorStateMachine()
-        self._pub, self._sub = make_participant_bus([QUERY_RECEIVED, TOOL_SCHEMA])
+        self._pub, self._sub = make_participant_bus([QUERY_RECEIVED, TOOL_SCHEMA, COMPACTION_REQUEST])
 
     # ------------------------------------------------------------------
     # Main loop
@@ -82,6 +83,11 @@ class GeneratorAgent:
                         self._sm.reset()
             elif envelope.subject == TOOL_SCHEMA:
                 self._register_tool_schema(envelope.payload.get("schema", {}))
+            elif envelope.subject == COMPACTION_REQUEST:
+                try:
+                    self._handle_compaction(envelope)
+                except Exception as exc:
+                    logger.error("GeneratorAgent: compaction error: %s", exc, exc_info=True)
 
     # ------------------------------------------------------------------
     # Query handling
@@ -110,7 +116,7 @@ class GeneratorAgent:
         self._sm.transition(GeneratorAction.START_GENERATION)
 
         try:
-            answer, thinking, tool_call_log = self._generate(
+            answer, thinking, tool_call_log, prompt_tokens = self._generate(
                 messages, correlation_id, session_id, query_id
             )
         except Exception as exc:
@@ -131,7 +137,7 @@ class GeneratorAgent:
         if self._respondent_id == "A":
             new_messages = [self._clean_for_history(m) for m in messages[initial_len - 1:]]
             self._conv.append_messages(session_id, new_messages)
-            print(f"[generator] stored {len(new_messages)} msgs session={session_id!r}")
+            self._conv.set_token_count(session_id, prompt_tokens)
         self._sm.transition(GeneratorAction.PUBLISH)
 
         self._pub.publish(self._make_envelope(
@@ -139,7 +145,8 @@ class GeneratorAgent:
             {"query": query, "answer": answer, "thinking": thinking,
              "tool_calls": tool_call_log,
              "session_id": session_id, "query_id": query_id,
-             "respondent_id": self._respondent_id},
+             "respondent_id": self._respondent_id,
+             "prompt_tokens": prompt_tokens},
             correlation_id, session_id,
         ))
         self._pub.publish(self._make_envelope(
@@ -188,18 +195,20 @@ class GeneratorAgent:
         correlation_id: str,
         session_id: str | None = None,
         query_id: str = "",
-    ) -> tuple[str, str, list[dict]]:
-        """Stream ollama.chat(); publish thinking chunks; return (answer, thinking, tool_call_log)."""
+    ) -> tuple[str, str, list[dict], int]:
+        """Stream ollama.chat(); publish thinking chunks; return (answer, thinking, tool_call_log, prompt_tokens)."""
         import ollama
 
         raw_msg: dict = {}
         tool_call_log: list[dict] = []
         accumulated_thinking: str = ""
+        prompt_tokens: int = 0
 
         for _ in range(self._max_tool_iters):
             iter_content = ""
             iter_thinking = ""
             iter_tool_calls = None
+            last_chunk = None
 
             for chunk in ollama.chat(
                 model=self._model,
@@ -209,6 +218,7 @@ class GeneratorAgent:
                 stream=True,
                 options=self._options,
             ):
+                last_chunk = chunk
                 if chunk.message.thinking:
                     iter_thinking += chunk.message.thinking
                     accumulated_thinking += chunk.message.thinking
@@ -223,6 +233,9 @@ class GeneratorAgent:
                     iter_content += chunk.message.content
                 if chunk.message.tool_calls:
                     iter_tool_calls = chunk.message.tool_calls
+
+            if last_chunk is not None:
+                prompt_tokens = getattr(last_chunk, "prompt_eval_count", 0) or 0
 
             raw_msg = {
                 "role": "assistant",
@@ -253,7 +266,99 @@ class GeneratorAgent:
                 "GeneratorAgent: max_tool_iterations (%d) exhausted without a final text answer",
                 self._max_tool_iters,
             )
-        return answer, thinking, tool_call_log
+        return answer, thinking, tool_call_log, prompt_tokens
+
+    def _handle_compaction(self, envelope: MessageEnvelope) -> None:
+        """Summarize a session's history and replace messages with summary + tail."""
+        import ollama
+
+        if self._sm.state != GeneratorState.IDLE:
+            self._pub.publish(self._make_envelope(
+                COMPACTION_RESULT, "compaction",
+                {"error": "generator busy — try again after current query finishes",
+                 "session_id": envelope.payload.get("session_id")},
+                envelope.correlation_id or str(uuid.uuid4()), None,
+            ))
+            return
+
+        session_id: str | None = envelope.payload.get("session_id")
+        cfg = get_config("generator") or {}
+        tail_turns: int = cfg.get("compaction_tail_turns", 4)
+
+        history = self._conv.get_history(session_id)
+        tokens_before = self._conv.get_token_count(session_id)
+
+        if not history:
+            self._pub.publish(self._make_envelope(
+                COMPACTION_RESULT, "compaction",
+                {"error": "no history to compact", "session_id": session_id},
+                envelope.correlation_id or str(uuid.uuid4()), None,
+            ))
+            return
+
+        # Build summarization prompt — only user/assistant pairs, skip tool turns
+        convo_text = []
+        for m in history:
+            role = m.get("role", "")
+            content = m.get("content") or ""
+            if role in ("user", "assistant") and content:
+                convo_text.append(f"{role.upper()}: {content}")
+        summary_input = "\n\n".join(convo_text)
+
+        compaction_system = (
+            "You are a conversation summarizer. "
+            "Produce a concise factual summary of the conversation below. "
+            "Capture: the user's goals, key facts established, decisions made, "
+            "open questions, and any user preferences or constraints stated. "
+            "Be terse. Omit pleasantries and filler. "
+            "Output only the summary — no preamble, no 'Here is a summary:'."
+        )
+
+        resp = ollama.chat(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": compaction_system},
+                {"role": "user", "content": summary_input},
+            ],
+            stream=False,
+            options=self._options,
+        )
+        summary_text = (resp.message.content or "").strip()
+
+        # Keep last tail_turns user+assistant pairs verbatim
+        # Walk history backwards collecting complete pairs
+        tail_messages: list[dict] = []
+        pairs_collected = 0
+        i = len(history) - 1
+        while i >= 1 and pairs_collected < tail_turns:
+            if history[i].get("role") == "assistant" and history[i - 1].get("role") == "user":
+                tail_messages = history[i - 1: i + 1] + tail_messages
+                pairs_collected += 1
+                i -= 2
+            else:
+                i -= 1
+
+        new_messages = [{"role": "assistant", "content": f"[SUMMARY] {summary_text}"}] + tail_messages
+
+        # Estimate post-compaction tokens from character count
+        total_chars = sum(len(m.get("content") or "") for m in new_messages)
+        tokens_estimated_after = total_chars // 4
+
+        self._conv.replace_messages(session_id, new_messages)
+        self._conv.set_token_count(session_id, tokens_estimated_after)
+
+        self._pub.publish(self._make_envelope(
+            COMPACTION_RESULT, "compaction",
+            {"session_id": session_id,
+             "tokens_before": tokens_before,
+             "tokens_after": tokens_estimated_after,
+             "summary": summary_text},
+            envelope.correlation_id or str(uuid.uuid4()), None,
+        ))
+        logger.info(
+            "GeneratorAgent: compacted session %s — %d → ~%d tokens",
+            (session_id or "")[:8], tokens_before, tokens_estimated_after,
+        )
 
     def _normalize_tool_name(self, name: str) -> str:
         """Map hallucinated or variant tool names to registered schema names."""

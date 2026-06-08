@@ -94,6 +94,7 @@ class ConversationService:
                 "started_at": time.time(),
                 "last_active": time.time(),
                 "title": "",
+                "token_count": 0,
             }
         return self._sessions[session_id]
 
@@ -143,7 +144,6 @@ class ConversationService:
         entry["last_active"] = time.time()
         self._sessions.move_to_end(session_id)
         self._save()
-        print(f"[generator] stored {len(messages)} msgs session={session_id!r}")
 
     def list_sessions(self) -> list[dict]:
         """Return session metadata sorted by last_active descending.
@@ -165,6 +165,34 @@ class ConversationService:
     def delete_session(self, session_id: str) -> None:
         """Remove a session entirely."""
         self._sessions.pop(session_id, None)
+        self._save()
+
+    def set_token_count(self, session_id: str | None, count: int) -> None:
+        """Store the prompt_eval_count from the last Ollama generation turn."""
+        if not session_id:
+            return
+        entry = self._sessions.get(session_id)
+        if entry is not None:
+            entry["token_count"] = count
+            self._save()
+
+    def get_token_count(self, session_id: str | None) -> int:
+        """Return the last stored token count for a session, or 0 if unknown."""
+        if not session_id:
+            return 0
+        entry = self._sessions.get(session_id)
+        if entry is None:
+            return 0
+        return entry.get("token_count", 0)
+
+    def replace_messages(self, session_id: str | None, messages: list[dict]) -> None:
+        """Atomically replace the message list for a session (used by compaction)."""
+        if not session_id:
+            return
+        entry = self._ensure_session(session_id)
+        entry["messages"] = list(messages)
+        entry["last_active"] = time.time()
+        self._sessions.move_to_end(session_id)
         self._save()
 
     def clear(self, session_id: str | None) -> None:

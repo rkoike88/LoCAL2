@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LoCAL2 Phase 14 — Conversation Compaction</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#0d0d0d; color:#d4d4d4; max-width:900px; margin:40px auto; padding:0 24px 80px; line-height:1.6; }
+  h1 { color:#7ec8a4; border-bottom:1px solid #2a2a2a; padding-bottom:12px; }
+  h2 { color:#9dbde8; margin-top:40px; border-left:3px solid #9dbde8; padding-left:12px; }
+  h3 { color:#c8a47e; margin-top:24px; }
+  p, li { color:#aaa; }
+  code { background:#1a1a1a; border:1px solid #2a2a2a; border-radius:4px; padding:2px 6px; font-family:"Menlo","Monaco","Courier New"; font-size:13px; color:#c8a47e; }
+  pre { background:#111; border:1px solid #2a2a2a; border-radius:6px; padding:16px; overflow-x:auto; font-family:"Menlo","Monaco","Courier New"; font-size:12px; color:#c8c8c8; line-height:1.5; }
+  .phase { background:#141414; border:1px solid #2a2a2a; border-radius:8px; padding:20px 24px; margin:24px 0; }
+  .phase-tag { display:inline-block; padding:2px 10px; border-radius:12px; font-size:11px; font-weight:bold; margin-right:8px; }
+  .tag-data  { background:#1a2a1a; color:#7ec8a4; }
+  .tag-ui    { background:#1a2a3a; color:#9dbde8; }
+  .tag-agent { background:#2a1a2a; color:#c87ec8; }
+  .tag-bus   { background:#2a2010; color:#c8b47e; }
+  table { width:100%; border-collapse:collapse; margin:16px 0; }
+  th { background:#1a1a1a; color:#888; text-align:left; padding:8px 12px; font-size:12px; border-bottom:1px solid #2a2a2a; }
+  td { padding:8px 12px; border-bottom:1px solid #1a1a1a; font-size:13px; color:#aaa; vertical-align:top; }
+  td:first-child { color:#d4d4d4; font-family:"Menlo","Monaco","Courier New"; font-size:12px; }
+  .decision { background:#1a1a10; border-left:3px solid #c8a47e; padding:12px 16px; margin:12px 0; border-radius:0 4px 4px 0; }
+  .decision strong { color:#c8a47e; }
+  .note { background:#1a1a2a; border-left:3px solid #9dbde8; padding:10px 14px; margin:12px 0; border-radius:0 4px 4px 0; font-size:13px; color:#9dbde8; }
+  ul { padding-left:20px; }
+  li { margin:4px 0; }
+  .ascii { font-family:"Menlo","Monaco","Courier New"; font-size:12px; color:#7ec8a4; background:#0a0a0a; border:1px solid #2a2a2a; border-radius:6px; padding:16px; line-height:1.4; white-space:pre; margin:12px 0; }
+</style>
+</head>
+<body>
+
+<h1>Phase 14 — Conversation Compaction</h1>
+
+<p>Long sessions accumulate messages until the silent 20-turn truncation kicks in, losing early context.
+This phase adds a visible context gauge in the sidebar and a manual compaction action.
+Pressing the gauge asks Gemma to summarize the session so far, replaces the message history
+with a compact summary plus a verbatim tail, and reports tokens freed.</p>
+
+<h2>1 — Token Tracking (no new dependencies)</h2>
+
+<div class="phase">
+  <span class="phase-tag tag-agent">GeneratorAgent</span>
+  <span class="phase-tag tag-data">ConversationService</span>
+
+  <p>Ollama's streaming API delivers token counts on the final chunk of each iteration via
+  <code>chunk.prompt_eval_count</code> (tokens sent to the model) and <code>chunk.eval_count</code>
+  (tokens generated). We capture the last iteration's <code>prompt_eval_count</code> —
+  this reflects the true context size for that turn including all tool-call results.</p>
+
+  <h3>_generate() return signature change</h3>
+  <pre>def _generate(...) -> tuple[str, str, list[dict], int]:
+    # existing loop, plus:
+    last_chunk = None
+    for chunk in ollama.chat(..., stream=True):
+        last_chunk = chunk
+        # ... existing handling unchanged ...
+
+    prompt_tokens = getattr(last_chunk, "prompt_eval_count", 0) or 0
+    # return added as 4th element
+    return answer, thinking, tool_call_log, prompt_tokens</pre>
+
+  <h3>ConversationService additions</h3>
+  <pre># New field in session entry (default 0 on migration / new sessions)
+"token_count": int
+
+# New methods:
+def set_token_count(self, session_id: str | None, count: int) -> None
+def get_token_count(self, session_id: str | None) -> int</pre>
+
+  <p>After generation, RespondentA stores the count:</p>
+  <pre>self._conv.set_token_count(session_id, prompt_tokens)</pre>
+
+  <p><code>token_count</code> is included in the <code>RESPONSE_GENERATION</code> payload so the UI
+  can update the gauge without polling.</p>
+</div>
+
+<h2>2 — Context Gauge Widget</h2>
+
+<div class="phase">
+  <span class="phase-tag tag-ui">UI</span>
+
+  <p>A small arc gauge sits in the sidebar between the 💬 (conversations) and ⟳ (new session) buttons.
+  It is a custom <code>QWidget</code> subclass named <code>ContextGauge</code>.</p>
+
+  <div class="ascii">Sidebar (left column, top-to-bottom):
+
+  [ 💬 ]   ← open ConversationsWindow
+  [  ◔  ]  ← ContextGauge (arc fill, 40×40px)
+  [ ⟳  ]   ← new session
+  [ ◉  ]   ← toggle critic</div>
+
+  <h3>ContextGauge</h3>
+  <pre>class ContextGauge(QWidget):
+    compact_requested = Signal()   # emitted on click
+
+    def __init__(self, num_ctx: int, parent=None)
+    def set_tokens(self, count: int)      # called from MainWindow on RESPONSE_GENERATION
+    def paintEvent(self, event)           # draws arc + center text
+    def mousePressEvent(self, event)      # emits compact_requested</pre>
+
+  <p><strong>Arc drawing:</strong> <code>QPainter.drawArc()</code> with span = <code>fill * 360 * 16</code>
+  (Qt uses 1/16th-degree units). Arc sweeps counter-clockwise from 12 o'clock.
+  Center shows a compact token count (e.g. <code>47K</code>).</p>
+
+  <p><strong>Color thresholds:</strong></p>
+  <table>
+    <tr><th>Fill</th><th>Color</th></tr>
+    <tr><td>&lt; 60%</td><td>#7ec8a4 (green)</td></tr>
+    <tr><td>60–85%</td><td>#c8a47e (amber)</td></tr>
+    <tr><td>&gt; 85%</td><td>#c87e7e (red)</td></tr>
+  </table>
+
+  <p><strong>Tooltip:</strong> <code>"47,200 / 128,000 tokens — click to compact"</code></p>
+
+  <div class="decision">
+    <strong>Decision: gauge shows 0 until first generation turn.</strong>
+    Before any turn the count is unknown; the arc stays empty (hollow ring) with
+    no center text. This is honest — we don't guess.
+  </div>
+</div>
+
+<h2>3 — Compaction Flow (bus-routed)</h2>
+
+<div class="phase">
+  <span class="phase-tag tag-bus">Bus</span>
+  <span class="phase-tag tag-agent">GeneratorAgent</span>
+  <span class="phase-tag tag-ui">UI</span>
+
+  <p>Compaction is routed over the bus so GeneratorAgent owns all Ollama calls —
+  consistent with the architecture invariant.</p>
+
+  <h3>New subjects (subjects.py)</h3>
+  <pre>COMPACTION_REQUEST = "compaction.request"
+COMPACTION_RESULT  = "compaction.result"</pre>
+
+  <h3>Sequence</h3>
+  <div class="ascii">User clicks gauge
+  → MainWindow emits COMPACTION_REQUEST {session_id}
+  → GeneratorAgent._handle_compaction()
+      - gets messages from self._conv.get_history(session_id)
+      - calls Ollama (non-streaming, no tools) with compaction prompt
+      - builds new message list: [summary_msg] + last N verbatim turns
+      - calls self._conv.replace_messages(session_id, new_messages)
+      - publishes COMPACTION_RESULT {session_id, tokens_before, tokens_estimated_after, summary}
+  → MainWindow._on_compaction_result()
+      - appends marker to log
+      - resets gauge to estimated post-compaction count</div>
+
+  <h3>Compaction prompt</h3>
+  <pre>COMPACTION_SYSTEM = (
+    "You are a conversation summarizer. "
+    "Produce a concise factual summary of the conversation below. "
+    "Capture: the user's goals, key facts established, decisions made, "
+    "open questions, and any user preferences or constraints stated. "
+    "Be terse. Omit pleasantries and filler. "
+    "Output only the summary — no preamble, no 'Here is a summary:'."
+)</pre>
+
+  <p>The call is a separate <code>ollama.chat()</code> with <code>stream=False</code> and no tools —
+  a one-shot summarization that does not touch the live conversation history until it succeeds.</p>
+
+  <h3>replace_messages() (new ConversationService method)</h3>
+  <pre>def replace_messages(self, session_id: str | None, messages: list[dict]) -> None:
+    """Atomically replace the message list for a session (used by compaction)."""</pre>
+
+  <h3>Tail length</h3>
+  <p>Config key: <code>compaction_tail_turns: 4</code> in <code>config/generator.yaml</code>.
+  Turns kept verbatim after the summary = <code>tail_turns * 2</code> messages (user + assistant pairs).
+  Tool call messages in the tail are included as-is.</p>
+
+  <h3>Result message list shape</h3>
+  <pre>[
+  {"role": "assistant", "content": "[SUMMARY] The user is building LoCAL2 ..."},
+  {"role": "user",      "content": "...turn N-3 user..."},
+  {"role": "assistant", "content": "...turn N-3 assistant..."},
+  ... (tail_turns pairs)
+]</pre>
+
+  <div class="note">
+    The synthetic summary message uses <code>role: "assistant"</code> because Gemma expects alternating
+    user/assistant turns. A system-role summary would work too, but assistant is safer across model versions.
+  </div>
+
+  <h3>Tokens-freed estimate</h3>
+  <p><code>tokens_before</code> = last stored <code>token_count</code> from ConversationService.<br>
+  <code>tokens_estimated_after</code> = character count of new message list ÷ 4 (heuristic, shown as ~).<br>
+  Log marker: <code>── compacted: 82,400 → ~14,200 tokens  (68,200 freed) ──</code></p>
+</div>
+
+<h2>4 — Log Marker</h2>
+
+<div class="phase">
+  <span class="phase-tag tag-ui">UI</span>
+
+  <p>The compaction marker is appended to the main chat log using the same
+  <code>append_log()</code> method used for session rejoins — a centred, dimmed separator line
+  with the token delta.</p>
+
+  <pre>── compacted: 82,400 → ~14,200 tokens  (68,200 freed) ──</pre>
+
+  <p>The gauge fill drops visually to the estimated post-compaction level immediately.
+  After the next generation turn the gauge snaps to the exact Ollama-reported count.</p>
+</div>
+
+<h2>5 — Files Changed</h2>
+
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td>src/local/protocol/subjects.py</td><td>Add COMPACTION_REQUEST, COMPACTION_RESULT</td></tr>
+  <tr><td>src/local/services/conversation_service.py</td><td>token_count field; set/get_token_count(); replace_messages()</td></tr>
+  <tr><td>src/local/agents/generator_agent.py</td><td>Capture prompt_eval_count; subscribe to COMPACTION_REQUEST; _handle_compaction(); remove remaining debug print (line 134)</td></tr>
+  <tr><td>src/local/ui/main_window.py</td><td>ContextGauge widget; sidebar wiring; _on_compaction_result()</td></tr>
+  <tr><td>config/generator.yaml</td><td>Add compaction_tail_turns: 4</td></tr>
+  <tr><td>tests/test_conversation_service.py</td><td>Tests for set/get_token_count, replace_messages</td></tr>
+  <tr><td>tests/test_generator_agent.py</td><td>Test prompt_eval_count stored after generation</td></tr>
+</table>
+
+<h2>6 — Out of Scope (Phase 14)</h2>
+
+<ul>
+  <li><strong>Auto-compaction</strong> — trigger automatically at a threshold. Manual only for now; config key reserved for later.</li>
+  <li><strong>Compaction history</strong> — storing how many times a session was compacted. Not needed yet.</li>
+  <li><strong>Pairwise-aware compaction</strong> — RespondentB sessions are never compacted (they don't maintain history).</li>
+</ul>
+
+<h2>7 — Open Questions</h2>
+
+<ul>
+  <li>Should compaction be disabled while a generation is in flight? GeneratorAgent should check its state machine and reject COMPACTION_REQUEST if not IDLE, returning an error payload.</li>
+  <li>Should the gauge show a spinner while compaction is running? Yes — disable click and show an arc animation until COMPACTION_RESULT arrives.</li>
+</ul>
+
+</body>
+</html>

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LoCAL2 Phase 15 — GeneratorWindow</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#0d0d0d; color:#d4d4d4; max-width:900px; margin:40px auto; padding:0 24px 80px; line-height:1.6; }
+  h1 { color:#7ec8a4; border-bottom:1px solid #2a2a2a; padding-bottom:12px; }
+  h2 { color:#9dbde8; margin-top:40px; border-left:3px solid #9dbde8; padding-left:12px; }
+  h3 { color:#c8a47e; margin-top:24px; }
+  p, li { color:#aaa; }
+  code { background:#1a1a1a; border:1px solid #2a2a2a; border-radius:4px; padding:2px 6px; font-family:"Menlo","Monaco","Courier New"; font-size:13px; color:#c8a47e; }
+  pre { background:#111; border:1px solid #2a2a2a; border-radius:6px; padding:16px; overflow-x:auto; font-family:"Menlo","Monaco","Courier New"; font-size:12px; color:#c8c8c8; line-height:1.5; }
+  .phase { background:#141414; border:1px solid #2a2a2a; border-radius:8px; padding:20px 24px; margin:24px 0; }
+  .phase-tag { display:inline-block; padding:2px 10px; border-radius:12px; font-size:11px; font-weight:bold; margin-right:8px; }
+  .tag-ui    { background:#1a2a3a; color:#9dbde8; }
+  .tag-agent { background:#2a1a2a; color:#c87ec8; }
+  .tag-bus   { background:#2a2010; color:#c8b47e; }
+  .tag-layout { background:#0a2a1a; color:#7ec8a4; }
+  table { width:100%; border-collapse:collapse; margin:16px 0; }
+  th { background:#1a1a1a; color:#888; text-align:left; padding:8px 12px; font-size:12px; border-bottom:1px solid #2a2a2a; }
+  td { padding:8px 12px; border-bottom:1px solid #1a1a1a; font-size:13px; color:#aaa; vertical-align:top; }
+  td:first-child { color:#d4d4d4; font-family:"Menlo","Monaco","Courier New"; font-size:12px; }
+  .decision { background:#1a1a10; border-left:3px solid #c8a47e; padding:12px 16px; margin:12px 0; border-radius:0 4px 4px 0; }
+  .decision strong { color:#c8a47e; }
+  .note { background:#1a1a2a; border-left:3px solid #9dbde8; padding:10px 14px; margin:12px 0; border-radius:0 4px 4px 0; font-size:13px; color:#9dbde8; }
+  ul { padding-left:20px; }
+  li { margin:4px 0; }
+  .ascii { font-family:"Menlo","Monaco","Courier New"; font-size:11px; color:#7ec8a4; background:#0a0a0a; border:1px solid #2a2a2a; border-radius:6px; padding:16px; line-height:1.5; white-space:pre; margin:12px 0; }
+</style>
+</head>
+<body>
+
+<h1>Phase 15 — GeneratorWindow</h1>
+
+<p>Every major participant in LoCAL2 has a dedicated observable window except the generator —
+the most important participant. This phase adds <code>GeneratorWindow</code> and redesigns the
+window layout to accommodate it, making the generator a first-class visible entity. This is
+a prerequisite for distributed multi-instance and specialist agent work.</p>
+
+<h2>1 — Layout Redesign</h2>
+
+<div class="phase">
+  <span class="phase-tag tag-layout">Layout</span>
+
+  <p>Four lightweight tool windows (web_search, web_fetch, get_datetime, get_location) become
+  half-height, stacked two-per-slot in a dedicated utilities column (col 4). This frees a full
+  slot at col 2 row 0 for GeneratorWindow.</p>
+
+  <div class="ascii">Screen layout — right 5/7 divided into 5 columns × 2 rows
+Each cell = panel_w × panel_h  (panel_h = H/2 − tb_h)
+Half cells = panel_w × half_panel_h  (half_panel_h = H/4 − tb_h)
+
+┌─────────────┬─────────────┬─────────────┬─────────────┬─────────────┐
+│ search_     │ search_     │ Generator   │ search_     │ web_search  │ ← half H
+│ memory      │ library     │ Window      │ papers      ├─────────────┤
+│             │             │  (NEW)      │             │ web_fetch   │ ← half H
+├─────────────┼─────────────┼─────────────┼─────────────┼─────────────┤
+│ Memory      │ Documents   │ Conversa-   │ Critic      │ get_datetime│ ← half H
+│ Window      │ Window      │ tions       │ Window      ├─────────────┤
+│             │             │ Window      │             │ get_location│ ← half H
+└─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
+  col 0          col 1          col 2          col 3         col 4</div>
+
+  <h3>_tile_windows() changes</h3>
+  <p>Add a <code>_place_half(win, col, row, half)</code> helper alongside the existing
+  <code>_place(win, col, row)</code>:</p>
+  <pre>half_panel_h = H // 4 - tb_h
+
+def _place_half(win, col: int, row: int, half: int) -> None:
+    # half=0: top half of the row slot; half=1: bottom half
+    x = x0 + main_w + col * panel_w
+    y = y0 + row * (H // 2) + half * (H // 4) + tb_h
+    win.setGeometry(x, y, panel_w, half_panel_h)</pre>
+
+  <h3>Updated _TOOL_PANEL_SLOTS</h3>
+  <p>Slots now carry an optional <code>half</code> value (0 or 1).
+  Full-height tools keep the existing 2-tuple; half-height tools use a 3-tuple:</p>
+  <pre>_TOOL_PANEL_SLOTS: dict[str, tuple] = {
+    "search_memory":  (0, 0),          # full height
+    "search_library": (1, 0),          # full height
+    "search_papers":  (3, 0),          # full height
+    "web_search":     (4, 0, 0),       # half height — top of row 0
+    "web_fetch":      (4, 0, 1),       # half height — bottom of row 0
+    "get_datetime":   (4, 1, 0),       # half height — top of row 1
+    "get_location":   (4, 1, 1),       # half height — bottom of row 1
+}</pre>
+
+  <p>The tiling loop checks tuple length to dispatch to the right helper:</p>
+  <pre>for name, win in self._tool_windows.items():
+    slot = _TOOL_PANEL_SLOTS.get(name)
+    if slot:
+        if len(slot) == 3:
+            _place_half(win, col=slot[0], row=slot[1], half=slot[2])
+        else:
+            _place(win, col=slot[0], row=slot[1])</pre>
+
+  <div class="decision">
+    <strong>Decision: GeneratorWindow placed at col 2, row 0 (static, not reactive).</strong>
+    It is spawned at startup like CriticWindow and MemoryWindow — not reactively on a bus event.
+    It represents the generator's identity, which is known at startup.
+  </div>
+</div>
+
+<h2>2 — GeneratorWindow UI</h2>
+
+<div class="phase">
+  <span class="phase-tag tag-ui">UI</span>
+
+  <p>New file: <code>src/local/ui/generator_window.py</code></p>
+
+  <div class="ascii">┌─ GeneratorWindow ──────────────────────────────────────────┐
+│  generator-A  ·  gemma4:e4b  ·  temp 0.1  ·  ctx 128K      │  ← identity bar
+├────────────────────────────────────────────────────────────┤
+│  ● IDLE                                    47,200 / 128K    │  ← state + tokens
+│  ████████████░░░░░░░░░░░░░░░░░░░░░░░░  37%                  │  ← context bar
+├────────────────────────────────────────────────────────────┤
+│  Tools (7)                                                  │  ← tool registry
+│  search_memory · web_search · web_fetch · get_datetime      │
+│  get_location  · search_papers · search_library             │
+├────────────────────────────────────────────────────────────┤
+│  System prompt                                        ▼     │  ← collapsible
+│  You are a helpful assistant with access to memory…         │
+├────────────────────────────────────────────────────────────┤
+│  Transitions                                                │  ← log strip
+│  09:14:22  IDLE → RECEIVING                                 │
+│  09:14:22  RECEIVING → GENERATING                           │
+│  09:14:31  GENERATING → DISPATCHING_TOOL                    │
+│  09:14:32  DISPATCHING_TOOL → TOOL_RESULT                   │
+│  09:14:35  TOOL_RESULT → GENERATING                         │
+│  09:14:41  GENERATING → IDLE                                │
+├────────────────────────────────────────────────────────────┤
+│  Peers                                     (none detected)  │  ← peer registry
+└────────────────────────────────────────────────────────────┘</div>
+
+  <h3>Identity bar</h3>
+  <p>Static — set once at window construction from generator config:
+  <code>instance_id · model · temperature · num_ctx</code>. Uses the
+  <code>instance_id</code> from <code>config/system.yaml</code> (new in this phase;
+  defaults to hostname if absent).</p>
+
+  <h3>State + context row</h3>
+  <p>State badge colour-coded identically to CriticWindow's state transitions:
+  IDLE=grey, RECEIVING=blue, GENERATING=amber, DISPATCHING_TOOL=purple, ERROR=red.
+  Token count and fill bar mirror the sidebar ContextGauge but with numeric detail.
+  Updates on every <code>generator.status</code> event.</p>
+
+  <h3>Tool registry</h3>
+  <p>Chip-style list of currently registered tool names. Updates live as tools
+  announce on <code>tool.schema</code>. Count badge in section header.
+  Clicking a tool name is a no-op for now (future: jump to that tool's window).</p>
+
+  <h3>System prompt</h3>
+  <p>Collapsible section. Read-only <code>QTextEdit</code> showing the active system
+  prompt. Collapsed by default (saves vertical space). Content set once at startup
+  from <code>generator.status</code> initial payload.</p>
+
+  <h3>Transitions log</h3>
+  <p>Scrolling strip of state transitions with timestamps — same pattern as
+  <code>CriticWindow.append_transition()</code>. Subscribes to existing
+  <code>AGENT_TRANSITION</code> subject (already published by GeneratorAgent state machine).
+  Shows last 50 transitions.</p>
+
+  <h3>Peers panel</h3>
+  <p>Table stub: Instance ID | State | Load | Last seen. Shows "(none detected)"
+  until <code>agent.heartbeat</code> events arrive. Hidden entirely if no peers
+  ever appear. Forward-compatible with Phase 16 distributed work — no logic needed now
+  beyond displaying what arrives on the heartbeat subject.</p>
+</div>
+
+<h2>3 — New Bus Subject: generator.status</h2>
+
+<div class="phase">
+  <span class="phase-tag tag-bus">Bus</span>
+  <span class="phase-tag tag-agent">GeneratorAgent</span>
+
+  <p>A new subject <code>generator.status</code> carries full generator state snapshots.
+  Published on: startup, every state transition, every tool registration, and after each
+  generation turn.</p>
+
+  <pre>// subject: generator.status
+{
+  "instance_id":    "local2-macbook",
+  "respondent_id":  "A",
+  "model":          "gemma4:e4b",
+  "temperature":    0.1,
+  "num_ctx":        128000,
+  "state":          "idle",           // matches GeneratorState enum lowercase
+  "token_count":    47200,            // last prompt_eval_count, 0 before first turn
+  "tool_names":     ["search_memory", "web_search", ...],
+  "system_prompt":  "You are a helpful assistant..."
+}</pre>
+
+  <div class="decision">
+    <strong>Decision: generator.status is separate from agent.transition.</strong>
+    <code>agent.transition</code> carries state machine events (FROM → TO).
+    <code>generator.status</code> carries full snapshots of all generator config and runtime state.
+    GeneratorWindow subscribes to both: transitions for the log strip, status for everything else.
+  </div>
+
+  <h3>Publish points in GeneratorAgent</h3>
+  <ul>
+    <li><strong>Startup</strong> — after <code>_request_schemas()</code>, publish initial status with token_count=0</li>
+    <li><strong>State transitions</strong> — after each <code>self._sm.transition()</code> call</li>
+    <li><strong>Tool registration</strong> — after <code>_register_tool_schema()</code> updates the registry</li>
+    <li><strong>Post-generation</strong> — after <code>set_token_count()</code> is called (token_count now known)</li>
+  </ul>
+
+  <p>A helper <code>_publish_status()</code> builds the payload from instance fields and publishes. Called from each of the above points.</p>
+
+  <h3>instance_id source</h3>
+  <p>Read from <code>config/system.yaml</code>:</p>
+  <pre># config/system.yaml  (new file)
+instance_id: "local2-macbook"</pre>
+  <p>If the key is absent or the file doesn't exist, fall back to <code>socket.gethostname()</code>.
+  This config file is also where peer/distributed config will live in Phase 16.</p>
+</div>
+
+<h2>4 — BusLogger + MainWindow wiring</h2>
+
+<div class="phase">
+  <span class="phase-tag tag-ui">UI</span>
+
+  <p>Add <code>generator_status</code> signal to <code>BusLogger</code> and handle
+  <code>GENERATOR_STATUS</code> subject in <code>log_envelope()</code>:</p>
+
+  <pre>generator_status = Signal(dict)   # full status snapshot
+
+# in log_envelope():
+if subject == GENERATOR_STATUS:
+    self.generator_status.emit(raw)
+    return</pre>
+
+  <p>Subscribe to <code>GENERATOR_STATUS</code> in <code>_start_bus_monitor()</code>.
+  Connect signal to <code>self._generator_window.update_status(data)</code>.</p>
+
+  <p><code>GeneratorWindow</code> is constructed at startup alongside CriticWindow and MemoryWindow,
+  and placed at col 2, row 0 in <code>_tile_windows()</code>.</p>
+</div>
+
+<h2>5 — Files Changed</h2>
+
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td>config/system.yaml</td><td>New file — instance_id (defaults to hostname if absent)</td></tr>
+  <tr><td>src/local/protocol/subjects.py</td><td>Add GENERATOR_STATUS</td></tr>
+  <tr><td>src/local/agents/generator_agent.py</td><td>_publish_status() helper; publish on startup, transitions, tool register, post-generation</td></tr>
+  <tr><td>src/local/ui/generator_window.py</td><td>New file — GeneratorWindow widget</td></tr>
+  <tr><td>src/local/ui/main_window.py</td><td>_TOOL_PANEL_SLOTS updated; _place_half() helper; _tile_windows() half-height dispatch; GeneratorWindow constructed + tiled; BusLogger generator_status signal wired</td></tr>
+  <tr><td>tests/test_generator_agent.py</td><td>Test _publish_status() called on state transitions; test instance_id from config</td></tr>
+</table>
+
+<h2>6 — Out of Scope (Phase 15)</h2>
+
+<ul>
+  <li><strong>Editable system prompt</strong> — display only; editing via config reload is a later feature</li>
+  <li><strong>agent.heartbeat publishing</strong> — peers panel is display-only stub; heartbeat publishing belongs in Phase 16</li>
+  <li><strong>Multiple GeneratorWindows</strong> — one window per instance; multi-window management belongs in Phase 16</li>
+  <li><strong>RespondentB window</strong> — B does not publish generator.status (it has no persistent state); single window represents A only</li>
+</ul>
+
+<h2>7 — Forward Compatibility Notes</h2>
+
+<div class="note">
+  <code>instance_id</code> in <code>config/system.yaml</code> is the hook for all distributed work.
+  Every future Phase 16 component (heartbeat, peer registry, agent.request routing) reads from
+  the same config key. Set it meaningfully now — <code>"local2-macbook"</code>, not <code>"instance-1"</code>.
+</div>
+
+<div class="note">
+  The peers panel in GeneratorWindow will automatically show peers once Phase 16 adds
+  <code>agent.heartbeat</code> publishing. No UI changes needed at that point — just the
+  heartbeat publisher in GeneratorAgent.
+</div>
+
+</body>
+</html>

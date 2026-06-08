@@ -11,6 +11,7 @@ the tool.request.*, then polls until correlation_id matches or timeout expires.
 from __future__ import annotations
 
 import logging
+import socket
 import time
 import uuid
 
@@ -20,8 +21,9 @@ from local.agents.generator_transitions import GeneratorStateMachine
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
+    AGENT_TRANSITION,
     ANSWER_DIALOG, COMPACTION_REQUEST, COMPACTION_RESULT,
-    GENERATION_THINKING, QUERY_RECEIVED, RESPONSE_GENERATION,
+    GENERATION_THINKING, GENERATOR_STATUS, QUERY_RECEIVED, RESPONSE_GENERATION,
     TOOL_SCHEMA, TOOL_SCHEMA_REQUEST,
 )
 from local.services.conversation_service import ConversationService
@@ -42,6 +44,7 @@ class GeneratorAgent:
         conversation_service=None,
     ) -> None:
         cfg = get_config("generator")
+        sys_cfg = get_config("system") or {}
         self._model: str = model or cfg.get("model", "gemma4:e2b")
         self._options: dict = {
             "num_ctx": cfg.get("num_ctx", 32000),
@@ -52,6 +55,8 @@ class GeneratorAgent:
         self._tool_timeout: float = cfg.get("tool_timeout", 20)
         self._tool_schemas: list = cfg.get("tools", [])
         self._respondent_id: str = respondent_id
+        self._instance_id: str = sys_cfg.get("instance_id") or socket.gethostname()
+        self._token_count: int = 0
         self._conv = conversation_service or ConversationService()
         self._sm = GeneratorStateMachine()
         self._pub, self._sub = make_participant_bus([QUERY_RECEIVED, TOOL_SCHEMA, COMPACTION_REQUEST])
@@ -68,6 +73,7 @@ class GeneratorAgent:
         )
         self._request_schemas()
         time.sleep(0.5)  # startup window: let tool schema responses queue up
+        self._publish_status()
         while True:
             try:
                 envelope = self._sub.receive()
@@ -109,11 +115,11 @@ class GeneratorAgent:
             query_id = original_query_id
             correlation_id = envelope.correlation_id or query_id
 
-        self._sm.transition(GeneratorAction.RECEIVE)
+        self._do_transition(GeneratorAction.RECEIVE)
 
         messages = self._build_messages(query, session_id, attachments)
         initial_len = len(messages)
-        self._sm.transition(GeneratorAction.START_GENERATION)
+        self._do_transition(GeneratorAction.START_GENERATION)
 
         try:
             answer, thinking, tool_call_log, prompt_tokens = self._generate(
@@ -121,7 +127,7 @@ class GeneratorAgent:
             )
         except Exception as exc:
             logger.error("GeneratorAgent: generation failed: %s", exc, exc_info=True)
-            self._sm.transition(GeneratorAction.FAIL)
+            self._do_transition(GeneratorAction.FAIL)
             self._pub.publish(self._make_envelope(
                 RESPONSE_GENERATION, "response",
                 {"answer": f"[generation error: {exc}]", "thinking": "",
@@ -129,7 +135,7 @@ class GeneratorAgent:
                  "respondent_id": self._respondent_id, "error": True},
                 correlation_id, session_id,
             ))
-            self._sm.transition(GeneratorAction.RESET)
+            self._do_transition(GeneratorAction.RESET)
             return
 
         # Only RespondentA maintains the shared conversation history.
@@ -138,7 +144,8 @@ class GeneratorAgent:
             new_messages = [self._clean_for_history(m) for m in messages[initial_len - 1:]]
             self._conv.append_messages(session_id, new_messages)
             self._conv.set_token_count(session_id, prompt_tokens)
-        self._sm.transition(GeneratorAction.PUBLISH)
+            self._token_count = prompt_tokens
+        self._do_transition(GeneratorAction.PUBLISH)
 
         self._pub.publish(self._make_envelope(
             RESPONSE_GENERATION, "response",
@@ -157,7 +164,7 @@ class GeneratorAgent:
             correlation_id, session_id,
         ))
 
-        self._sm.transition(GeneratorAction.RESET)
+        self._do_transition(GeneratorAction.RESET)
 
     def _build_messages(
         self,
@@ -249,7 +256,7 @@ class GeneratorAgent:
             if not tool_calls:
                 break
 
-            self._sm.transition(GeneratorAction.DISPATCH_TOOL)
+            self._do_transition(GeneratorAction.DISPATCH_TOOL)
             for tc in tool_calls:
                 fn = tc.get("function") or {}
                 name: str = fn.get("name", "")
@@ -257,7 +264,7 @@ class GeneratorAgent:
                 result = self._execute_tool(name, args, correlation_id)
                 tool_call_log.append({"tool": name, "args": args, "result": str(result)})
                 messages.append({"role": "tool", "content": str(result), "name": name})
-            self._sm.transition(GeneratorAction.TOOL_RESULT)
+            self._do_transition(GeneratorAction.TOOL_RESULT)
 
         answer = (raw_msg.get("content") or "").strip()
         thinking = accumulated_thinking.strip()
@@ -403,6 +410,46 @@ class GeneratorAgent:
         logger.warning("GeneratorAgent: tool %r timed out after %ss", name, self._tool_timeout)
         return f"[tool timeout: {name!r} did not respond within {self._tool_timeout}s]"
 
+    def _do_transition(self, action: "GeneratorAction") -> None:
+        """Execute a state machine transition and publish AGENT_TRANSITION + generator.status."""
+        from_state = self._sm.state
+        to_state = self._sm.transition(action)
+        self._pub.publish(self._make_envelope(
+            AGENT_TRANSITION, "agent_transition",
+            {
+                "agent":  self.AGENT_ID,
+                "from":   from_state.value,
+                "action": action.value,
+                "to":     to_state.value,
+            },
+            str(uuid.uuid4()), None,
+        ))
+        self._publish_status()
+
+    def _publish_status(self) -> None:
+        """Publish a full generator state snapshot on generator.status."""
+        tool_names = [
+            s.get("function", {}).get("name", "")
+            for s in self._tool_schemas
+            if s.get("function", {}).get("name")
+        ]
+        self._pub.publish(MessageEnvelope.create(
+            message_type="generator_status",
+            subject=GENERATOR_STATUS,
+            sender_id=self.AGENT_ID,
+            payload={
+                "instance_id":   self._instance_id,
+                "respondent_id": self._respondent_id,
+                "model":         self._model,
+                "temperature":   self._options.get("temperature", 0.0),
+                "num_ctx":       self._options.get("num_ctx", 0),
+                "state":         self._sm.state.value,
+                "token_count":   self._token_count,
+                "tool_names":    tool_names,
+                "system_prompt": self._system_prompt,
+            },
+        ))
+
     def _request_schemas(self) -> None:
         self._pub.publish(MessageEnvelope.create(
             message_type="schema_request",
@@ -419,6 +466,7 @@ class GeneratorAgent:
         self._tool_schemas = [s for s in self._tool_schemas if s.get("function", {}).get("name") != name]
         self._tool_schemas.append(schema)
         logger.info("GeneratorAgent: registered tool %r (total: %d)", name, len(self._tool_schemas))
+        self._publish_status()
 
     @staticmethod
     def _clean_for_history(m: dict) -> dict:

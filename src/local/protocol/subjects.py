@@ -60,3 +60,6 @@ AGENT_TRANSITION = "agent.transition"
 # Phase 14 — conversation compaction
 COMPACTION_REQUEST = "compaction.request"
 COMPACTION_RESULT  = "compaction.result"
+
+# Phase 15 — generator observability
+GENERATOR_STATUS = "generator.status"

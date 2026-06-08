@@ -51,6 +51,7 @@ from local.protocol.subjects import (
     COMPACTION_RESULT,
     CRITIQUE,
     GENERATION_THINKING,
+    GENERATOR_STATUS,
     PAIRWISE_RESULT,
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
@@ -76,6 +77,7 @@ from local.ui.attachment_bar import AttachmentBar
 from local.ui.conversations_window import ConversationsWindow
 from local.ui.critic_window import CriticWindow
 from local.ui.documents_window import DocumentsWindow
+from local.ui.generator_window import GeneratorWindow
 from local.ui.memory_window import MemoryWindow
 from local.ui.tool_window import ToolWindow
 
@@ -89,15 +91,16 @@ _TOOL_ACTIVITY_SUBJECTS = [
     TOOL_ACTIVITY_SEARCH_DOCUMENTS,
 ]
 
-# col, row within the 5×2 panel grid (right 5/7 of screen)
-_TOOL_PANEL_SLOTS: dict[str, tuple[int, int]] = {
-    "search_memory":  (0, 0),
-    "search_library": (1, 0),
-    "web_search":     (2, 0),
-    "search_papers":  (3, 0),
-    "get_datetime":   (4, 0),
-    "web_fetch":      (2, 1),
-    "get_location":   (4, 1),
+# col, row within the 5×2 panel grid (right 5/7 of screen).
+# 2-tuple = full height; 3-tuple (col, row, half) = half height (half 0=top, 1=bottom).
+_TOOL_PANEL_SLOTS: dict[str, tuple] = {
+    "search_memory":  (0, 0),       # full height
+    "search_library": (1, 0),       # full height
+    "search_papers":  (3, 0),       # full height
+    "web_search":     (4, 0, 0),    # half height — top of row 0
+    "web_fetch":      (4, 0, 1),    # half height — bottom of row 0
+    "get_datetime":   (4, 1, 0),    # half height — top of row 1
+    "get_location":   (4, 1, 1),    # half height — bottom of row 1
 }
 
 
@@ -307,6 +310,7 @@ class BusLogger(QObject):
     pairwise = Signal(dict)
     agent_transition = Signal(dict)
     compaction_result = Signal(dict)
+    generator_status = Signal(dict)
     tool_schema = Signal(str)        # emits tool name on tool.schema arrival
     tool_activity = Signal(object)   # passes MessageEnvelope through
 
@@ -359,6 +363,10 @@ class BusLogger(QObject):
 
         if subject == COMPACTION_RESULT:
             self.compaction_result.emit(raw)
+            return
+
+        if subject == GENERATOR_STATUS:
+            self.generator_status.emit(raw)
             return
 
         if subject == QUERY_RECEIVED:
@@ -580,6 +588,8 @@ class MainWindow(QMainWindow):
         self._tool_windows: dict[str, ToolWindow] = {}  # keyed by tool name
 
         # ── Agent windows — spawned at startup ────────────────────────
+        self._generator_window = GeneratorWindow()
+        self._generator_window.show()
         self._critic_window = CriticWindow(publisher=publisher)
         self._critic_window.show()
         self._memory_window = MemoryWindow(
@@ -753,7 +763,7 @@ class MainWindow(QMainWindow):
     def _start_bus_monitor(self) -> None:
         all_subjects = (
             list(OBSERVE) + _TOOL_ACTIVITY_SUBJECTS
-            + [TOOL_SCHEMA, PAIRWISE_RESULT, AGENT_TRANSITION, COMPACTION_RESULT]
+            + [TOOL_SCHEMA, PAIRWISE_RESULT, AGENT_TRANSITION, COMPACTION_RESULT, GENERATOR_STATUS]
         )
         self._bus_logger = BusLogger()
         self._bus_logger.message.connect(self.append_log)
@@ -765,6 +775,7 @@ class MainWindow(QMainWindow):
         self._bus_logger.pairwise.connect(self._critic_window.append_pairwise)
         self._bus_logger.agent_transition.connect(self._on_agent_transition)
         self._bus_logger.compaction_result.connect(self._on_compaction_result)
+        self._bus_logger.generator_status.connect(self._generator_window.update_status)
 
         self._monitor_worker = BusMonitorWorker(PROXY_BACKEND_ADDR, subscriptions=all_subjects)
         self._monitor_worker.envelope_received.connect(self._bus_logger.log_envelope)
@@ -806,19 +817,16 @@ class MainWindow(QMainWindow):
     def _tile_windows(self) -> None:
         """Tile all windows across the full screen.
 
-        MainWindow occupies the left 2/7.  The remaining 5/7 is a 5-column × 2-row
-        grid of tool and agent panels, grouped by function:
-          col 0 — memory    (search_memory / MemoryWindow)
-          col 1 — library   (search_library / DocumentsWindow)
-          col 2 — web       (web_search / web_fetch)
-          col 3 — research  (search_papers / CriticWindow)
-          col 4 — utility   (get_datetime / get_location)
+        MainWindow: left 2/7, full height.
+        Right 5/7: 5-column × 2-row grid of agent and tool panels.
+          col 0 — memory    (search_memory top / MemoryWindow bottom)
+          col 1 — library   (search_library top / DocumentsWindow bottom)
+          col 2 — core      (GeneratorWindow top / ConversationsWindow bottom)
+          col 3 — research  (search_papers top / CriticWindow bottom)
+          col 4 — utilities (4 half-height: web_search, web_fetch, get_datetime, get_location)
 
-        setGeometry() positions the CONTENT area (title bar is outside/above it).
-        To keep each row's outer frame within its H/2 budget:
-          content_y  = row_start + tb_h
-          content_h  = H/2 - tb_h
-        so the frame runs from row_start to row_start + H/2.
+        Full-height slots: panel_h = H/2 − tb_h
+        Half-height slots: half_h  = H/4 − tb_h
         """
         screen = QApplication.primaryScreen().availableGeometry()
         W, H = screen.width(), screen.height()
@@ -834,27 +842,37 @@ class MainWindow(QMainWindow):
         if tb_h <= 0:
             tb_h = 28  # macOS default fallback
 
-        panel_h = H // 2 - tb_h
+        panel_h    = H // 2 - tb_h
+        half_panel_h = H // 4 - tb_h
 
         def _place(win, col: int, row: int) -> None:
             x = x0 + main_w + col * panel_w
             y = y0 + row * (H // 2) + tb_h
             win.setGeometry(x, y, panel_w, panel_h)
 
+        def _place_half(win, col: int, row: int, half: int) -> None:
+            x = x0 + main_w + col * panel_w
+            y = y0 + row * (H // 2) + half * (H // 4) + tb_h
+            win.setGeometry(x, y, panel_w, half_panel_h)
+
         # Main window: left 2/7, full height
         self.setGeometry(x0, y0 + tb_h, main_w, H - tb_h)
 
         # Static agent panels
+        _place(self._generator_window,     col=2, row=0)
         _place(self._memory_window,        col=0, row=1)
         _place(self._documents_window,     col=1, row=1)
         _place(self._conversations_window, col=2, row=1)
         _place(self._critic_window,        col=3, row=1)
 
-        # Tool panels: position each one that has been spawned so far
+        # Tool panels: full-height or half-height based on slot tuple length
         for name, win in self._tool_windows.items():
             slot = _TOOL_PANEL_SLOTS.get(name)
             if slot:
-                _place(win, col=slot[0], row=slot[1])
+                if len(slot) == 3:
+                    _place_half(win, col=slot[0], row=slot[1], half=slot[2])
+                else:
+                    _place(win, col=slot[0], row=slot[1])
 
     def _on_agent_transition(self, data: dict) -> None:
         agent = data.get("agent", "")
@@ -862,6 +880,8 @@ class MainWindow(QMainWindow):
             self._critic_window.append_transition(data)
         elif agent == "memory_agent":
             self._memory_window.append_transition(data)
+        elif agent == "generator":
+            self._generator_window.append_transition(data)
 
     def _send_query(self) -> None:
         query = self._query_input.text().strip()

@@ -266,3 +266,84 @@ class TestHandleQuery:
             agent._handle_query(self._make_query_envelope("hi"))
         subjects = [c.args[0].subject for c in agent._pub.publish.call_args_list]
         assert "response.generation" in subjects
+
+
+# ---------------------------------------------------------------------------
+# _publish_status
+# ---------------------------------------------------------------------------
+
+class TestPublishStatus:
+    def test_publishes_generator_status_subject(self):
+        agent = _make_agent()
+        agent._pub.publish.reset_mock()
+        agent._publish_status()
+        subjects = [c.args[0].subject for c in agent._pub.publish.call_args_list]
+        assert "generator.status" in subjects
+
+    def test_payload_contains_required_fields(self):
+        agent = _make_agent(model="test-model", system_prompt="Be helpful.")
+        agent._publish_status()
+        status_call = next(
+            c for c in agent._pub.publish.call_args_list
+            if c.args[0].subject == "generator.status"
+        )
+        payload = status_call.args[0].payload
+        assert payload["model"] == "test-model"
+        assert payload["state"] == "idle"
+        assert payload["system_prompt"] == "Be helpful."
+        assert "instance_id" in payload
+        assert "respondent_id" in payload
+        assert "num_ctx" in payload
+        assert "temperature" in payload
+        assert "token_count" in payload
+        assert "tool_names" in payload
+
+    def test_tool_names_reflect_registered_schemas(self):
+        agent = _make_agent()
+        agent._tool_schemas = [
+            {"function": {"name": "web_search"}},
+            {"function": {"name": "search_memory"}},
+        ]
+        agent._publish_status()
+        status_call = next(
+            c for c in agent._pub.publish.call_args_list
+            if c.args[0].subject == "generator.status"
+        )
+        assert set(status_call.args[0].payload["tool_names"]) == {"web_search", "search_memory"}
+
+    def test_instance_id_from_config(self):
+        with patch("local.agents.generator_agent.make_participant_bus") as mock_bus, \
+             patch("local.agents.generator_agent.get_config") as mock_cfg:
+            def _cfg(name):
+                if name == "system":
+                    return {"instance_id": "my-test-instance"}
+                return {"model": "m", "num_ctx": 8192, "temperature": 0.1,
+                        "max_tool_iterations": 5, "system_prompt": "", "tools": []}
+            mock_cfg.side_effect = _cfg
+            mock_pub = MagicMock()
+            mock_bus.return_value = (mock_pub, MagicMock())
+            agent = GeneratorAgent(conversation_service=ConversationService(persist_path=":memory:"))
+            agent._pub = mock_pub
+        assert agent._instance_id == "my-test-instance"
+
+    def test_instance_id_falls_back_to_hostname(self):
+        import socket
+        with patch("local.agents.generator_agent.make_participant_bus") as mock_bus, \
+             patch("local.agents.generator_agent.get_config") as mock_cfg:
+            def _cfg(name):
+                if name == "system":
+                    return {}   # no instance_id key
+                return {"model": "m", "num_ctx": 8192, "temperature": 0.1,
+                        "max_tool_iterations": 5, "system_prompt": "", "tools": []}
+            mock_cfg.side_effect = _cfg
+            mock_pub = MagicMock()
+            mock_bus.return_value = (mock_pub, MagicMock())
+            agent = GeneratorAgent(conversation_service=ConversationService(persist_path=":memory:"))
+        assert agent._instance_id == socket.gethostname()
+
+    def test_status_published_on_tool_registration(self):
+        agent = _make_agent()
+        agent._pub.publish.reset_mock()
+        agent._register_tool_schema({"function": {"name": "web_search", "description": "search"}})
+        subjects = [c.args[0].subject for c in agent._pub.publish.call_args_list]
+        assert "generator.status" in subjects

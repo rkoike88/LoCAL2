@@ -25,8 +25,8 @@ For message format and subject constants, see [messaging.md](messaging.md).
 | Participant | Type | Triggered by | Publishes to |
 |---|---|---|---|
 | **GeneratorAgent** | `*Agent` (LLM) | `query.received` | `response.generation`, `answer.dialog`, `agent.transition`, `generator.status` |
-| **CriticAgent** | `*Agent` (LLM) | `response.generation` | `critique.result`, `pairwise.result`, `agent.transition` |
-| **MemoryAgent** | `*Agent` (LLM) | `response.generation`, `critique.result`, `pairwise.result` | `agent.transition` |
+| **CriticAgent** | `*Agent` (LLM) | `response.generation` | `critique.result`, `agent.transition` |
+| **MemoryAgent** | `*Agent` (LLM) | `response.generation`, `critique.result` | `agent.transition` |
 | **RewardService** | Service | `user.feedback` | `reward.event` |
 | **SearchMemoryTool** | `*Tool` | `tool.request.search_memory` | `tool.result.search_memory`, `tool.activity.search_memory` |
 | **WebSearchTool** | `*Tool` | `tool.request.web_search` | `tool.result.web_search`, `tool.activity.web_search` |
@@ -35,7 +35,7 @@ For message format and subject constants, see [messaging.md](messaging.md).
 | **LocationTool** | `*Tool` | `tool.request.get_location` | `tool.result.get_location`, `tool.activity.get_location` |
 | **SemanticScholarTool** | `*Tool` | `tool.request.search_papers` | `tool.result.search_papers`, `tool.activity.search_papers` |
 | **SearchLibraryTool** | `*Tool` | `tool.request.search_library` | `tool.result.search_library`, `tool.activity.search_library` |
-| **UI (MainWindow)** | UI | Bus events | `query.received`, `compaction.request`, `user.feedback`, `schema.request` |
+| **FastAPI Gateway** | UI/API | HTTP/WebSocket | `query.received`, `compaction.request`, `user.feedback`, `schema.request` |
 
 **Participant naming convention:**
 
@@ -51,7 +51,7 @@ For message format and subject constants, see [messaging.md](messaging.md).
 
 ```
 User types query
-  → UI publishes query.received
+  → Gateway publishes query.received
   → GeneratorAgent receives, transitions IDLE → RECEIVING → GENERATING
   → Gemma streams: thinking tokens → GENERATION_THINKING
   → If Gemma calls a tool:
@@ -71,15 +71,7 @@ User types query
 
 ---
 
-## 4. Dual Respondents
-
-When RespondentB is running (started with `respondent_id="B"`), the same `query.received` triggers two independent generators. Each produces its own `response.generation` event. The UI shows only RespondentA's answer. CriticAgent buffers both answers; when both arrive for the same `correlation_id`, it runs a Prometheus pairwise comparison and publishes `pairwise.result`. MemoryAgent annotates both engrams with the pairwise winner.
-
-RespondentB uses a fresh session (its own `query_id`) so it never writes to or reads from the shared conversation history. A and B share the same tool set but not the same context window.
-
----
-
-## 5. Tool Schema Discovery
+## 4. Tool Schema Discovery
 
 Tools are registered dynamically. On startup, every tool publishes its JSON schema on `tool.schema`. GeneratorAgent subscribes, builds a live registry, and passes the current schema list to every `ollama.chat()` call.
 
@@ -89,29 +81,27 @@ Schema descriptions are the mechanism for "when to call" guidance — they tell 
 
 ---
 
-## 6. Memory Model
+## 5. Memory Model
 
-**Episodic store (ChromaDB):** Every Q&A turn from RespondentA is ingested as an engram by MemoryAgent. The engram includes: query text, answer text, intent classification, named entities, session ID, and metadata fields populated by later events.
+**Episodic store (ChromaDB):** Every Q&A turn is ingested as an engram by MemoryAgent. The engram includes: query text, answer text, intent classification, named entities, session ID, and metadata fields populated by later events.
 
 **Score annotation:** When `critique.result` arrives, MemoryAgent patches the matching engram with `critic_score` (1–5).
 
 **Sentiment annotation:** When `user.feedback` arrives (`+1`/`-1`), RewardService patches the engram with `user_sentiment`.
 
-**Pairwise annotation:** When `pairwise.result` arrives, MemoryAgent patches both A and B engrams with `pairwise_winner: True/False`.
-
 **Retrieval weighting:** `search_episodic()` applies a score bias of `(critic_score - 3) × 0.05` to ranked results. Engrams without a score are unaffected. High-scoring answers float up; low-scoring answers sink.
 
 ---
 
-## 7. Context Management
+## 6. Context Management
 
-**Token tracking:** After each generation, the final Ollama streaming chunk includes `prompt_eval_count` — the exact token count of the prompt sent. GeneratorAgent stores this in ConversationService and includes it in `response.generation`. The UI's ContextGauge reads it.
+**Token tracking:** After each generation, the final Ollama streaming chunk includes `prompt_eval_count` — the exact token count of the prompt sent. GeneratorAgent stores this in ConversationService and includes it in `response.generation`. The UI's TokenGauge reads it.
 
-**Compaction:** When the user clicks the gauge, the UI publishes `compaction.request`. GeneratorAgent (if IDLE) summarizes the session history via a separate non-streaming Ollama call, replaces the messages array with `[SUMMARY] + last N verbatim turn pairs`, and publishes `compaction.result`. GeneratorAgent rejects compaction requests while busy.
+**Compaction:** When the user triggers compaction, the gateway publishes `compaction.request`. GeneratorAgent (if IDLE) summarizes the session history via a separate non-streaming Ollama call, replaces the messages array with `[SUMMARY] + last N verbatim turn pairs`, and publishes `compaction.result`. GeneratorAgent rejects compaction requests while busy.
 
 ---
 
-## 8. Architecture Invariants
+## 7. Architecture Invariants
 
 - The bus is the only coordination mechanism. No direct agent-to-agent function calls.
 - The LLM receives the raw query and full conversation history — no preprocessing or rewriting before the generator sees it.

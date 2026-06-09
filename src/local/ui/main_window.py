@@ -575,7 +575,7 @@ class MainWindow(QMainWindow):
         self._tool_windows: dict[str, ToolWindow] = {}  # keyed by tool name
 
         # ── Agent windows — spawned at startup ────────────────────────
-        self._generator_window = GeneratorWindow()
+        self._generator_window = GeneratorWindow(publisher=publisher)
         self._generator_window.show()
         self._critic_window = CriticWindow(publisher=publisher)
         self._critic_window.show()

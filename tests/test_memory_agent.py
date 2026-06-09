@@ -122,7 +122,7 @@ class TestClassificationFallback:
         meta = mock_memory.write_episodic.call_args.args[2] \
                if len(mock_memory.write_episodic.call_args.args) > 2 \
                else mock_memory.write_episodic.call_args.kwargs.get("metadata", {})
-        assert meta == {"respondent_id": "A"}
+        assert meta == {}
 
     def test_invalid_intent_value_is_cleared(self):
         agent, _, mock_llm = _make_agent()

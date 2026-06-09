@@ -52,7 +52,6 @@ from local.protocol.subjects import (
     CRITIQUE,
     GENERATION_THINKING,
     GENERATOR_STATUS,
-    PAIRWISE_RESULT,
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
     TOOL_ACTIVITY_GET_DATETIME,
@@ -307,7 +306,6 @@ class BusLogger(QObject):
     thinking_chunk = Signal(dict)
     response = Signal(dict)
     critique = Signal(dict)
-    pairwise = Signal(dict)
     agent_transition = Signal(dict)
     compaction_result = Signal(dict)
     generator_status = Signal(dict)
@@ -330,17 +328,11 @@ class BusLogger(QObject):
                 self.tool_schema.emit(name)
             return
 
-        if subject == PAIRWISE_RESULT:
-            self.pairwise.emit(raw)
-            return
-
         if subject == AGENT_TRANSITION:
             self.agent_transition.emit(raw)
             return
 
         if subject == GENERATION_THINKING:
-            if raw.get("respondent_id", "A") == "B":
-                return
             self.thinking_chunk.emit({
                 "ts": ts,
                 "chunk": raw.get("chunk") or "",
@@ -349,8 +341,6 @@ class BusLogger(QObject):
             return
 
         if subject == RESPONSE_GENERATION:
-            if raw.get("respondent_id", "A") == "B":
-                return  # RespondentB answers are for pairwise comparison only
             self.response.emit({
                 "ts": ts,
                 "answer": (raw.get("answer") or "").strip(),
@@ -374,8 +364,6 @@ class BusLogger(QObject):
             text = f"[{ts}] QUERY\n  {query}"
 
         elif subject == ANSWER_DIALOG:
-            if raw.get("respondent_id", "A") == "B":
-                return
             text = f"[{ts}] DIALOG  (conversation recorded)"
 
         elif subject == CRITIQUE:
@@ -384,7 +372,6 @@ class BusLogger(QObject):
                 "feedback": raw.get("feedback", ""),
                 "query_id": raw.get("query_id", ""),
                 "query": raw.get("query", ""),
-                "respondent_id": raw.get("respondent_id", "A"),
             })
             return
 
@@ -763,7 +750,7 @@ class MainWindow(QMainWindow):
     def _start_bus_monitor(self) -> None:
         all_subjects = (
             list(OBSERVE) + _TOOL_ACTIVITY_SUBJECTS
-            + [TOOL_SCHEMA, PAIRWISE_RESULT, AGENT_TRANSITION, COMPACTION_RESULT, GENERATOR_STATUS]
+            + [TOOL_SCHEMA, AGENT_TRANSITION, COMPACTION_RESULT, GENERATOR_STATUS]
         )
         self._bus_logger = BusLogger()
         self._bus_logger.message.connect(self.append_log)
@@ -772,7 +759,6 @@ class MainWindow(QMainWindow):
         self._bus_logger.critique.connect(self._on_critique)
         self._bus_logger.tool_activity.connect(self._on_tool_activity)
         self._bus_logger.tool_schema.connect(self._on_tool_schema)
-        self._bus_logger.pairwise.connect(self._critic_window.append_pairwise)
         self._bus_logger.agent_transition.connect(self._on_agent_transition)
         self._bus_logger.compaction_result.connect(self._on_compaction_result)
         self._bus_logger.generator_status.connect(self._generator_window.update_status)

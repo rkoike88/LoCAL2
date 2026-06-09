@@ -298,7 +298,6 @@ class TestPublishStatus:
         assert payload["state"] == "idle"
         assert payload["system_prompt"] == "Be helpful."
         assert "instance_id" in payload
-        assert "respondent_id" in payload
         assert "num_ctx" in payload
         assert "temperature" in payload
         assert "token_count" in payload

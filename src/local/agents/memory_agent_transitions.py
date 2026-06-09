@@ -7,8 +7,6 @@ TRANSITIONS: dict[tuple[MemoryAgentState, MemoryAgentAction], MemoryAgentState] 
     (MemoryAgentState.INGESTING,           MemoryAgentAction.COMPLETE):          MemoryAgentState.IDLE,
     (MemoryAgentState.IDLE,                MemoryAgentAction.UPDATE_SCORE):      MemoryAgentState.UPDATING_SCORE,
     (MemoryAgentState.UPDATING_SCORE,      MemoryAgentAction.COMPLETE):          MemoryAgentState.IDLE,
-    (MemoryAgentState.IDLE,                MemoryAgentAction.ANNOTATE_PAIRWISE): MemoryAgentState.ANNOTATING_PAIRWISE,
-    (MemoryAgentState.ANNOTATING_PAIRWISE, MemoryAgentAction.COMPLETE):          MemoryAgentState.IDLE,
 }
 
 

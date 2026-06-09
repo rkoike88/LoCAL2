@@ -15,13 +15,13 @@ import socket
 import time
 import uuid
 
+from local.agents.base_agent import BaseAgent
 from local.agents.generator_actions import GeneratorAction
 from local.agents.generator_states import GeneratorState
 from local.agents.generator_transitions import GeneratorStateMachine
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
-    AGENT_TRANSITION,
     ANSWER_DIALOG, COMPACTION_REQUEST, COMPACTION_RESULT,
     GENERATION_THINKING, GENERATOR_STATUS, QUERY_RECEIVED, RESPONSE_GENERATION,
     TOOL_SCHEMA, TOOL_SCHEMA_REQUEST,
@@ -33,13 +33,11 @@ from local.transport.zmq_pubsub import ZmqSubscriber
 logger = logging.getLogger(__name__)
 
 
-class GeneratorAgent:
+class GeneratorAgent(BaseAgent):
     """Core LLM agent for LoCAL2.
 
     Maintains per-session conversation history, dispatches tool calls over
-    the bus, and streams thinking tokens to the UI. Supports dual-respondent
-    mode: RespondentA owns the shared session history; RespondentB generates
-    a comparison answer without appending to it (used for pairwise evaluation).
+    the bus, and streams thinking tokens to the UI.
     """
 
     AGENT_ID = "generator"
@@ -48,7 +46,6 @@ class GeneratorAgent:
         self,
         model: str | None = None,
         temperature: float | None = None,
-        respondent_id: str = "A",
         conversation_service=None,
     ) -> None:
         """Initialize the GeneratorAgent.
@@ -58,9 +55,6 @@ class GeneratorAgent:
         Args:
             model: Ollama model name (e.g. ``"gemma4:e2b"``).
             temperature: Sampling temperature (0.0 = deterministic).
-            respondent_id: ``"A"`` or ``"B"``. RespondentA appends to shared
-                session history after each turn; RespondentB generates a
-                comparison answer but does not modify history.
             conversation_service: Injected for testing; defaults to a fresh
                 ``ConversationService``.
         """
@@ -75,7 +69,6 @@ class GeneratorAgent:
         self._max_tool_iters: int = cfg.get("max_tool_iterations", 5)
         self._tool_timeout: float = cfg.get("tool_timeout", 20)
         self._tool_schemas: list = cfg.get("tools", [])
-        self._respondent_id: str = respondent_id
         self._instance_id: str = sys_cfg.get("instance_id") or socket.gethostname()
         self._token_count: int = 0
         self._conv = conversation_service or ConversationService()
@@ -88,9 +81,8 @@ class GeneratorAgent:
 
     def run(self) -> None:
         logger.info(
-            "generator:%s model=%s  num_ctx=%s  temperature=%s",
-            self._respondent_id, self._model,
-            self._options["num_ctx"], self._options["temperature"],
+            "generator model=%s  num_ctx=%s  temperature=%s",
+            self._model, self._options["num_ctx"], self._options["temperature"],
         )
         self._request_schemas()
         time.sleep(0.5)  # startup window: let tool schema responses queue up
@@ -101,20 +93,23 @@ class GeneratorAgent:
             except Exception as exc:
                 logger.error("GeneratorAgent: receive error: %s", exc)
                 continue
-            if envelope.subject == QUERY_RECEIVED:
-                try:
-                    self._handle_query(envelope)
-                except Exception as exc:
-                    logger.error("GeneratorAgent: unhandled error: %s", exc, exc_info=True)
-                    if self._sm.state != GeneratorState.IDLE:
-                        self._sm.reset()
-            elif envelope.subject == TOOL_SCHEMA:
-                self._register_tool_schema(envelope.payload.get("schema", {}))
-            elif envelope.subject == COMPACTION_REQUEST:
-                try:
-                    self._handle_compaction(envelope)
-                except Exception as exc:
-                    logger.error("GeneratorAgent: compaction error: %s", exc, exc_info=True)
+            self._dispatch(envelope)
+
+    def _dispatch(self, envelope: MessageEnvelope) -> None:
+        if envelope.subject == QUERY_RECEIVED:
+            try:
+                self._handle_query(envelope)
+            except Exception as exc:
+                logger.error("GeneratorAgent: unhandled error: %s", exc, exc_info=True)
+                if self._sm.state != GeneratorState.IDLE:
+                    self._sm.reset()
+        elif envelope.subject == TOOL_SCHEMA:
+            self._register_tool_schema(envelope.payload.get("schema", {}))
+        elif envelope.subject == COMPACTION_REQUEST:
+            try:
+                self._handle_compaction(envelope)
+            except Exception as exc:
+                logger.error("GeneratorAgent: compaction error: %s", exc, exc_info=True)
 
     # ------------------------------------------------------------------
     # Query handling
@@ -127,14 +122,8 @@ class GeneratorAgent:
         original_query_id: str = payload.get("query_id") or str(uuid.uuid4())
         attachments: list = payload.get("attachments") or []
 
-        # RespondentB gets its own query_id to avoid ChromaDB collision;
-        # correlation_id links it back to the original query for pairwise matching.
-        if self._respondent_id == "B":
-            query_id = str(uuid.uuid4())
-            correlation_id = original_query_id
-        else:
-            query_id = original_query_id
-            correlation_id = envelope.correlation_id or query_id
+        query_id = original_query_id
+        correlation_id = envelope.correlation_id or query_id
 
         self._do_transition(GeneratorAction.RECEIVE)
 
@@ -153,19 +142,16 @@ class GeneratorAgent:
                 RESPONSE_GENERATION, "response",
                 {"answer": f"[generation error: {exc}]", "thinking": "",
                  "tool_calls": [], "session_id": session_id, "query_id": query_id,
-                 "respondent_id": self._respondent_id, "error": True},
+                 "error": True},
                 correlation_id, session_id,
             ))
             self._do_transition(GeneratorAction.RESET)
             return
 
-        # Only RespondentA maintains the shared conversation history.
-        # B generates a comparison answer but doesn't pollute the context window.
-        if self._respondent_id == "A":
-            new_messages = [self._clean_for_history(m) for m in messages[initial_len - 1:]]
-            self._conv.append_messages(session_id, new_messages)
-            self._conv.set_token_count(session_id, prompt_tokens)
-            self._token_count = prompt_tokens
+        new_messages = [self._clean_for_history(m) for m in messages[initial_len - 1:]]
+        self._conv.append_messages(session_id, new_messages)
+        self._conv.set_token_count(session_id, prompt_tokens)
+        self._token_count = prompt_tokens
         self._do_transition(GeneratorAction.PUBLISH)
 
         self._pub.publish(self._make_envelope(
@@ -173,15 +159,13 @@ class GeneratorAgent:
             {"query": query, "answer": answer, "thinking": thinking,
              "tool_calls": tool_call_log,
              "session_id": session_id, "query_id": query_id,
-             "respondent_id": self._respondent_id,
              "prompt_tokens": prompt_tokens},
             correlation_id, session_id,
         ))
         self._pub.publish(self._make_envelope(
             ANSWER_DIALOG, "dialog",
             {"query": query, "answer": answer,
-             "session_id": session_id, "query_id": query_id,
-             "respondent_id": self._respondent_id},
+             "session_id": session_id, "query_id": query_id},
             correlation_id, session_id,
         ))
 
@@ -295,8 +279,7 @@ class GeneratorAgent:
                     self._pub.publish(self._make_envelope(
                         GENERATION_THINKING, "thinking",
                         {"chunk": chunk.message.thinking,
-                         "session_id": session_id, "query_id": query_id,
-                         "respondent_id": self._respondent_id},
+                         "session_id": session_id, "query_id": query_id},
                         correlation_id, session_id,
                     ))
                 if chunk.message.content:
@@ -494,20 +477,7 @@ class GeneratorAgent:
         self._do_transition(GeneratorAction.TOOL_TIMEOUT)
         return f"[tool timeout: {name!r} did not respond within {self._tool_timeout}s]"
 
-    def _do_transition(self, action: "GeneratorAction") -> None:
-        """Execute a state machine transition and publish AGENT_TRANSITION + generator.status."""
-        from_state = self._sm.state
-        to_state = self._sm.transition(action)
-        self._pub.publish(self._make_envelope(
-            AGENT_TRANSITION, "agent_transition",
-            {
-                "agent":  self.AGENT_ID,
-                "from":   from_state.value,
-                "action": action.value,
-                "to":     to_state.value,
-            },
-            str(uuid.uuid4()), None,
-        ))
+    def _after_transition(self) -> None:
         self._publish_status()
 
     def _publish_status(self) -> None:
@@ -523,7 +493,6 @@ class GeneratorAgent:
             sender_id=self.AGENT_ID,
             payload={
                 "instance_id":   self._instance_id,
-                "respondent_id": self._respondent_id,
                 "model":         self._model,
                 "temperature":   self._options.get("temperature", 0.0),
                 "num_ctx":       self._options.get("num_ctx", 0),

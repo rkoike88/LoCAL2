@@ -32,9 +32,9 @@ def _start_proxy() -> None:
     run_proxy()
 
 
-def _start_generator(model: str, temperature: float | None = None, respondent_id: str = "A", conversation_service=None) -> None:
+def _start_generator(model: str, temperature: float | None = None, conversation_service=None) -> None:
     from local.agents.generator_agent import GeneratorAgent
-    agent = GeneratorAgent(model=model or None, temperature=temperature, respondent_id=respondent_id, conversation_service=conversation_service)
+    agent = GeneratorAgent(model=model or None, temperature=temperature, conversation_service=conversation_service)
     agent.run()
 
 
@@ -100,9 +100,6 @@ def main() -> None:
     parser.add_argument("--api-port", type=int, default=8000, metavar="PORT")
     parser.add_argument("--headless", action="store_true", help="No UI (use with --api)")
     parser.add_argument("--model", default="", metavar="MODEL", help="Ollama model override")
-    parser.add_argument("--respondent-b", action="store_true", help="Enable RespondentB for pairwise comparison")
-    parser.add_argument("--model-b", default="", metavar="MODEL", help="Model for RespondentB (defaults to --model)")
-    parser.add_argument("--temperature-b", type=float, default=None, metavar="TEMP", help="Temperature for RespondentB")
     args = parser.parse_args()
 
     # -- Proxy ---------------------------------------------------------------
@@ -137,16 +134,7 @@ def main() -> None:
     )
     gen_thread.start()
 
-    if args.respondent_b:
-        model_b = args.model_b or args.model or ""
-        threading.Thread(
-            target=_start_generator,
-            kwargs={"model": model_b, "temperature": args.temperature_b, "respondent_id": "B", "conversation_service": shared_conv},
-            daemon=True,
-            name="generator_b",
-        ).start()
-
-    time.sleep(0.2)   # let generator(s) connect before memory_agent starts
+    time.sleep(0.2)   # let generator connect before memory_agent starts
 
     # -- Memory Agent --------------------------------------------------------
     threading.Thread(target=_start_memory_agent, args=(shared_memory,), daemon=True, name="memory_agent").start()

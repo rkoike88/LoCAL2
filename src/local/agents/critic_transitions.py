@@ -9,10 +9,6 @@ TRANSITIONS: dict[tuple[CriticState, CriticAction], CriticState] = {
     (CriticState.GRADING,         CriticAction.FAIL):           CriticState.ERROR,
     (CriticState.PUBLISHING,      CriticAction.RESET):          CriticState.IDLE,
     (CriticState.ERROR,           CriticAction.RESET):          CriticState.IDLE,
-    # Pairwise path — entered after absolute grade resets to IDLE
-    (CriticState.IDLE,            CriticAction.START_PAIRWISE): CriticState.PAIRWISE_GRADING,
-    (CriticState.PAIRWISE_GRADING, CriticAction.PUBLISH):       CriticState.PUBLISHING,
-    (CriticState.PAIRWISE_GRADING, CriticAction.FAIL):          CriticState.ERROR,
 }
 
 

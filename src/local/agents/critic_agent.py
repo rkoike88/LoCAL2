@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 
 from local.agents.critic_actions import CriticAction
 from local.agents.critic_states import CriticState
-from local.agents.critic_transitions import TRANSITIONS
+from local.agents.critic_transitions import CriticStateMachine
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import AGENT_TRANSITION, CRITIQUE, PAIRWISE_RESULT, RESPONSE_GENERATION
@@ -26,70 +27,6 @@ from local.services.ollama_backend import OllamaBackend
 from local.transport.bus_config import make_participant_bus
 
 logger = logging.getLogger(__name__)
-
-_GRADE_PROMPT = """\
-###Task Description:
-An instruction (might include an Input inside it), a response to evaluate, and a \
-score rubric representing evaluation criteria are given.
-1. Write a detailed feedback that assesses the quality of the response strictly \
-based on the given score rubric, not evaluating in general.
-2. After writing a feedback, write a score that is an integer between 1 and 5. \
-You should refer to the score rubric.
-3. Output format: "Feedback: (write a feedback) [RESULT] (integer 1-5)"
-4. Do not generate any other opening, closing, or explanations.
-
-###The instruction to evaluate:
-{query}
-
-###Response to evaluate:
-{answer}
-
-###Score Rubrics:
-{rubric}
-
-###Feedback:"""
-
-_PAIRWISE_PROMPT = """\
-###Task Description:
-Given an instruction and two responses (A and B), determine which response is better.
-1. Compare the two responses on accuracy, helpfulness, and clarity.
-2. Write a brief comparison, then declare the winner.
-3. Output format: "Feedback: (write comparison) [RESULT] (A or B)"
-4. Do not generate any other opening, closing, or explanations.
-
-###The instruction to evaluate:
-{query}
-
-###Response A:
-{answer_a}
-
-###Response B:
-{answer_b}
-
-###Feedback:"""
-
-_PAIRWISE_BUFFER_MAX = 100
-
-
-class _StateMachine:
-    def __init__(self, on_transition=None) -> None:
-        self._state = CriticState.IDLE
-        self._on_transition = on_transition
-
-    @property
-    def state(self) -> CriticState:
-        return self._state
-
-    def transition(self, action: CriticAction) -> None:
-        key = (self._state, action)
-        next_state = TRANSITIONS.get(key)
-        if next_state is None:
-            logger.warning("CriticAgent: invalid transition %s + %s", self._state, action)
-            return
-        from_state = self._state
-        self._state = next_state
-        if self._on_transition:
-            self._on_transition(from_state, action, next_state)
 
 
 class CriticAgent:
@@ -99,6 +36,9 @@ class CriticAgent:
         cfg = get_config("critic")
         model: str = cfg.get("model", "prometheus:7b")
         self._rubric: str = cfg.get("rubric", "")
+        self._grade_prompt: str = cfg.get("grade_prompt", "").strip()
+        self._pairwise_prompt: str = cfg.get("pairwise_prompt", "").strip()
+        self._pairwise_buffer_max: int = cfg.get("pairwise_buffer_max", 100)
         self._options: dict = {
             "num_ctx": cfg.get("num_ctx", 4096),
             "temperature": cfg.get("temperature", 0.0),
@@ -108,10 +48,10 @@ class CriticAgent:
         # correlation_id → {"A": entry, "B": entry}; evict oldest when > max
         self._pairwise_buffer: dict[str, dict] = {}
         self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION])
-        self._sm = _StateMachine(on_transition=self._publish_transition)
+        self._sm = CriticStateMachine()
 
     def run(self) -> None:
-        print("[critic] ready")
+        logger.info("critic ready")
         while True:
             try:
                 envelope = self._sub.receive()
@@ -124,8 +64,8 @@ class CriticAgent:
                 except Exception as exc:
                     logger.error("CriticAgent: unhandled error: %s", exc, exc_info=True)
                     if self._sm.state != CriticState.IDLE:
-                        self._sm.transition(CriticAction.FAIL)
-                        self._sm.transition(CriticAction.RESET)
+                        self._do_transition(CriticAction.FAIL)
+                        self._do_transition(CriticAction.RESET)
 
     def _handle_generation(self, envelope: MessageEnvelope) -> None:
         payload = envelope.payload
@@ -144,15 +84,15 @@ class CriticAgent:
             return
 
         # -- Absolute grade --------------------------------------------------
-        self._sm.transition(CriticAction.RECEIVE)
-        self._sm.transition(CriticAction.START_GRADE)
+        self._do_transition(CriticAction.RECEIVE)
+        self._do_transition(CriticAction.START_GRADE)
 
         score, feedback = self._grade(query, answer)
 
         if score is None:
-            self._sm.transition(CriticAction.FAIL)
+            self._do_transition(CriticAction.FAIL)
         else:
-            self._sm.transition(CriticAction.PUBLISH)
+            self._do_transition(CriticAction.PUBLISH)
 
         self._pub.publish(MessageEnvelope.create(
             message_type="critique",
@@ -171,7 +111,7 @@ class CriticAgent:
             metadata={"session_id": session_id},
         ))
 
-        self._sm.transition(CriticAction.RESET)
+        self._do_transition(CriticAction.RESET)
 
         # -- Pairwise buffer -------------------------------------------------
         self._buffer_for_pairwise(correlation_id, respondent_id, query_id, query, answer, score)
@@ -188,7 +128,7 @@ class CriticAgent:
         score: int | None,
     ) -> None:
         if correlation_id not in self._pairwise_buffer:
-            if len(self._pairwise_buffer) >= _PAIRWISE_BUFFER_MAX:
+            if len(self._pairwise_buffer) >= self._pairwise_buffer_max:
                 oldest_key = next(iter(self._pairwise_buffer))
                 del self._pairwise_buffer[oldest_key]
             self._pairwise_buffer[correlation_id] = {}
@@ -208,13 +148,13 @@ class CriticAgent:
         a = entry["A"]
         b = entry["B"]
 
-        self._sm.transition(CriticAction.START_PAIRWISE)
+        self._do_transition(CriticAction.START_PAIRWISE)
         winner = self._grade_pairwise(a["query"], a["answer"], b["answer"])
 
         if winner:
-            self._sm.transition(CriticAction.PUBLISH)
+            self._do_transition(CriticAction.PUBLISH)
         else:
-            self._sm.transition(CriticAction.FAIL)
+            self._do_transition(CriticAction.FAIL)
 
         self._pub.publish(MessageEnvelope.create(
             message_type="pairwise",
@@ -230,11 +170,11 @@ class CriticAgent:
             metadata={"session_id": session_id},
         ))
 
-        self._sm.transition(CriticAction.RESET)
+        self._do_transition(CriticAction.RESET)
 
     def _grade(self, query: str, answer: str) -> tuple[int | None, str]:
         """Call Prometheus absolute grading. Returns (score_or_None, feedback_text)."""
-        prompt = _GRADE_PROMPT.format(query=query, answer=answer, rubric=self._rubric)
+        prompt = self._grade_prompt.format(query=query, answer=answer, rubric=self._rubric)
         text, _ = self._llm.chat(
             [{"role": "user", "content": prompt}],
             options=self._options,
@@ -254,10 +194,12 @@ class CriticAgent:
 
         return score, feedback
 
-    def _publish_transition(self, from_state, action, to_state) -> None:
+    def _do_transition(self, action: CriticAction) -> None:
+        from_state = self._sm.state
+        to_state = self._sm.transition(action)
         try:
             self._pub.publish(MessageEnvelope.create(
-                message_type="transition",
+                message_type="agent_transition",
                 subject=AGENT_TRANSITION,
                 sender_id=self.AGENT_ID,
                 payload={
@@ -266,13 +208,14 @@ class CriticAgent:
                     "action": action.value,
                     "to": to_state.value,
                 },
+                correlation_id=str(uuid.uuid4()),
             ))
         except Exception:
             pass  # never let transition logging break the agent
 
     def _grade_pairwise(self, query: str, answer_a: str, answer_b: str) -> str | None:
         """Call Prometheus pairwise comparison. Returns 'A', 'B', or None on failure."""
-        prompt = _PAIRWISE_PROMPT.format(query=query, answer_a=answer_a, answer_b=answer_b)
+        prompt = self._pairwise_prompt.format(query=query, answer_a=answer_a, answer_b=answer_b)
         text, _ = self._llm.chat(
             [{"role": "user", "content": prompt}],
             options=self._options,

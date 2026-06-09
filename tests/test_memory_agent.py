@@ -7,9 +7,10 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from local.agents.memory_agent import MemoryAgent, _StateMachine
+from local.agents.memory_agent import MemoryAgent
 from local.agents.memory_agent_actions import MemoryAgentAction
 from local.agents.memory_agent_states import MemoryAgentState
+from local.agents.memory_agent_transitions import MemoryAgentStateMachine
 
 
 def _make_agent() -> tuple[MemoryAgent, MagicMock, MagicMock]:
@@ -33,27 +34,27 @@ def _make_envelope(query: str, answer: str, error: bool = False, query_id: str =
 
 class TestStateMachine:
     def test_initial_state_is_idle(self):
-        sm = _StateMachine()
+        sm = MemoryAgentStateMachine()
         assert sm.state == MemoryAgentState.IDLE
 
     def test_start_ingest_transitions_to_ingesting(self):
-        sm = _StateMachine()
+        sm = MemoryAgentStateMachine()
         sm.transition(MemoryAgentAction.START_INGEST)
         assert sm.state == MemoryAgentState.INGESTING
 
     def test_complete_transitions_back_to_idle(self):
-        sm = _StateMachine()
+        sm = MemoryAgentStateMachine()
         sm.transition(MemoryAgentAction.START_INGEST)
         sm.transition(MemoryAgentAction.COMPLETE)
         assert sm.state == MemoryAgentState.IDLE
 
-    def test_invalid_transition_is_ignored(self):
-        sm = _StateMachine()
-        sm.transition(MemoryAgentAction.COMPLETE)  # invalid from IDLE
-        assert sm.state == MemoryAgentState.IDLE
+    def test_invalid_transition_raises(self):
+        sm = MemoryAgentStateMachine()
+        with pytest.raises(ValueError, match="Illegal transition"):
+            sm.transition(MemoryAgentAction.COMPLETE)  # invalid from IDLE
 
     def test_update_score_path(self):
-        sm = _StateMachine()
+        sm = MemoryAgentStateMachine()
         sm.transition(MemoryAgentAction.UPDATE_SCORE)
         assert sm.state == MemoryAgentState.UPDATING_SCORE
         sm.transition(MemoryAgentAction.COMPLETE)

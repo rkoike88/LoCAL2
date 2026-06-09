@@ -4,8 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import local.tools.location_tool as lt_module
-from local.tools.location_tool import LocationTool, _format_coords, _from_config, _from_ip, _get_location
+from local.tools.location_tool import LocationTool, _format_coords, _from_config, _from_ip
 
 
 # ---------------------------------------------------------------------------
@@ -85,42 +84,50 @@ class TestFromIp:
 # ---------------------------------------------------------------------------
 
 class TestGetLocation:
-    def setup_method(self):
-        lt_module._cache = None  # reset cache before each test
+    def _make_tool(self):
+        with patch("local.tools.location_tool.make_participant_bus",
+                   return_value=(MagicMock(), MagicMock())):
+            with patch("local.tools.location_tool.get_config", return_value={}):
+                return LocationTool()
 
     def test_config_takes_precedence_over_live(self):
+        tool = self._make_tool()
         with patch("local.tools.location_tool.get_config", return_value={"city": "Cupertino"}):
             with patch("local.tools.location_tool._from_ip") as mock_ip:
-                result = _get_location()
+                result = tool._get_location()
         assert "Cupertino" in result
         mock_ip.assert_not_called()
 
     def test_live_used_when_config_empty(self):
+        tool = self._make_tool()
         with patch("local.tools.location_tool.get_config", return_value={}):
             with patch("local.tools.location_tool._from_ip", return_value="San Francisco, CA"):
-                result = _get_location()
+                result = tool._get_location()
         assert result == "San Francisco, CA"
 
     def test_cache_prevents_second_api_call(self):
+        tool = self._make_tool()
         with patch("local.tools.location_tool.get_config", return_value={}):
             with patch("local.tools.location_tool._from_ip", return_value="Austin, TX") as mock_ip:
-                _get_location()
-                _get_location()
+                tool._get_location()
+                tool._get_location()
         mock_ip.assert_called_once()
 
     def test_graceful_error_when_live_fails(self):
+        tool = self._make_tool()
         with patch("local.tools.location_tool.get_config", return_value={}):
             with patch("local.tools.location_tool._from_ip", side_effect=Exception("offline")):
-                result = _get_location()
+                result = tool._get_location()
         assert "unavailable" in result.lower()
 
     def test_cache_expires_after_ttl(self):
         import time
+        tool = self._make_tool()
         with patch("local.tools.location_tool.get_config", return_value={}):
             with patch("local.tools.location_tool._from_ip", return_value="Austin, TX") as mock_ip:
-                _get_location()
-                lt_module._cache = (time.monotonic() - lt_module.CACHE_TTL - 1, "Austin, TX")
-                _get_location()
+                tool._get_location()
+                tool._cache = (time.monotonic() - tool._cache_ttl - 1, "Austin, TX")
+                tool._get_location()
         assert mock_ip.call_count == 2
 
 
@@ -149,7 +156,7 @@ class TestLocationToolBus:
         tool = self._make_tool()
         envelope = MagicMock()
         envelope.correlation_id = "corr-1"
-        with patch("local.tools.location_tool._get_location", return_value="Austin, TX"):
+        with patch.object(tool, "_get_location", return_value="Austin, TX"):
             tool._handle_request(envelope)
         subjects = [c.args[0].subject for c in tool._pub.publish.call_args_list]
         assert "tool.result.get_location" in subjects

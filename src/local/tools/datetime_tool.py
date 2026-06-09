@@ -56,7 +56,7 @@ class DateTimeTool:
 
     def run(self) -> None:
         self._announce_schema()
-        print(f"[datetime_tool] ready")
+        logger.info("datetime_tool ready")
         while True:
             try:
                 envelope = self._sub.receive()

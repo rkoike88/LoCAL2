@@ -28,9 +28,6 @@ from local.transport.bus_config import make_participant_bus
 logger = logging.getLogger(__name__)
 
 TOOL_NAME = "get_location"
-CACHE_TTL = 300  # seconds — re-fetch live location after 5 minutes
-
-_cache: tuple[float, str] | None = None  # (monotonic_time, result)
 
 _SCHEMA = {
     "type": "function",
@@ -99,38 +96,38 @@ def _from_ip() -> str:
     return location
 
 
-def _get_location() -> str:
-    global _cache
-
-    # 1. Static config override
-    config_loc = _from_config()
-    if config_loc:
-        return config_loc
-
-    # 2. Live — serve from cache if fresh
-    if _cache is not None and time.monotonic() - _cache[0] < CACHE_TTL:
-        return _cache[1]
-
-    # 3. Fetch live
-    try:
-        result = _from_ip()
-        _cache = (time.monotonic(), result)
-        logger.info("LocationTool: live location: %s", result)
-        return result
-    except Exception as exc:
-        logger.warning("LocationTool: live geolocation failed: %s", exc)
-        return "Location unavailable — check network or set config/location.yaml"
-
-
 class LocationTool:
     TOOL_ID = "location_tool"
 
     def __init__(self) -> None:
+        cfg = get_config("location") or {}
+        self._cache_ttl: float = float(cfg.get("cache_ttl", 300))
+        self._cache: tuple[float, str] | None = None  # (monotonic_time, result)
         self._pub, self._sub = make_participant_bus([TOOL_REQUEST_GET_LOCATION, TOOL_SCHEMA_REQUEST])
+
+    def _get_location(self) -> str:
+        # 1. Static config override
+        config_loc = _from_config()
+        if config_loc:
+            return config_loc
+
+        # 2. Live — serve from cache if fresh
+        if self._cache is not None and time.monotonic() - self._cache[0] < self._cache_ttl:
+            return self._cache[1]
+
+        # 3. Fetch live
+        try:
+            result = _from_ip()
+            self._cache = (time.monotonic(), result)
+            logger.info("LocationTool: live location: %s", result)
+            return result
+        except Exception as exc:
+            logger.warning("LocationTool: live geolocation failed: %s", exc)
+            return "Location unavailable — check network or set config/location.yaml"
 
     def run(self) -> None:
         self._announce_schema()
-        print("[location_tool] ready")
+        logger.info("location_tool ready")
         while True:
             try:
                 envelope = self._sub.receive()
@@ -151,7 +148,7 @@ class LocationTool:
         ))
 
     def _handle_request(self, envelope: MessageEnvelope) -> None:
-        result = _get_location()
+        result = self._get_location()
         self._pub.publish(MessageEnvelope.create(
             message_type="tool_activity",
             subject=TOOL_ACTIVITY_GET_LOCATION,

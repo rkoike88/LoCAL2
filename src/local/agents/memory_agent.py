@@ -12,10 +12,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
 
 from local.agents.memory_agent_actions import MemoryAgentAction
 from local.agents.memory_agent_states import MemoryAgentState
-from local.agents.memory_agent_transitions import TRANSITIONS
+from local.agents.memory_agent_transitions import MemoryAgentStateMachine
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import AGENT_TRANSITION, CRITIQUE, PAIRWISE_RESULT, RESPONSE_GENERATION
@@ -24,44 +25,6 @@ from local.services.ollama_backend import OllamaBackend
 from local.transport.bus_config import make_participant_bus
 
 logger = logging.getLogger(__name__)
-
-_CLASSIFY_PROMPT = """\
-Classify this Q&A pair and extract named entities. Output JSON only, no explanation:
-{{"intent": "fact|explanation|comparison|procedure", "entities": ["entity1"]}}
-
-Rules for intent:
-- fact: single specific value (name, date, price, setting, preference)
-- explanation: how or why something works
-- comparison: two or more things compared side by side
-- procedure: step-by-step instructions or commands
-
-Rules for entities:
-- Extract proper nouns: people, tools, technologies, projects, places
-- Return [] if none apply
-
-Q: {query}
-A: {answer}"""
-
-
-class _StateMachine:
-    def __init__(self, on_transition=None) -> None:
-        self._state = MemoryAgentState.IDLE
-        self._on_transition = on_transition
-
-    @property
-    def state(self) -> MemoryAgentState:
-        return self._state
-
-    def transition(self, action: MemoryAgentAction) -> None:
-        key = (self._state, action)
-        next_state = TRANSITIONS.get(key)
-        if next_state is None:
-            logger.warning("MemoryAgent: invalid transition %s + %s", self._state, action)
-            return
-        from_state = self._state
-        self._state = next_state
-        if self._on_transition:
-            self._on_transition(from_state, action, next_state)
 
 
 class MemoryAgent:
@@ -74,13 +37,14 @@ class MemoryAgent:
     ) -> None:
         cfg = get_config("memory")
         model = cfg.get("model", "gemma4:e4b")
+        self._classify_prompt: str = cfg.get("classify_prompt", "").strip()
         self._memory = memory_service or MemoryService()
         self._llm = llm or OllamaBackend(model=model, agent_name=self.AGENT_ID)
         self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION, CRITIQUE, PAIRWISE_RESULT])
-        self._sm = _StateMachine(on_transition=self._publish_transition)
+        self._sm = MemoryAgentStateMachine()
 
     def run(self) -> None:
-        print(f"[memory_agent] ready")
+        logger.info("memory_agent ready")
         while True:
             try:
                 envelope = self._sub.receive()
@@ -94,21 +58,24 @@ class MemoryAgent:
             elif envelope.subject == PAIRWISE_RESULT:
                 self._handle_pairwise(envelope)
 
-    def _publish_transition(self, from_state, action, to_state) -> None:
+    def _do_transition(self, action: MemoryAgentAction) -> None:
+        from_state = self._sm.state
+        to_state = self._sm.transition(action)
         try:
             self._pub.publish(MessageEnvelope.create(
-                message_type="transition",
+                message_type="agent_transition",
                 subject=AGENT_TRANSITION,
                 sender_id=self.AGENT_ID,
                 payload={
                     "agent": self.AGENT_ID,
-                    "from": from_state.name,
-                    "action": action.name,
-                    "to": to_state.name,
+                    "from": from_state.value,
+                    "action": action.value,
+                    "to": to_state.value,
                 },
+                correlation_id=str(uuid.uuid4()),
             ))
         except Exception:
-            pass
+            pass  # never let transition logging break the agent
 
     def _handle_generation(self, envelope) -> None:
         payload = envelope.payload
@@ -123,7 +90,7 @@ class MemoryAgent:
         if payload.get("error"):
             return
 
-        self._sm.transition(MemoryAgentAction.START_INGEST)
+        self._do_transition(MemoryAgentAction.START_INGEST)
         try:
             classification = self._classify(query, answer)
             classification["respondent_id"] = respondent_id
@@ -139,7 +106,7 @@ class MemoryAgent:
         except Exception as exc:
             logger.error("MemoryAgent: ingest failed: %s", exc)
         finally:
-            self._sm.transition(MemoryAgentAction.COMPLETE)
+            self._do_transition(MemoryAgentAction.COMPLETE)
 
     def _handle_critique(self, envelope) -> None:
         payload = envelope.payload
@@ -149,14 +116,14 @@ class MemoryAgent:
         if not query_id or score is None:
             return
 
-        self._sm.transition(MemoryAgentAction.UPDATE_SCORE)
+        self._do_transition(MemoryAgentAction.UPDATE_SCORE)
         try:
             self._memory.update_engram_score(query_id, score)
             logger.info("MemoryAgent: scored engram %s → %d", query_id, score)
         except Exception as exc:
             logger.error("MemoryAgent: update_engram_score failed: %s", exc)
         finally:
-            self._sm.transition(MemoryAgentAction.COMPLETE)
+            self._do_transition(MemoryAgentAction.COMPLETE)
 
     def _handle_pairwise(self, envelope) -> None:
         payload = envelope.payload
@@ -167,18 +134,18 @@ class MemoryAgent:
         if not query_id_a or not query_id_b or winner not in ("A", "B"):
             return
 
-        self._sm.transition(MemoryAgentAction.ANNOTATE_PAIRWISE)
+        self._do_transition(MemoryAgentAction.ANNOTATE_PAIRWISE)
         try:
             self._memory.annotate_pairwise(query_id_a, query_id_b, winner)
             logger.info("MemoryAgent: annotated pairwise winner=%s", winner)
         except Exception as exc:
             logger.error("MemoryAgent: annotate_pairwise failed: %s", exc)
         finally:
-            self._sm.transition(MemoryAgentAction.COMPLETE)
+            self._do_transition(MemoryAgentAction.COMPLETE)
 
     def _classify(self, query: str, answer: str) -> dict:
         """Call LLM to classify intent and extract entities. Returns {} on failure."""
-        prompt = _CLASSIFY_PROMPT.format(query=query, answer=answer[:500])
+        prompt = self._classify_prompt.format(query=query, answer=answer[:500])
         text, _ = self._llm.chat([{"role": "user", "content": prompt}])
         if not text:
             return {}

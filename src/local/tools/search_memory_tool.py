@@ -30,7 +30,7 @@ class SearchMemoryTool:
 
     def run(self) -> None:
         self._announce_schema()
-        print("[search_memory_tool] ready")
+        logger.info("search_memory_tool ready")
         while True:
             try:
                 envelope = self._sub.receive()

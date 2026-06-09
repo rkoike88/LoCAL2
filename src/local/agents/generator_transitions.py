@@ -14,8 +14,7 @@ GENERATOR_TRANSITIONS: dict[tuple[GeneratorState, GeneratorAction], GeneratorSta
     (S.RECEIVING,         A.START_GENERATION):S.GENERATING,
     (S.GENERATING,        A.DISPATCH_TOOL):   S.DISPATCHING_TOOL,
     (S.GENERATING,        A.PUBLISH):         S.PUBLISHING,
-    (S.DISPATCHING_TOOL,  A.TOOL_RESULT):     S.GENERATING,   # bus tool arrived immediately
-    (S.DISPATCHING_TOOL,  A.TOOL_TIMEOUT):    S.GENERATING,   # shouldn't happen here but safe
+    (S.DISPATCHING_TOOL,  A.AWAIT_RESULT):    S.WAITING_FOR_TOOL,
     (S.WAITING_FOR_TOOL,  A.TOOL_RESULT):     S.GENERATING,
     (S.WAITING_FOR_TOOL,  A.TOOL_TIMEOUT):    S.GENERATING,
     (S.PUBLISHING,        A.RESET):           S.IDLE,

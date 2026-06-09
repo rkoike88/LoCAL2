@@ -2,6 +2,7 @@ model: "prometheus-7b:latest"
 temperature: 0.0
 num_ctx: 4096
 grade_timeout: 30          # seconds; Prometheus can be slow on first call
+pairwise_buffer_max: 100   # max pending A/B pairs before evicting oldest
 
 rubric: |
   [Is the response accurate, helpful, and well-reasoned?]
@@ -10,3 +11,41 @@ rubric: |
   Score 3: The response is partially correct but incomplete or unclear.
   Score 4: The response is mostly correct with minor gaps.
   Score 5: The response is accurate, complete, and clearly explained.
+
+grade_prompt: |
+  ###Task Description:
+  An instruction (might include an Input inside it), a response to evaluate, and a score rubric representing evaluation criteria are given.
+  1. Write a detailed feedback that assesses the quality of the response strictly based on the given score rubric, not evaluating in general.
+  2. After writing a feedback, write a score that is an integer between 1 and 5. You should refer to the score rubric.
+  3. Output format: "Feedback: (write a feedback) [RESULT] (integer 1-5)"
+  4. Do not generate any other opening, closing, or explanations.
+
+  ###The instruction to evaluate:
+  {query}
+
+  ###Response to evaluate:
+  {answer}
+
+  ###Score Rubrics:
+  {rubric}
+
+  ###Feedback:
+
+pairwise_prompt: |
+  ###Task Description:
+  Given an instruction and two responses (A and B), determine which response is better.
+  1. Compare the two responses on accuracy, helpfulness, and clarity.
+  2. Write a brief comparison, then declare the winner.
+  3. Output format: "Feedback: (write comparison) [RESULT] (A or B)"
+  4. Do not generate any other opening, closing, or explanations.
+
+  ###The instruction to evaluate:
+  {query}
+
+  ###Response A:
+  {answer_a}
+
+  ###Response B:
+  {answer_b}
+
+  ###Feedback:

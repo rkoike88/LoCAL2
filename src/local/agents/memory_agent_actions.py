@@ -1,8 +1,8 @@
-from enum import Enum, auto
+from enum import Enum
 
 
 class MemoryAgentAction(Enum):
-    START_INGEST = auto()
-    COMPLETE = auto()
-    UPDATE_SCORE = auto()
-    ANNOTATE_PAIRWISE = auto()
+    START_INGEST = "start_ingest"
+    COMPLETE = "complete"
+    UPDATE_SCORE = "update_score"
+    ANNOTATE_PAIRWISE = "annotate_pairwise"

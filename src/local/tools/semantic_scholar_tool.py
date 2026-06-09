@@ -29,13 +29,11 @@ logger = logging.getLogger(__name__)
 TOOL_NAME = "search_papers"
 _API_BASE = "https://api.semanticscholar.org/graph/v1/paper/search"
 _DEFAULT_FIELDS = "title,authors,year,abstract,citationCount,url,externalIds"
-_ABSTRACT_MAX = 300  # chars per paper in tool result
 
 # Rate limiter — Semantic Scholar unauthenticated limit is ~1 req/sec.
 # Enforce minimum gap between requests to avoid 429s from rapid consecutive calls.
 _rate_lock = threading.Lock()
 _last_request_at: float = 0.0
-_MIN_REQUEST_GAP = 1.2  # seconds
 
 _SCHEMA = {
     "type": "function",
@@ -66,12 +64,12 @@ _SCHEMA = {
 }
 
 
-def _throttled_get(params: dict, headers: dict, timeout: float) -> httpx.Response:
+def _throttled_get(params: dict, headers: dict, timeout: float, min_gap: float) -> httpx.Response:
     global _last_request_at
     with _rate_lock:
         elapsed = time.monotonic() - _last_request_at
-        if elapsed < _MIN_REQUEST_GAP:
-            time.sleep(_MIN_REQUEST_GAP - elapsed)
+        if elapsed < min_gap:
+            time.sleep(min_gap - elapsed)
         resp = httpx.get(_API_BASE, params=params, headers=headers, timeout=timeout)
         _last_request_at = time.monotonic()
     # Retry once on 429 after a brief pause (e.g. dual-respondent back-to-back calls)
@@ -89,6 +87,8 @@ def _search_papers(query: str, limit: int) -> str:
     max_results = cfg.get("max_results", 5)
     timeout = cfg.get("timeout", 15)
     fields = cfg.get("fields", _DEFAULT_FIELDS)
+    abstract_max = cfg.get("abstract_max_chars", 300)
+    min_gap = cfg.get("min_request_gap", 1.2)
 
     limit = max(1, min(limit, max_results))
 
@@ -101,6 +101,7 @@ def _search_papers(query: str, limit: int) -> str:
         params={"query": query, "limit": limit, "fields": fields},
         headers=headers,
         timeout=timeout,
+        min_gap=min_gap,
     )
     data = resp.json()
 
@@ -123,8 +124,8 @@ def _search_papers(query: str, limit: int) -> str:
         arxiv_id = (paper.get("externalIds") or {}).get("ArXiv")
         arxiv_url = f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else ""
         abstract = (paper.get("abstract") or "").strip()
-        if len(abstract) > _ABSTRACT_MAX:
-            abstract = abstract[:_ABSTRACT_MAX].rstrip() + "…"
+        if len(abstract) > abstract_max:
+            abstract = abstract[:abstract_max].rstrip() + "…"
 
         lines.append(f"{i}. {title} ({year}) — {author_str}")
         meta_parts = [citation_str, arxiv_url or url]
@@ -146,7 +147,7 @@ class SemanticScholarTool:
 
     def run(self) -> None:
         self._announce_schema()
-        print("[semantic_scholar_tool] ready")
+        logger.info("semantic_scholar_tool ready")
         while True:
             try:
                 envelope = self._sub.receive()

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from local.agents.critic_agent import CriticAgent, _StateMachine
+import pytest
+
+from local.agents.critic_agent import CriticAgent
 from local.agents.critic_actions import CriticAction
 from local.agents.critic_states import CriticState
+from local.agents.critic_transitions import CriticStateMachine
 
 
 def _make_agent(llm_response: str = "") -> tuple[CriticAgent, MagicMock]:
@@ -23,16 +26,16 @@ def _make_agent(llm_response: str = "") -> tuple[CriticAgent, MagicMock]:
 
 class TestStateMachine:
     def test_initial_state_is_idle(self):
-        sm = _StateMachine()
+        sm = CriticStateMachine()
         assert sm.state == CriticState.IDLE
 
     def test_receive_transitions_to_receiving(self):
-        sm = _StateMachine()
+        sm = CriticStateMachine()
         sm.transition(CriticAction.RECEIVE)
         assert sm.state == CriticState.RECEIVING
 
     def test_full_happy_path(self):
-        sm = _StateMachine()
+        sm = CriticStateMachine()
         sm.transition(CriticAction.RECEIVE)
         sm.transition(CriticAction.START_GRADE)
         sm.transition(CriticAction.PUBLISH)
@@ -40,17 +43,17 @@ class TestStateMachine:
         assert sm.state == CriticState.IDLE
 
     def test_fail_path_resets_to_idle(self):
-        sm = _StateMachine()
+        sm = CriticStateMachine()
         sm.transition(CriticAction.RECEIVE)
         sm.transition(CriticAction.START_GRADE)
         sm.transition(CriticAction.FAIL)
         sm.transition(CriticAction.RESET)
         assert sm.state == CriticState.IDLE
 
-    def test_invalid_transition_is_ignored(self):
-        sm = _StateMachine()
-        sm.transition(CriticAction.PUBLISH)  # invalid from IDLE
-        assert sm.state == CriticState.IDLE
+    def test_invalid_transition_raises(self):
+        sm = CriticStateMachine()
+        with pytest.raises(ValueError, match="Illegal transition"):
+            sm.transition(CriticAction.PUBLISH)  # invalid from IDLE
 
 
 # ------------------------------------------------------------------

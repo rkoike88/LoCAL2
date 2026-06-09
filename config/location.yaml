@@ -6,3 +6,5 @@
 # country: "United States"
 # timezone: "America/Los_Angeles"
 # coordinates: "37.3230° N, 122.0322° W"
+
+cache_ttl: 300   # seconds before re-fetching live IP geolocation

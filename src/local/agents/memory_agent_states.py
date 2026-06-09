@@ -1,8 +1,8 @@
-from enum import Enum, auto
+from enum import Enum
 
 
 class MemoryAgentState(Enum):
-    IDLE = auto()
-    INGESTING = auto()
-    UPDATING_SCORE = auto()
-    ANNOTATING_PAIRWISE = auto()
+    IDLE = "idle"
+    INGESTING = "ingesting"
+    UPDATING_SCORE = "updating_score"
+    ANNOTATING_PAIRWISE = "annotating_pairwise"

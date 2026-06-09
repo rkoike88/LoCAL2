@@ -3,3 +3,20 @@ chroma_path: ".chroma"
 embed_model: "nomic-embed-text"
 n_results: 5
 model: "gemma4:e4b"        # used by MemoryAgent for intent/entity classification
+
+classify_prompt: |
+  Classify this Q&A pair and extract named entities. Output JSON only, no explanation:
+  {{"intent": "fact|explanation|comparison|procedure", "entities": ["entity1"]}}
+
+  Rules for intent:
+  - fact: single specific value (name, date, price, setting, preference)
+  - explanation: how or why something works
+  - comparison: two or more things compared side by side
+  - procedure: step-by-step instructions or commands
+
+  Rules for entities:
+  - Extract proper nouns: people, tools, technologies, projects, places
+  - Return [] if none apply
+
+  Q: {query}
+  A: {answer}

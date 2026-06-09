@@ -66,10 +66,10 @@ class GeneratorAgent:
     # ------------------------------------------------------------------
 
     def run(self) -> None:
-        print(
-            f"[generator:{self._respondent_id}] model={self._model}"
-            f"  num_ctx={self._options['num_ctx']}"
-            f"  temperature={self._options['temperature']}"
+        logger.info(
+            "generator:%s model=%s  num_ctx=%s  temperature=%s",
+            self._respondent_id, self._model,
+            self._options["num_ctx"], self._options["temperature"],
         )
         self._request_schemas()
         time.sleep(0.5)  # startup window: let tool schema responses queue up
@@ -256,15 +256,14 @@ class GeneratorAgent:
             if not tool_calls:
                 break
 
-            self._do_transition(GeneratorAction.DISPATCH_TOOL)
             for tc in tool_calls:
                 fn = tc.get("function") or {}
                 name: str = fn.get("name", "")
                 args: dict = fn.get("arguments") or {}
+                self._do_transition(GeneratorAction.DISPATCH_TOOL)
                 result = self._execute_tool(name, args, correlation_id)
                 tool_call_log.append({"tool": name, "args": args, "result": str(result)})
                 messages.append({"role": "tool", "content": str(result), "name": name})
-            self._do_transition(GeneratorAction.TOOL_RESULT)
 
         answer = (raw_msg.get("content") or "").strip()
         thinking = accumulated_thinking.strip()
@@ -312,14 +311,10 @@ class GeneratorAgent:
                 convo_text.append(f"{role.upper()}: {content}")
         summary_input = "\n\n".join(convo_text)
 
-        compaction_system = (
-            "You are a conversation summarizer. "
-            "Produce a concise factual summary of the conversation below. "
-            "Capture: the user's goals, key facts established, decisions made, "
-            "open questions, and any user preferences or constraints stated. "
-            "Be terse. Omit pleasantries and filler. "
-            "Output only the summary — no preamble, no 'Here is a summary:'."
-        )
+        compaction_system = cfg.get(
+            "compaction_system_prompt",
+            "Summarize this conversation concisely, preserving key facts and decisions.",
+        ).strip()
 
         resp = ollama.chat(
             model=self._model,
@@ -390,6 +385,7 @@ class GeneratorAgent:
         res_subject = f"tool.result.{name}"
 
         result_sub = ZmqSubscriber(PROXY_BACKEND_ADDR, subscriptions=[res_subject])
+        self._do_transition(GeneratorAction.AWAIT_RESULT)
         try:
             self._pub.publish(self._make_envelope(
                 req_subject, "tool_request",
@@ -403,11 +399,13 @@ class GeneratorAgent:
                 if msg is None:
                     break
                 if msg.correlation_id == correlation_id:
+                    self._do_transition(GeneratorAction.TOOL_RESULT)
                     return msg.payload.get("result", "")
         finally:
             result_sub.close()
 
         logger.warning("GeneratorAgent: tool %r timed out after %ss", name, self._tool_timeout)
+        self._do_transition(GeneratorAction.TOOL_TIMEOUT)
         return f"[tool timeout: {name!r} did not respond within {self._tool_timeout}s]"
 
     def _do_transition(self, action: "GeneratorAction") -> None:

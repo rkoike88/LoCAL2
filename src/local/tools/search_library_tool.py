@@ -32,7 +32,7 @@ class SearchLibraryTool:
 
     def run(self) -> None:
         self._announce_schema()
-        print("[search_library_tool] ready")
+        logger.info("search_library_tool ready")
         while True:
             try:
                 envelope = self._sub.receive()

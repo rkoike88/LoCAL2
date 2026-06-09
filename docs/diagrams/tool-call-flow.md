@@ -16,6 +16,7 @@ sequenceDiagram
 
     Note over Gen: transition GENERATING → DISPATCHING_TOOL
     Gen->>Bus: subscribe tool.result.<name>  (BEFORE publishing request)
+    Note over Gen: transition DISPATCHING_TOOL → WAITING_FOR_TOOL
     Gen->>Bus: publish tool.request.<name> {args, correlation_id}
     Bus-->>Tool: tool.request.<name>
 
@@ -25,7 +26,7 @@ sequenceDiagram
     Bus-->>Gen: tool.result.<name>
 
     Gen->>Gen: verify correlation_id matches
-    Note over Gen: transition DISPATCHING_TOOL → GENERATING
+    Note over Gen: transition WAITING_FOR_TOOL → GENERATING
     Gen->>Gen: append tool result to messages array
 
     Gen->>Gemma: ollama.chat(messages with tool result, stream=True)
@@ -43,7 +44,7 @@ Every `tool.request.*` envelope carries a `correlation_id` (the query's UUID). T
 
 ## Timeout Behavior
 
-If no matching result arrives within `tool_timeout` seconds (default 20s), the generator substitutes the string `[tool timeout: '<name>' did not respond within 20s]` as the tool result and continues generation. Gemma receives this error string as the tool output and can report it to the user.
+If no matching result arrives within `tool_timeout` seconds (default 20s), the generator fires `TOOL_TIMEOUT` (transitioning `WAITING_FOR_TOOL → GENERATING`), substitutes `[tool timeout: '<name>' did not respond within 20s]` as the tool result, and continues generation. Gemma receives this error string as the tool output and can report it to the user.
 
 ## Activity Logging
 

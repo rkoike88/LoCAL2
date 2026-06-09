@@ -35,7 +35,7 @@ class WebFetchTool:
 
     def run(self) -> None:
         self._announce_schema()
-        print(f"[web_fetch_tool] max_chars={self._max_chars}  timeout={self._timeout}")
+        logger.info("web_fetch_tool: max_chars=%s  timeout=%s", self._max_chars, self._timeout)
         while True:
             try:
                 envelope = self._sub.receive()

@@ -33,7 +33,7 @@ class WebSearchTool:
 
     def run(self) -> None:
         self._announce_schema()
-        print(f"[web_search_tool] provider={self._provider}  max_results={self._max_results}")
+        logger.info("web_search_tool: provider=%s  max_results=%s", self._provider, self._max_results)
         while True:
             try:
                 envelope = self._sub.receive()

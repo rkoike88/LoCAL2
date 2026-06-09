@@ -206,6 +206,7 @@ def main() -> None:
                 QTimer.singleShot(0, lambda: _monitor.open_browser(url))
             app_qt.exec()
             _monitor.close()
+            sys.exit(0)
 
         if not args.panels and not args.headless:
             import webbrowser

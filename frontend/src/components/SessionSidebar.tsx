@@ -12,6 +12,7 @@ function formatRelative(ts: number): string {
 interface Props {
   sessions: SessionMeta[];
   activeSessionId: string;
+  open: boolean;
   onNewChat: () => void;
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
@@ -20,12 +21,15 @@ interface Props {
 export function SessionSidebar({
   sessions,
   activeSessionId,
+  open,
   onNewChat,
   onSelectSession,
   onDeleteSession,
 }: Props) {
   return (
-    <aside className="w-52 shrink-0 bg-surface-1 border-r border-surface-3 flex flex-col h-screen overflow-hidden">
+    <aside
+      className={`shrink-0 bg-surface-1 border-r border-surface-3 flex flex-col h-screen overflow-hidden transition-[width] duration-200 ${open ? "w-52" : "w-0"}`}
+    >
       {/* Brand + new chat */}
       <div className="p-3 border-b border-surface-3 space-y-2">
         <span className="block text-accent font-semibold text-sm px-1">LoCAL2</span>

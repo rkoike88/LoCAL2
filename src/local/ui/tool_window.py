@@ -18,6 +18,7 @@ try:
     from PySide6.QtWidgets import (
         QHBoxLayout,
         QLabel,
+        QMessageBox,
         QPlainTextEdit,
         QPushButton,
         QScrollArea,
@@ -187,6 +188,11 @@ class BaseObservabilityWindow(QWidget):
         self._status_label.setObjectName("settingsStatus")
         self._status_label.setAlignment(Qt.AlignRight)
 
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("cancelSettingsBtn")
+        cancel_btn.setFixedWidth(72)
+        cancel_btn.clicked.connect(self._show_activity)
+
         save_btn = QPushButton("Save")
         save_btn.setObjectName("saveSettingsBtn")
         save_btn.setFixedWidth(72)
@@ -195,6 +201,8 @@ class BaseObservabilityWindow(QWidget):
         btn_row = QHBoxLayout()
         btn_row.setContentsMargins(8, 4, 8, 4)
         btn_row.addWidget(self._status_label, 1)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addSpacing(4)
         btn_row.addWidget(save_btn)
 
         btn_widget = QWidget()
@@ -224,6 +232,17 @@ class BaseObservabilityWindow(QWidget):
             self._status_label.setText(f"YAML error: {exc}")
             self._status_label.setStyleSheet("color: #cc4444;")
             return
+
+        reply = QMessageBox.question(
+            self,
+            f"Save {self._config_name} config",
+            f"Save changes to config/{self._config_name}.yaml?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
         try:
             self._config_path.write_text(text, encoding="utf-8")
         except OSError as exc:
@@ -245,7 +264,7 @@ class BaseObservabilityWindow(QWidget):
                 payload={"config": self._config_name},
             ))
 
-        self._status_label.setText("Saved")
+        self._status_label.setText("Saved ✓")
         self._status_label.setStyleSheet("color: #55aa55;")
 
     # ------------------------------------------------------------------
@@ -271,6 +290,11 @@ class BaseObservabilityWindow(QWidget):
                 font-family: 'Menlo','Monaco','Courier New'; font-size: 12px;
                 border-radius: 4px;
             }
+            QPushButton#cancelSettingsBtn {
+                background: #1e1e1e; color: #888; border: 1px solid #333;
+                border-radius: 4px; padding: 4px 8px; font-size: 12px;
+            }
+            QPushButton#cancelSettingsBtn:hover { background: #2a2a2a; color: #aaa; }
             QPushButton#saveSettingsBtn {
                 background: #1a3a1a; color: #7ec8a4; border: 1px solid #3a5a3a;
                 border-radius: 4px; padding: 3px 8px;
@@ -287,8 +311,21 @@ class BaseObservabilityWindow(QWidget):
 class ToolWindow(BaseObservabilityWindow):
     """Floating window for a single tool: request/result activity + YAML settings."""
 
+    # Tool schema names that differ from their config file stem.
+    _CONFIG_NAME: dict[str, str] = {
+        "get_location":  "location",
+        "search_papers": "semantic_scholar",
+        "search_library": "documents",
+    }
+
     def __init__(self, tool_name: str, publisher=None) -> None:
-        super().__init__(title=tool_name, publisher=publisher, config_name=tool_name)
+        config_key = self._CONFIG_NAME.get(tool_name, tool_name)
+        config_exists = (_repo_root() / "config" / f"{config_key}.yaml").exists()
+        super().__init__(
+            title=tool_name,
+            publisher=publisher,
+            config_name=config_key if config_exists else None,
+        )
 
     def append_activity(self, envelope: MessageEnvelope) -> None:
         payload = envelope.payload or {}

@@ -44,17 +44,17 @@ The proxy binds to `0.0.0.0` on ports 5570 (frontend) and 5571 (backend). Partic
 
 | Subject constant | String | Publisher | Subscribers |
 |---|---|---|---|
-| `QUERY_RECEIVED` | `query.received` | UI | GeneratorAgent, (MemoryAgent via OBSERVE) |
-| `GENERATION_THINKING` | `generation.thinking` | GeneratorAgent | UI |
-| `RESPONSE_GENERATION` | `response.generation` | GeneratorAgent | UI, CriticAgent, MemoryAgent |
-| `ANSWER_DIALOG` | `answer.dialog` | GeneratorAgent | MemoryAgent, UI |
+| `QUERY_RECEIVED` | `query.received` | FastAPI Gateway | GeneratorAgent |
+| `GENERATION_THINKING` | `generation.thinking` | GeneratorAgent | FastAPI Gateway |
+| `RESPONSE_GENERATION` | `response.generation` | GeneratorAgent | FastAPI Gateway, CriticAgent, MemoryAgent |
+| `ANSWER_DIALOG` | `answer.dialog` | GeneratorAgent | MemoryAgent |
 
 ### Tool schema discovery
 
 | Subject constant | String | Publisher | Subscribers |
 |---|---|---|---|
-| `TOOL_SCHEMA` | `tool.schema` | All tools (on startup + re-announce) | GeneratorAgent, UI |
-| `TOOL_SCHEMA_REQUEST` | `schema.request` | GeneratorAgent, UI | All tools |
+| `TOOL_SCHEMA` | `tool.schema` | All tools (on startup + re-announce) | GeneratorAgent, MonitorApp |
+| `TOOL_SCHEMA_REQUEST` | `schema.request` | GeneratorAgent, MonitorApp | All tools |
 
 ### Tool request / result pairs
 
@@ -88,30 +88,29 @@ Each tool publishes one `tool.activity.<name>` envelope per request/result cycle
 
 | Subject constant | String | Publisher | Subscribers |
 |---|---|---|---|
-| `CRITIQUE` | `critique.result` | CriticAgent | UI, MemoryAgent |
-| `PAIRWISE_RESULT` | `pairwise.result` | CriticAgent | UI, MemoryAgent |
-| `USER_FEEDBACK` | `user.feedback` | UI | RewardService |
+| `CRITIQUE` | `critique.result` | CriticAgent | FastAPI Gateway, MemoryAgent |
+| `USER_FEEDBACK` | `user.feedback` | FastAPI Gateway | RewardService |
 | `REWARD_EVENT` | `reward.event` | RewardService | (logged; no current subscriber) |
 
 ### Agent observability
 
 | Subject constant | String | Publisher | Subscribers |
 |---|---|---|---|
-| `AGENT_TRANSITION` | `agent.transition` | GeneratorAgent, CriticAgent, MemoryAgent | UI |
-| `GENERATOR_STATUS` | `generator.status` | GeneratorAgent | UI (GeneratorWindow) |
+| `AGENT_TRANSITION` | `agent.transition` | GeneratorAgent, CriticAgent, MemoryAgent | MonitorApp |
+| `GENERATOR_STATUS` | `generator.status` | GeneratorAgent | MonitorApp (GeneratorWindow) |
 
 ### Compaction
 
 | Subject constant | String | Publisher | Subscribers |
 |---|---|---|---|
-| `COMPACTION_REQUEST` | `compaction.request` | UI | GeneratorAgent |
-| `COMPACTION_RESULT` | `compaction.result` | GeneratorAgent | UI |
+| `COMPACTION_REQUEST` | `compaction.request` | FastAPI Gateway | GeneratorAgent |
+| `COMPACTION_RESULT` | `compaction.result` | GeneratorAgent | FastAPI Gateway |
 
 ### Config hot-reload
 
 | Subject constant | String | Publisher | Subscribers |
 |---|---|---|---|
-| `CONFIG_RELOAD` | `config.reload` | UI (ToolWindow settings save) | All tools |
+| `CONFIG_RELOAD` | `config.reload` | Qt settings panels (ToolWindow / GeneratorWindow) | All tools, GeneratorAgent |
 
 ---
 
@@ -136,7 +135,6 @@ Each tool publishes one `tool.activity.<name>` envelope per request/result cycle
   "tool_calls":    [{"tool": "web_search", "args": {...}, "result": "..."}],
   "session_id":    "uuid",
   "query_id":      "uuid",
-  "respondent_id": "A",
   "prompt_tokens": 4710
 }
 ```
@@ -144,20 +142,18 @@ Each tool publishes one `tool.activity.<name>` envelope per request/result cycle
 ### critique.result
 ```json
 {
-  "score":        4,
-  "feedback":     "Accurate and concise. Minor: could add context.",
-  "query_id":     "uuid",
-  "query":        "What is the capital of France?",
-  "respondent_id":"A"
+  "score":    4,
+  "feedback": "Accurate and concise. Minor: could add context.",
+  "query_id": "uuid",
+  "query":    "What is the capital of France?"
 }
 ```
 
 ### generator.status
 ```json
 {
-  "instance_id":   "local2-macbook",
-  "respondent_id": "A",
-  "model":         "gemma4:e4b",
+  "instance_id": "local2-macbook",
+  "model":       "gemma4:e4b",
   "temperature":   0.1,
   "num_ctx":       128000,
   "state":         "idle",

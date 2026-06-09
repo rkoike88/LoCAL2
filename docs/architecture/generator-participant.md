@@ -31,13 +31,12 @@ The generator is the only participant that calls an LLM on the critical path. It
 ## Query Handling — _handle_query()
 
 1. Extract `query`, `session_id`, `query_id`, `attachments` from envelope.
-2. RespondentB gets a fresh `query_id` to avoid ChromaDB collision; `correlation_id` links back to the original query for pairwise matching.
-3. Transition: `IDLE → RECEIVING` (publishes `agent.transition` + `generator.status`).
+2. Transition: `IDLE → RECEIVING` (publishes `agent.transition` + `generator.status`).
 4. Build messages array: system prompt + conversation history + new user message (with any attachments).
 5. Transition: `RECEIVING → GENERATING`.
 6. Call `_generate()` — streaming with tools.
 7. On error: transition to `ERROR`, publish error `response.generation`, transition to `IDLE`.
-8. On success: if RespondentA, append new messages to history and store token count.
+8. On success: append new messages to history and store token count.
 9. Transition: `GENERATING → PUBLISHING`.
 10. Publish `response.generation` and `answer.dialog`.
 11. Transition: `PUBLISHING → IDLE`.
@@ -86,7 +85,7 @@ The tool name is normalized via `_normalize_tool_name()` before dispatch — thi
 
 ## Conversation History
 
-RespondentA owns the shared session history. After each successful turn, the new messages (user message + assistant turns + tool results) are appended to ConversationService. On the next turn, `_build_messages()` reconstructs the full messages array:
+After each successful turn, the new messages (user message + assistant turns + tool results) are appended to ConversationService. On the next turn, `_build_messages()` reconstructs the full messages array:
 
 ```
 [system]          ← from config/generator.yaml (if set)
@@ -99,8 +98,6 @@ RespondentA owns the shared session history. After each successful turn, the new
 ```
 
 Attachments (images, PDFs, text files) are prepended to the user message content; images go in the `images` field for Ollama's vision support. Attachments are not stored in history.
-
-RespondentB never writes to history — it generates a comparison answer with a fresh session and discards it.
 
 ---
 
@@ -120,7 +117,7 @@ Triggered by `compaction.request`. Rejected if the generator is not IDLE.
 
 ## generator.status Publishing
 
-`_publish_status()` is called after every `_do_transition()`, after every `_register_tool_schema()`, and once at startup. The payload is a full snapshot: instance_id, respondent_id, model, temperature, num_ctx, current state, token_count, tool_names, system_prompt.
+`_publish_status()` is called after every `_do_transition()`, after every `_register_tool_schema()`, and once at startup. The payload is a full snapshot: instance_id, model, temperature, num_ctx, current state, token_count, tool_names, system_prompt.
 
 `instance_id` is read from `config/system.yaml`; falls back to `socket.gethostname()` if absent.
 

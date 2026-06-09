@@ -155,11 +155,30 @@ API key is set via `SEMANTIC_SCHOLAR_API_KEY` environment variable (in `~/.zshrc
 
 ## Startup Order
 
-Tools must start before the generator. The generator broadcasts `schema.request` 0.5s after startup; if tools aren't running yet, they miss the request and must be started separately (the UI also broadcasts `schema.request` 600ms after connecting).
+Tools must start before the generator. The generator broadcasts `schema.request` 0.5s after startup; if tools aren't running yet they miss the request (MonitorApp also broadcasts `schema.request` 600ms after connecting to catch late starters).
 
-Recommended order (from `run_local.py`):
-1. Start all tools
-2. Sleep 0.5s
-3. Start generator (and optional RespondentB)
-4. Start critic, memory agent
-5. Start UI
+Order enforced by `run_local.py`:
+1. ZMQ proxy
+2. All 7 tools (parallel threads)
+3. Sleep 0.5s
+4. GeneratorAgent
+5. MemoryAgent, CriticAgent, RewardService
+6. FastAPI web server (uvicorn)
+7. Browser / Qt panels (depending on flags)
+
+---
+
+## Run Modes
+
+`python run_local.py [flags]`
+
+| Flag | Effect |
+|---|---|
+| *(none)* | Web UI only — FastAPI on port 8000, browser opens automatically |
+| `--headless` | Web server only, no browser pop |
+| `--panels` | Web UI + read-only Qt observer windows (GeneratorWindow, CriticWindow, MemoryWindow, ToolWindows) tiled to the right 2/3 of screen; browser in left 1/3 |
+| `--desktop` | Legacy PySide6 full desktop UI (MainWindow); no web server |
+| `--web-port PORT` | Override default port 8000 |
+| `--model MODEL` | Override the Ollama model tag at startup |
+
+In `--panels` mode, Qt windows are read-only observers (no bus commands). The single exception is a one-time `schema.request` broadcast at startup so tools re-announce their schemas and ToolWindows can be spawned.

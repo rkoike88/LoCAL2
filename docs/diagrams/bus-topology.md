@@ -13,36 +13,45 @@ All participants connect to a single ZMQ XPUB/XSUB proxy. The proxy is the only 
               │  PUBLISHERS                SUBSCRIBERS    │
               │                                           │
   ┌─────────────────┐          Subjects published:        │
-  │  GeneratorAgent │──────── response.generation ────────┤→ CriticAgent
-  │                 │──────── answer.dialog ──────────────┤→ MemoryAgent (OBSERVE)
-  │                 │──────── generation.thinking ────────┤→ UI
-  │                 │──────── agent.transition ───────────┤→ UI
-  │                 │──────── generator.status ───────────┤→ UI (GeneratorWindow)
+  │  GeneratorAgent │──────── response.generation ────────┤→ FastAPI Gateway, CriticAgent, MemoryAgent
+  │                 │──────── answer.dialog ──────────────┤→ MemoryAgent
+  │                 │──────── generation.thinking ────────┤→ FastAPI Gateway
+  │                 │──────── agent.transition ───────────┤→ MonitorApp
+  │                 │──────── generator.status ───────────┤→ MonitorApp (GeneratorWindow)
   │                 │──────── tool.request.* ─────────────┤→ *Tools
-  │                 │──────── compaction.result ──────────┤→ UI
+  │                 │──────── compaction.result ──────────┤→ FastAPI Gateway
   └─────────────────┘
   ┌─────────────────┐
-  │   CriticAgent   │──────── critique.result ────────────┤→ UI, MemoryAgent
-  │                 │──────── pairwise.result ────────────┤→ UI, MemoryAgent
-  │                 │──────── agent.transition ───────────┤→ UI
+  │   CriticAgent   │──────── critique.result ────────────┤→ FastAPI Gateway, MemoryAgent
+  │                 │──────── agent.transition ───────────┤→ MonitorApp
   └─────────────────┘
   ┌─────────────────┐
-  │   MemoryAgent   │──────── agent.transition ───────────┤→ UI
+  │   MemoryAgent   │──────── agent.transition ───────────┤→ MonitorApp
   └─────────────────┘
   ┌─────────────────┐
   │  RewardService  │──────── reward.event ───────────────┤→ (logged)
   └─────────────────┘
   ┌─────────────────┐
   │    *Tools (7)   │──────── tool.result.* ──────────────┤→ GeneratorAgent
-  │                 │──────── tool.activity.* ────────────┤→ UI (ToolWindows)
-  │                 │──────── tool.schema ────────────────┤→ GeneratorAgent, UI
+  │                 │──────── tool.activity.* ────────────┤→ MonitorApp (ToolWindows)
+  │                 │──────── tool.schema ────────────────┤→ GeneratorAgent, MonitorApp
   └─────────────────┘
   ┌─────────────────┐
-  │       UI        │──────── query.received ─────────────┤→ GeneratorAgent
-  │ (MainWindow)    │──────── schema.request ─────────────┤→ *Tools, GeneratorAgent
+  │  FastAPI        │──────── query.received ─────────────┤→ GeneratorAgent
+  │  Gateway        │──────── schema.request ─────────────┤→ *Tools, GeneratorAgent
   │                 │──────── user.feedback ──────────────┤→ RewardService
   │                 │──────── compaction.request ─────────┤→ GeneratorAgent
-  │                 │──────── config.reload ──────────────┤→ *Tools
+  └─────────────────┘
+  ┌─────────────────┐
+  │  MonitorApp     │──────── schema.request ─────────────┤→ *Tools (once at startup)
+  │  (Qt panels,    │
+  │  --panels only) │
+  └─────────────────┘
+  ┌─────────────────┐
+  │  Qt settings    │──────── config.reload ──────────────┤→ *Tools, GeneratorAgent
+  │  (ToolWindow /  │
+  │  GeneratorWindow│
+  │  save button)   │
   └─────────────────┘
 ```
 
@@ -50,19 +59,14 @@ All participants connect to a single ZMQ XPUB/XSUB proxy. The proxy is the only 
 
 | Participant | Subscribes to |
 |---|---|
-| GeneratorAgent | `query.received`, `tool.schema`, `schema.request`, `compaction.request` |
+| GeneratorAgent | `query.received`, `tool.schema`, `schema.request`, `compaction.request`, `tool.result.*` |
 | CriticAgent | `response.generation` |
-| MemoryAgent | `response.generation`, `critique.result`, `pairwise.result` |
+| MemoryAgent | `response.generation`, `critique.result` |
 | RewardService | `user.feedback` |
 | Each `*Tool` | `tool.request.<name>`, `schema.request` |
-| UI (BusMonitor) | `query.received`, `response.generation`, `generation.thinking`, `answer.dialog`, `critique.result`, `pairwise.result`, `agent.transition`, `generator.status`, `tool.schema`, `tool.activity.*`, `compaction.result` |
+| FastAPI Gateway | `generation.thinking`, `response.generation`, `critique.result`, `answer.dialog`, `tool.request.*`, `tool.result.*`, `compaction.result`, `query.received` |
+| MonitorApp (Qt) | `tool.schema`, `generator.status`, `agent.transition`, `critique.result`, `tool.activity.*` |
 
 ## LAN Distribution
 
 The proxy binds to `0.0.0.0`, so any participant on the LAN can connect by setting `proxy_host` in `config/bus.yaml` to the proxy machine's IP. A remote agent looks identical to a local one — pub/sub routing is transparent to participants.
-
-## RespondentB
-
-When RespondentB is started (same process, `respondent_id="B"`), it connects to the same bus and subscribes to `query.received`. Both A and B receive every query. B's `response.generation` is filtered out by the UI (only A's answer is displayed) but consumed by CriticAgent for pairwise comparison.
-
-B uses a fresh `query_id` (different from A's) to avoid ChromaDB ID collisions. Its `correlation_id` points back to the original query so CriticAgent can match the A+B pair.

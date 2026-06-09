@@ -155,7 +155,7 @@ class GeneratorWindow(QWidget):
         self._gear_btn.setFixedSize(28, 28)
         self._gear_btn.setFlat(True)
         self._gear_btn.clicked.connect(self._show_settings)
-        self._gear_btn.setVisible(self._publisher is not None)
+        self._gear_btn.setVisible(True)
 
         w = QWidget()
         w.setObjectName("genHeader")
@@ -171,7 +171,7 @@ class GeneratorWindow(QWidget):
     def _show_main(self) -> None:
         self._stack.setCurrentIndex(_MAIN_PAGE)
         self._back_btn.setVisible(False)
-        self._gear_btn.setVisible(self._publisher is not None)
+        self._gear_btn.setVisible(True)
 
     def _show_settings(self) -> None:
         config_path = _repo_root() / "config" / "generator.yaml"

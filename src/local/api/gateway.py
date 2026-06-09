@@ -91,38 +91,36 @@ async def ws_chat(websocket: WebSocket, session_id: str) -> None:
     Server streams typed events until the response (+ critique trail) arrive.
     """
     await websocket.accept()
-    try:
-        data = await websocket.receive_json()
-    except WebSocketDisconnect:
-        return
-
-    query: str = data.get("query", "").strip()
-    if not query:
-        await websocket.close(code=1003, reason="Empty query")
-        return
-
     publisher: ZmqPublisher = websocket.app.state.publisher
-    session = LoCALSession(publisher, session_id=session_id)
     loop = asyncio.get_event_loop()
-    queue: asyncio.Queue = asyncio.Queue()
-
-    def _stream() -> None:
-        try:
-            for env in session.stream(query):
-                asyncio.run_coroutine_threadsafe(queue.put(env), loop)
-        finally:
-            asyncio.run_coroutine_threadsafe(queue.put(None), loop)
-
-    loop.run_in_executor(None, _stream)
 
     try:
         while True:
-            env = await queue.get()
-            if env is None:
-                break
-            msg = translate(env)
-            if msg is not None:
-                await websocket.send_json(msg)
+            # Wait for the next query on this connection.
+            data = await websocket.receive_json()
+            query: str = data.get("query", "").strip()
+            if not query:
+                continue
+
+            session = LoCALSession(publisher, session_id=session_id)
+            queue: asyncio.Queue = asyncio.Queue()
+
+            def _stream() -> None:
+                try:
+                    for env in session.stream(query):
+                        asyncio.run_coroutine_threadsafe(queue.put(env), loop)
+                finally:
+                    asyncio.run_coroutine_threadsafe(queue.put(None), loop)
+
+            loop.run_in_executor(None, _stream)
+
+            while True:
+                env = await queue.get()
+                if env is None:
+                    break
+                msg = translate(env)
+                if msg is not None:
+                    await websocket.send_json(msg)
     except WebSocketDisconnect:
         pass
 

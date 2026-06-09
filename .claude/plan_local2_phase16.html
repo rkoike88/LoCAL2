@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LoCAL2 Phase 16 — Web UI</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 960px; margin: 40px auto; padding: 0 24px; background: #0f0f0f; color: #e0e0e0; line-height: 1.6; }
+  h1 { color: #7eb8f7; border-bottom: 1px solid #333; padding-bottom: 12px; }
+  h2 { color: #a0cfff; margin-top: 40px; }
+  h3 { color: #c8d8f0; }
+  h4 { color: #aab8cc; margin-top: 16px; margin-bottom: 4px; }
+  code { background: #1a1a2e; padding: 2px 6px; border-radius: 4px; font-family: "SF Mono", "Fira Code", monospace; font-size: 0.88em; color: #a8d8a8; }
+  pre { background: #1a1a2e; padding: 16px; border-radius: 8px; overflow-x: auto; border-left: 3px solid #3a5a8a; }
+  pre code { background: none; padding: 0; color: #c8e8c8; }
+  .milestone { background: #0d1f35; border: 1px solid #2a4a7a; border-radius: 8px; padding: 16px 20px; margin: 16px 0; }
+  .milestone h3 { margin: 0 0 8px 0; color: #7eb8f7; }
+  .file-list { background: #141414; border-radius: 6px; padding: 12px 16px; margin: 8px 0; }
+  .file-list li { font-family: "SF Mono", monospace; font-size: 0.85em; margin: 4px 0; }
+  .new { color: #7ec87e; }
+  .modified { color: #e8c87e; }
+  .removed { color: #e87e7e; }
+  .kept { color: #7eb8e8; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th { background: #1a2a3a; padding: 8px 12px; text-align: left; color: #a0cfff; border-bottom: 1px solid #2a4a7a; }
+  td { padding: 8px 12px; border-bottom: 1px solid #1e1e2e; vertical-align: top; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.78em; font-weight: 600; margin-right: 4px; }
+  .tag-backend { background: #1a3a2a; color: #7ec87e; }
+  .tag-frontend { background: #1a2a3a; color: #7eb8f7; }
+  .tag-both { background: #2a1a3a; color: #b87ef7; }
+  .tag-remove { background: #3a1a1a; color: #e87e7e; }
+  blockquote { border-left: 3px solid #3a5a8a; margin: 12px 0; padding: 8px 16px; background: #111827; color: #a0b0c0; }
+  .arch-box { background: #0d1a2e; border: 1px solid #2a4a6a; border-radius: 8px; padding: 20px; font-family: monospace; font-size: 0.85em; line-height: 1.8; color: #b0c8e8; white-space: pre; overflow-x: auto; }
+  ul li { margin: 4px 0; }
+  .decision { background: #1a1500; border-left: 3px solid #b8960a; padding: 10px 16px; border-radius: 0 6px 6px 0; margin: 12px 0; }
+  .decision strong { color: #e8c040; }
+</style>
+</head>
+<body>
+
+<h1>Phase 16 — Web UI</h1>
+<p><em>Replace the PySide6 layer with a browser-based frontend served by the existing FastAPI gateway. The Python backend — agents, tools, services, ZMQ bus — is untouched.</em></p>
+
+<h2>Motivation</h2>
+<p>LoCAL2 is heading toward being shared with others. The current PySide6 UI has real barriers: Qt dependency friction, a chat layout that doesn't match what people expect from frontier models, context and compaction as separate windows, no settings page. Every successful local LLM tool that's been shared widely (Open WebUI, Jan, AnythingLLM) is browser-based. The LoCAL2 backend is the differentiator — the bus architecture, CriticAgent, score-weighted memory, reward loop. The frontend should be as frictionless as possible to install and use.</p>
+
+<blockquote>Install story: <code>git clone + pip install -r requirements.txt</code> → <code>python run_local.py</code> → open <code>localhost:8080</code></blockquote>
+
+<h2>What We're Not Doing</h2>
+<ul>
+  <li><strong>Not adopting Open WebUI.</strong> It solves the chat UI problem but has no concept of the critic feedback loop, score-weighted memory, or bus observability. Using it means either gutting it or abandoning LoCAL2's differentiators.</li>
+  <li><strong>Not touching the backend.</strong> Agents, tools, services, ZMQ bus, ConversationService, MemoryService — all unchanged.</li>
+  <li><strong>Not removing PySide6 in this phase.</strong> The two UIs coexist during migration. PySide6 is removed in Phase 17 once the web UI reaches parity.</li>
+</ul>
+
+<h2>Architecture</h2>
+<div class="arch-box">
+Browser
+  └── WebSocket /ws/chat/{session_id}  ──────────────────────────────────┐
+  └── REST  /api/settings, /api/sessions, /api/feedback                  │
+  └── Static  /  (React build served by FastAPI)                         │
+                                                                          ▼
+src/local/api/gateway.py  (FastAPI)                          ZMQ Bus (existing)
+  ├── WebSocket handler                                           │
+  │     publishes query.received ──────────────────────────────▶ │
+  │     subscribes generation.thinking ◀──────────────────────── │
+  │     subscribes tool.activity.* ◀─────────────────────────── │
+  │     subscribes response.generation ◀─────────────────────── │
+  │     streams WS events → browser                              │
+  ├── Settings endpoints (read/write config YAML)                │
+  ├── Sessions endpoints (list/get/delete)                        │
+  └── Serves frontend/dist/ as static files                      │
+                                                                  │
+GeneratorAgent ◀────── query.received ────────────────────────── │
+CriticAgent    ──────▶ critique.result ──────────────────────── │
+MemoryAgent    ◀────── response.generation ─────────────────────┘
+(all agents unchanged)
+</div>
+
+<h2>WebSocket Event Protocol</h2>
+<p>The gateway translates ZMQ bus events into a typed WebSocket event stream. The browser receives a sequence of JSON objects for each query:</p>
+
+<pre><code>// Client → server (one message per query)
+{ "query": "...", "attachments": [...], "session_id": "..." }
+
+// Server → client (stream)
+{ "type": "thinking_chunk", "chunk": "...", "query_id": "..." }
+{ "type": "tool_start",  "tool": "web_search", "args": {...},    "query_id": "..." }
+{ "type": "tool_result", "tool": "web_search", "result": "...", "query_id": "..." }
+{ "type": "response",    "answer": "...", "thinking": "...",
+  "tool_calls": [...], "session_id": "...", "query_id": "...", "prompt_tokens": 0 }
+{ "type": "error",       "message": "..." }
+{ "type": "critique",    "score": 4, "feedback": "...", "query_id": "..." }</code></pre>
+
+<p>The WebSocket stays open for the session lifetime. Subsequent queries on the same connection reuse the same subscription. A separate <code>/ws/bus/{session_id}</code> endpoint streams all bus events for developer mode (state machine transitions, raw tool activity).</p>
+
+<h2>Frontend Stack</h2>
+<div class="decision">
+  <strong>React + Vite + TypeScript</strong> — wider contributor familiarity than Svelte, strong ecosystem for markdown rendering and streaming UI. Component library: shadcn/ui (Tailwind-based, copy-paste components, no runtime dependency). Markdown: react-markdown + remark-gfm + highlight.js.
+</div>
+<ul>
+  <li>Build output goes to <code>frontend/dist/</code></li>
+  <li>FastAPI mounts <code>frontend/dist/</code> at <code>/</code> via <code>StaticFiles</code></li>
+  <li>Dev: <code>vite dev</code> proxies <code>/ws</code> and <code>/api</code> to the Python server</li>
+</ul>
+
+<h2>Milestones</h2>
+
+<div class="milestone">
+  <h3>16.1 — WebSocket Gateway</h3>
+  <span class="tag tag-backend">backend</span>
+  <p>Extend <code>src/local/api/gateway.py</code> with two WebSocket endpoints and new REST endpoints for settings and sessions. No frontend work yet — verify with <code>wscat</code> or a minimal HTML test page.</p>
+  <h4>New endpoints</h4>
+  <ul>
+    <li><code>WS  /ws/chat/{session_id}</code> — query/response stream</li>
+    <li><code>WS  /ws/bus/{session_id}</code> — raw bus event stream (developer mode)</li>
+    <li><code>GET /api/settings</code> — returns all YAML configs as JSON</li>
+    <li><code>POST /api/settings/{name}</code> — writes a config YAML (validates keys)</li>
+    <li><code>GET /api/sessions</code> — lists sessions from ConversationService</li>
+    <li><code>GET /api/sessions/{id}</code> — returns session message history</li>
+    <li><code>DELETE /api/sessions/{id}</code> — deletes a session</li>
+    <li><code>POST /api/sessions/{id}/compact</code> — triggers compaction</li>
+    <li><code>POST /api/feedback</code> — publishes user.feedback to bus (completes Phase 4)</li>
+  </ul>
+  <h4>Files</h4>
+  <ul class="file-list">
+    <li class="modified">src/local/api/gateway.py — add WS handlers + new REST endpoints</li>
+    <li class="new">src/local/api/ws_bridge.py — ZMQ→WebSocket event translation</li>
+    <li class="new">src/local/api/settings_api.py — config read/write logic</li>
+  </ul>
+</div>
+
+<div class="milestone">
+  <h3>16.2 — Frontend Scaffold</h3>
+  <span class="tag tag-frontend">frontend</span>
+  <p>Create the React+Vite project, wire the WebSocket client, and implement a minimal chat loop: send query → stream thinking → display response. No styling polish yet; this is about proving the end-to-end data path works.</p>
+  <ul>
+    <li><code>frontend/</code> directory with Vite project</li>
+    <li><code>useWebSocket</code> hook wrapping the WS connection with reconnect logic</li>
+    <li><code>useChatStream</code> hook accumulating event stream into message state</li>
+    <li>FastAPI serves <code>frontend/dist/</code>; <code>run_local.py --api</code> launches both</li>
+  </ul>
+  <h4>Files</h4>
+  <ul class="file-list">
+    <li class="new">frontend/ — Vite + React + TypeScript project</li>
+    <li class="new">frontend/src/hooks/useWebSocket.ts</li>
+    <li class="new">frontend/src/hooks/useChatStream.ts</li>
+    <li class="modified">run_local.py — <code>--api</code> mode also serves frontend</li>
+  </ul>
+</div>
+
+<div class="milestone">
+  <h3>16.3 — Chat Interface</h3>
+  <span class="tag tag-frontend">frontend</span>
+  <p>The primary chat experience. Should feel like a frontier model UI: conversation in the main panel, thinking tokens as inline collapsible blocks, tool calls as compact activity chips, response rendered as markdown.</p>
+  <h4>Components</h4>
+  <ul>
+    <li><strong>MessageList</strong> — scrollable conversation; assistant messages render markdown</li>
+    <li><strong>ThinkingBlock</strong> — inline collapsible block showing thinking tokens as they stream in; collapsed by default once response arrives</li>
+    <li><strong>ToolCallChip</strong> — compact pill showing tool name + status (spinning → done); expandable to show args/result</li>
+    <li><strong>MessageInput</strong> — textarea with attachment button, send on Enter, Shift+Enter for newline</li>
+    <li><strong>CritiqueBar</strong> — subtle score indicator below each assistant message (1–5 dots); appears when critique arrives</li>
+    <li><strong>TokenGauge</strong> — compact arc or progress bar in the chat header showing context usage; Compact button triggers <code>/api/sessions/{id}/compact</code></li>
+  </ul>
+  <h4>Key UX decisions</h4>
+  <ul>
+    <li>Context window usage and compaction are <em>inline</em> in the chat header — not separate windows</li>
+    <li>Thinking tokens are inline but collapsed — users who want them can expand; they don't dominate the view</li>
+    <li>Tool calls are visible as activity but not disruptive — chips not panels</li>
+    <li>Critique score is subtle — coloured dots under the response, not a prominent grade</li>
+  </ul>
+</div>
+
+<div class="milestone">
+  <h3>16.4 — Settings Page</h3>
+  <span class="tag tag-frontend">frontend</span><span class="tag tag-backend">backend</span>
+  <p>A proper settings UI backed by the <code>/api/settings</code> endpoints. Reads current YAML config, renders editable form fields, writes back on save. No direct YAML file editing required.</p>
+  <h4>Settings sections</h4>
+  <table>
+    <tr><th>Section</th><th>Fields</th></tr>
+    <tr><td>Generator</td><td>model, temperature, num_ctx, system_prompt, max_tool_iterations</td></tr>
+    <tr><td>Critic</td><td>model, temperature, grade_timeout, rubric (textarea)</td></tr>
+    <tr><td>Memory</td><td>model, collection names, score_weight, recency_weight</td></tr>
+    <tr><td>Web Search</td><td>provider, api_key (masked), max_results</td></tr>
+    <tr><td>Location</td><td>override toggle, city/region/country fields</td></tr>
+  </table>
+  <p>Settings changes take effect on next query (ConfigManager invalidation already handles hot-reload for tools that watch CONFIG_NAME).</p>
+</div>
+
+<div class="milestone">
+  <h3>16.5 — Conversation Navigator</h3>
+  <span class="tag tag-frontend">frontend</span>
+  <p>Left sidebar listing past sessions from <code>/api/sessions</code>. Clicking a session loads its history into the chat view. New session button clears and starts fresh. Mirrors the existing ConversationsWindow but inline in the main layout.</p>
+  <ul>
+    <li>Session list with title (first user message, truncated), date, turn count</li>
+    <li>Active session highlighted</li>
+    <li>Delete session with confirmation</li>
+    <li>Collapse sidebar to icon-only on narrow viewports</li>
+  </ul>
+</div>
+
+<div class="milestone">
+  <h3>16.6 — Developer Mode (Observability)</h3>
+  <span class="tag tag-frontend">frontend</span>
+  <p>A toggleable developer panel that surfaces LoCAL2's observability layer — the differentiating features that no other local LLM frontend has. Hidden by default for end users; one click to reveal for researchers and developers.</p>
+  <h4>Dev panel tabs</h4>
+  <ul>
+    <li><strong>Bus</strong> — live stream of all bus events (via <code>/ws/bus</code>); filterable by subject prefix</li>
+    <li><strong>Generator</strong> — state machine (current state highlighted), tool registry, system prompt, token count</li>
+    <li><strong>Critic</strong> — recent grades with feedback text; state machine</li>
+    <li><strong>Memory</strong> — recent engram writes; classification intent/entities</li>
+    <li><strong>Tools</strong> — per-tool activity log (request → result, latency)</li>
+  </ul>
+  <p>Uses the <code>/ws/bus</code> stream — no new backend logic required. The frontend filters and routes events to the appropriate panel.</p>
+</div>
+
+<h2>File Map</h2>
+<table>
+  <tr><th>File</th><th>Status</th><th>Notes</th></tr>
+  <tr><td><code>src/local/api/gateway.py</code></td><td class="modified">modified</td><td>Add WS endpoints, settings/sessions REST, static serving</td></tr>
+  <tr><td><code>src/local/api/ws_bridge.py</code></td><td class="new">new</td><td>ZMQ→WebSocket event translation + bus subscription management</td></tr>
+  <tr><td><code>src/local/api/settings_api.py</code></td><td class="new">new</td><td>Config read/write with validation</td></tr>
+  <tr><td><code>run_local.py</code></td><td class="modified">modified</td><td><code>--api</code> mode auto-opens browser; default port 8080</td></tr>
+  <tr><td><code>frontend/</code></td><td class="new">new</td><td>React + Vite + TypeScript project</td></tr>
+  <tr><td><code>frontend/src/hooks/</code></td><td class="new">new</td><td>useWebSocket, useChatStream, useSettings, useSessions</td></tr>
+  <tr><td><code>frontend/src/components/</code></td><td class="new">new</td><td>MessageList, ThinkingBlock, ToolCallChip, TokenGauge, SettingsForm, DevPanel, SessionNav</td></tr>
+  <tr><td><code>src/local/ui/</code></td><td class="kept">kept</td><td>PySide6 UI unchanged in Phase 16; removed in Phase 17</td></tr>
+</table>
+
+<h2>What PySide6 Had — Web Equivalent</h2>
+<table>
+  <tr><th>PySide6 window</th><th>Web equivalent</th><th>Where</th></tr>
+  <tr><td>Main chat window</td><td>MessageList + MessageInput</td><td>Main panel</td></tr>
+  <tr><td>ThinkingWindow</td><td>ThinkingBlock (inline, collapsible)</td><td>Inline in message</td></tr>
+  <tr><td>ToolWindow</td><td>ToolCallChip + Dev panel Tools tab</td><td>Inline chip + Dev mode</td></tr>
+  <tr><td>CriticWindow</td><td>CritiqueBar + Dev panel Critic tab</td><td>Under message + Dev mode</td></tr>
+  <tr><td>GeneratorWindow</td><td>Dev panel Generator tab</td><td>Dev mode</td></tr>
+  <tr><td>MemoryWindow</td><td>Dev panel Memory tab</td><td>Dev mode</td></tr>
+  <tr><td>ConversationsWindow</td><td>Session navigator sidebar</td><td>Left sidebar</td></tr>
+  <tr><td>DocumentsWindow</td><td>Settings → Library section</td><td>Settings page</td></tr>
+  <tr><td>Context gauge + Compact button</td><td>TokenGauge in chat header</td><td>Chat header</td></tr>
+  <tr><td>YAML config editing (none)</td><td>Settings page</td><td>Settings page (new)</td></tr>
+</table>
+
+<h2>Run Modes After Phase 16</h2>
+<pre><code># Web UI (default, opens browser)
+python run_local.py
+
+# Web UI headless (no browser pop, useful for servers)
+python run_local.py --headless
+
+# Legacy PySide6 (during transition)
+python run_local.py --desktop
+
+# Web UI + API exposed (for external clients)
+python run_local.py --api-port 8080</code></pre>
+
+<h2>Non-Goals for Phase 16</h2>
+<ul>
+  <li>Multi-user auth — still single-user local tool</li>
+  <li>Docker / containerisation</li>
+  <li>Removing PySide6 (Phase 17)</li>
+  <li>pip packaging / PyPI (future)</li>
+  <li>Mobile layout</li>
+</ul>
+
+<h2>Acceptance Criteria</h2>
+<ul>
+  <li>Query → streaming thinking tokens → tool call chips → markdown response, all in browser, matches latency of PySide6 UI</li>
+  <li>Thinking tokens are inline and collapsible, not in a separate window</li>
+  <li>Settings page reads and writes all five config sections; changes take effect on next query without restart</li>
+  <li>Conversation navigator lists and rejoins past sessions</li>
+  <li>Developer mode toggle shows bus stream, generator state, critic grades, memory engrams, tool activity</li>
+  <li>Token gauge updates after each response; Compact triggers compaction inline</li>
+  <li><code>python run_local.py</code> opens the browser automatically on first run</li>
+  <li>All existing Python tests continue to pass</li>
+</ul>
+
+</body>
+</html>

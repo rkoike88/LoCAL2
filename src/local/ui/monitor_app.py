@@ -95,6 +95,9 @@ class MonitorApp(QObject):
         )
         self._memory_window.show()
 
+        # Initial tile — tool windows arrive later and re-tile individually.
+        self._tile_windows()
+
         self._worker = _BusWorker(_OBSERVE)
         self._worker.envelope_received.connect(self._on_envelope)
         self._thread = QThread()
@@ -152,6 +155,55 @@ class MonitorApp(QObject):
             win = ToolWindow(tool_name=name, publisher=None)
             win.show()
             self._tool_windows[name] = win
+            self._tile_windows()
+
+    # Fixed slot order for each tool column.
+    _COL5 = ["web_search", "web_fetch", "search_memory"]
+    _COL6 = ["search_library", "search_papers", "get_location", "get_datetime"]
+
+    def _tile_windows(self) -> None:
+        """Position all windows according to the 1/3 + 1/3 + 1/6 + 1/6 layout.
+
+        The left 1/3 is reserved for the browser — Qt panels occupy the right
+        2/3. Tool windows are placed in fixed slots so their positions are
+        stable as they arrive one by one.
+        """
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+        sg = screen.availableGeometry()
+        W, H = sg.width(), sg.height()
+        x0, y0 = sg.x(), sg.y()
+
+        unit = W // 6          # 1/6 of screen width
+        mid_x = x0 + 2 * unit  # middle 1/3 starts after the browser 1/3
+        top_h = int(H * 0.58)  # critic+generator take ~58% of height
+        bot_h = H - top_h      # memory takes the rest
+
+        # Critic — top-left of middle 1/3.
+        self._critic_window.setGeometry(mid_x, y0, unit, top_h)
+
+        # Generator — top-right of middle 1/3.
+        self._generator_window.setGeometry(mid_x + unit, y0, unit, top_h)
+
+        # Memory — full width of middle 1/3, below critic+generator.
+        self._memory_window.setGeometry(mid_x, y0 + top_h, 2 * unit, bot_h)
+
+        # Col 5: web_search / web_fetch / search_memory — 3 equal slots.
+        col5_x = x0 + 4 * unit
+        slot_h5 = H // len(self._COL5)
+        for i, name in enumerate(self._COL5):
+            win = self._tool_windows.get(name)
+            if win:
+                win.setGeometry(col5_x, y0 + i * slot_h5, unit, slot_h5)
+
+        # Col 6: search_library / search_papers / get_location / get_datetime — 4 equal slots.
+        col6_x = x0 + 5 * unit
+        slot_h6 = H // len(self._COL6)
+        for i, name in enumerate(self._COL6):
+            win = self._tool_windows.get(name)
+            if win:
+                win.setGeometry(col6_x, y0 + i * slot_h6, unit, slot_h6)
 
     def close(self) -> None:
         self._worker.stop()

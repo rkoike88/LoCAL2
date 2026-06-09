@@ -96,6 +96,33 @@ def _start_web(port: int) -> None:
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
 
 
+def _open_browser(url: str, panels: bool = False) -> None:
+    """Open the browser, positioned to the left 1/3 of the screen when --panels is active."""
+    if panels and sys.platform == "darwin":
+        import subprocess
+        # AppleScript opens Safari and sizes it to the left 1/3 of the screen.
+        # Screen bounds come from Finder so no Python screen-size dependency.
+        script = f"""
+tell application "Finder"
+    set {{x1, y1, x2, y2}} to bounds of window of desktop
+    set third to (x2 - x1) / 3
+end tell
+tell application "Safari"
+    activate
+    open location "{url}"
+    delay 0.8
+    set bounds of front window to {{x1, y1, third, y2}}
+end tell
+"""
+        try:
+            subprocess.run(["osascript", "-e", script], check=False, timeout=8)
+            return
+        except Exception:
+            pass
+    import webbrowser
+    webbrowser.open(url)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run LoCAL2")
     parser.add_argument("--desktop", action="store_true", help="Legacy PySide6 UI instead of web")
@@ -181,10 +208,9 @@ def main() -> None:
         print(f"[local] Web UI  {url}")
 
         if not args.headless:
-            import webbrowser
             # Brief pause so uvicorn is ready before the browser hits it.
             time.sleep(1.0)
-            webbrowser.open(url)
+            _open_browser(url, panels=args.panels)
 
         if args.panels:
             # Qt observer panels run in the main thread (Qt event loop requirement).

@@ -1,12 +1,14 @@
 """LoCAL2 unified entry point.
 
 Usage:
-  python run_local.py                      # UI only
-  python run_local.py --api                # UI + REST API
-  python run_local.py --headless --api     # API only (no UI)
+  python run_local.py                      # web UI (default), opens browser
+  python run_local.py --headless           # web UI, no browser pop
+  python run_local.py --desktop            # legacy PySide6 UI
   python run_local.py --model gemma4:27b   # model override
+  python run_local.py --web-port 9000      # custom port (default 8000)
 
-Starts in order: ZMQ proxy → GeneratorAgent → API (if --api) → UI (if not --headless).
+Starts in order: ZMQ proxy → tools → GeneratorAgent → MemoryAgent → Critic
+  → Reward → web server (unless --desktop) → browser (unless --headless).
 """
 from __future__ import annotations
 
@@ -88,7 +90,7 @@ def _start_reward(memory_service) -> None:
     RewardService(memory_service=memory_service).run()
 
 
-def _start_api(port: int) -> None:
+def _start_web(port: int) -> None:
     import uvicorn
     from local.api.gateway import app
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
@@ -96,9 +98,9 @@ def _start_api(port: int) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run LoCAL2")
-    parser.add_argument("--api", action="store_true", help="Start REST API server")
-    parser.add_argument("--api-port", type=int, default=8000, metavar="PORT")
-    parser.add_argument("--headless", action="store_true", help="No UI (use with --api)")
+    parser.add_argument("--desktop", action="store_true", help="Legacy PySide6 UI instead of web")
+    parser.add_argument("--headless", action="store_true", help="Web server only, no browser")
+    parser.add_argument("--web-port", type=int, default=8000, metavar="PORT")
     parser.add_argument("--model", default="", metavar="MODEL", help="Ollama model override")
     args = parser.parse_args()
 
@@ -145,16 +147,8 @@ def main() -> None:
     # -- Reward --------------------------------------------------------------
     threading.Thread(target=_start_reward, args=(shared_memory,), daemon=True, name="reward").start()
 
-    # -- API -----------------------------------------------------------------
-    if args.api:
-        api_thread = threading.Thread(
-            target=_start_api, args=(args.api_port,), daemon=True, name="api"
-        )
-        api_thread.start()
-        print(f"[local] API  http://0.0.0.0:{args.api_port}")
-
     # -- UI ------------------------------------------------------------------
-    if not args.headless:
+    if args.desktop:
         from PySide6.QtCore import QTimer
         from PySide6.QtWidgets import QApplication
         from local.transport.bus_config import PROXY_FRONTEND_ADDR
@@ -174,7 +168,23 @@ def main() -> None:
         window.activateWindow()
         sys.exit(app_qt.exec())
     else:
-        print("[local] Running headless. Press Ctrl+C to stop.")
+        # Web UI (default) — inject conversation service, start server, open browser.
+        from local.api.gateway import configure
+        configure(conversation_service=shared_conv)
+
+        web_thread = threading.Thread(
+            target=_start_web, args=(args.web_port,), daemon=True, name="web"
+        )
+        web_thread.start()
+        url = f"http://localhost:{args.web_port}"
+        print(f"[local] Web UI  {url}")
+
+        if not args.headless:
+            import webbrowser
+            # Brief pause so uvicorn is ready before the browser hits it.
+            time.sleep(1.0)
+            webbrowser.open(url)
+
         try:
             while True:
                 time.sleep(1)

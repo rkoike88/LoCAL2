@@ -1,28 +1,68 @@
 """FastAPI gateway for LoCAL2.
 
 Endpoints:
-  POST /query   — submit a query; returns answer + metadata
-  POST /feedback — not yet implemented (Phase 4)
-  GET  /health  — liveness check
+  WS   /ws/chat/{session_id}          — streaming query/response
+  WS   /ws/bus/{session_id}           — raw bus event stream (dev mode)
+  GET  /api/sessions                  — list sessions
+  GET  /api/sessions/{id}             — session message history
+  DELETE /api/sessions/{id}           — delete session
+  POST /api/sessions/{id}/compact     — trigger context compaction
+  GET  /api/settings/{section}        — read a config YAML section
+  PUT  /api/settings/{section}        — write a config YAML section
+  POST /api/feedback                  — submit thumbs up/down
+  GET  /health                        — liveness check
+  GET  /                              — serves frontend/dist/index.html
 
-The shared ZmqPublisher is created at startup via FastAPI lifespan and
-stored in app.state.publisher.
+Call configure(conversation_service=...) before starting uvicorn to inject
+the shared ConversationService instance.
 """
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from contextlib import asynccontextmanager
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from local.protocol.subjects import RESPONSE_GENERATION
+from local.api.settings_api import list_sections, read_section, write_section
+from local.api.ws_bridge import translate
+from local.protocol.envelope import MessageEnvelope
+from local.protocol.subjects import COMPACTION_REQUEST, CONFIG_RELOAD, USER_FEEDBACK
 from local.session.local_session import LoCALSession
-from local.transport.bus_config import PROXY_FRONTEND_ADDR
-from local.transport.zmq_pubsub import ZmqPublisher
+from local.services.conversation_service import ConversationService
+from local.transport.bus_config import PROXY_BACKEND_ADDR, PROXY_FRONTEND_ADDR
+from local.transport.zmq_pubsub import ZmqPublisher, ZmqSubscriber
+
+logger = logging.getLogger(__name__)
+
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent.parent / "frontend" / "dist"
+
+# Injected by configure() before uvicorn starts.
+_conversation_service: ConversationService | None = None
+
+
+def configure(*, conversation_service: ConversationService) -> None:
+    """Inject shared services before the server starts.
+
+    Args:
+        conversation_service: The shared ConversationService instance created
+            in run_local.py — passed here so REST endpoints can read/write
+            session history.
+    """
+    global _conversation_service
+    _conversation_service = conversation_service
+
+
+def _get_conv() -> ConversationService:
+    if _conversation_service is None:
+        raise HTTPException(status_code=503, detail="ConversationService not configured")
+    return _conversation_service
 
 
 @asynccontextmanager
@@ -34,62 +74,223 @@ async def _lifespan(app: FastAPI):
 
 app = FastAPI(title="LoCAL2 API", lifespan=_lifespan)
 
-
-class QueryRequest(BaseModel):
-    query: str
-    session_id: Optional[str] = None
-    timeout: float = 120.0
+# Mount static assets if the frontend has been built.
+if _FRONTEND_DIST.exists():
+    app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIST / "assets")), name="assets")
 
 
-class QueryResponse(BaseModel):
-    answer: str
-    thinking: str
-    tool_calls: list
-    session_id: str
-    query_id: str
+# ---------------------------------------------------------------------------
+# WebSocket — chat stream
+# ---------------------------------------------------------------------------
 
+@app.websocket("/ws/chat/{session_id}")
+async def ws_chat(websocket: WebSocket, session_id: str) -> None:
+    """Stream a query/response conversation turn over WebSocket.
 
-@app.post("/query", response_model=QueryResponse)
-async def post_query(body: QueryRequest, request: Request):
-    publisher: ZmqPublisher = request.app.state.publisher
-    session = LoCALSession(publisher, session_id=body.session_id)
+    Client sends: ``{"query": "...", "attachments": [...]}``
+    Server streams typed events until the response (+ critique trail) arrive.
+    """
+    await websocket.accept()
+    try:
+        data = await websocket.receive_json()
+    except WebSocketDisconnect:
+        return
 
-    def _run() -> QueryResponse:
-        answer = ""
-        thinking = ""
-        tool_calls: list = []
-        query_id = str(uuid.uuid4())
-        got_response = False
-        for envelope in session.stream(body.query, query_id=query_id, timeout=body.timeout):
-            if envelope.subject == RESPONSE_GENERATION:
-                p = envelope.payload
-                answer = p.get("answer") or ""
-                thinking = p.get("thinking") or ""
-                tool_calls = p.get("tool_calls") or []
-                query_id = p.get("query_id") or query_id
-                got_response = True
-        if not got_response:
-            raise HTTPException(
-                status_code=504,
-                detail=f"Generator did not respond within {body.timeout}s timeout",
-            )
-        return QueryResponse(
-            answer=answer,
-            thinking=thinking,
-            tool_calls=tool_calls,
-            session_id=session.session_id,
-            query_id=query_id,
-        )
+    query: str = data.get("query", "").strip()
+    if not query:
+        await websocket.close(code=1003, reason="Empty query")
+        return
 
+    publisher: ZmqPublisher = websocket.app.state.publisher
+    session = LoCALSession(publisher, session_id=session_id)
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _run)
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def _stream() -> None:
+        try:
+            for env in session.stream(query):
+                asyncio.run_coroutine_threadsafe(queue.put(env), loop)
+        finally:
+            asyncio.run_coroutine_threadsafe(queue.put(None), loop)
+
+    loop.run_in_executor(None, _stream)
+
+    try:
+        while True:
+            env = await queue.get()
+            if env is None:
+                break
+            msg = translate(env)
+            if msg is not None:
+                await websocket.send_json(msg)
+    except WebSocketDisconnect:
+        pass
 
 
-@app.post("/feedback")
-async def post_feedback():
-    raise HTTPException(status_code=501, detail="Feedback endpoint not implemented until Phase 4")
+# ---------------------------------------------------------------------------
+# WebSocket — raw bus stream (developer mode)
+# ---------------------------------------------------------------------------
 
+@app.websocket("/ws/bus/{session_id}")
+async def ws_bus(websocket: WebSocket, session_id: str) -> None:
+    """Stream every bus envelope as JSON for developer mode.
+
+    Subscribes to all subjects (ZMQ empty-string prefix matches everything).
+    No correlation_id filtering — all traffic is forwarded.
+    """
+    await websocket.accept()
+    logger.debug("ws_bus: session %s connected", session_id)
+    loop = asyncio.get_event_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def _subscribe() -> None:
+        sub = ZmqSubscriber(PROXY_BACKEND_ADDR, subscriptions=[""], bind=False)
+        try:
+            while True:
+                msg = sub.receive_with_timeout(200)
+                if msg is not None:
+                    asyncio.run_coroutine_threadsafe(queue.put(msg), loop)
+        finally:
+            sub.close()
+
+    loop.run_in_executor(None, _subscribe)
+
+    try:
+        while True:
+            env: MessageEnvelope = await queue.get()
+            await websocket.send_json({
+                "subject": env.subject,
+                "sender_id": env.sender_id,
+                "correlation_id": env.correlation_id,
+                "payload": env.payload,
+            })
+    except WebSocketDisconnect:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Sessions REST API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/sessions")
+async def list_sessions_endpoint() -> JSONResponse:
+    return JSONResponse(_get_conv().list_sessions())
+
+
+@app.get("/api/sessions/{session_id}")
+async def get_session(session_id: str) -> JSONResponse:
+    history = _get_conv().get_history(session_id)
+    if history is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return JSONResponse({"session_id": session_id, "messages": history})
+
+
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str) -> JSONResponse:
+    _get_conv().delete_session(session_id)
+    return JSONResponse({"deleted": session_id})
+
+
+@app.post("/api/sessions/{session_id}/compact")
+async def compact_session(session_id: str) -> JSONResponse:
+    publisher: ZmqPublisher = app.state.publisher
+    publisher.publish(MessageEnvelope.create(
+        message_type="compaction_request",
+        subject=COMPACTION_REQUEST,
+        sender_id="gateway",
+        payload={"session_id": session_id},
+        correlation_id=str(uuid.uuid4()),
+        metadata={"session_id": session_id},
+    ))
+    return JSONResponse({"status": "compaction_requested", "session_id": session_id})
+
+
+# ---------------------------------------------------------------------------
+# Settings REST API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/settings")
+async def get_all_settings() -> JSONResponse:
+    result: dict[str, Any] = {}
+    for section in list_sections():
+        try:
+            result[section] = read_section(section)
+        except Exception as exc:
+            logger.warning("settings: could not read section %r: %s", section, exc)
+            result[section] = {}
+    return JSONResponse(result)
+
+
+@app.get("/api/settings/{section}")
+async def get_settings_section(section: str) -> JSONResponse:
+    try:
+        return JSONResponse(read_section(section))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.put("/api/settings/{section}")
+async def put_settings_section(section: str, body: dict) -> JSONResponse:
+    try:
+        write_section(section, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    # Notify participants to hot-reload their config.
+    publisher: ZmqPublisher = app.state.publisher
+    publisher.publish(MessageEnvelope.create(
+        message_type="config_reload",
+        subject=CONFIG_RELOAD,
+        sender_id="gateway",
+        payload={"section": section},
+        correlation_id=str(uuid.uuid4()),
+        metadata={},
+    ))
+    return JSONResponse({"saved": section})
+
+
+# ---------------------------------------------------------------------------
+# Feedback
+# ---------------------------------------------------------------------------
+
+class FeedbackRequest(BaseModel):
+    query_id: str
+    session_id: Optional[str] = None
+    sentiment: str  # "positive" | "negative"
+
+
+@app.post("/api/feedback")
+async def post_feedback(body: FeedbackRequest) -> JSONResponse:
+    if body.sentiment not in ("positive", "negative"):
+        raise HTTPException(status_code=422, detail="sentiment must be 'positive' or 'negative'")
+    publisher: ZmqPublisher = app.state.publisher
+    publisher.publish(MessageEnvelope.create(
+        message_type="feedback",
+        subject=USER_FEEDBACK,
+        sender_id="gateway",
+        payload={
+            "query_id": body.query_id,
+            "session_id": body.session_id or "",
+            "sentiment": body.sentiment,
+        },
+        correlation_id=body.query_id,
+        metadata={"session_id": body.session_id or ""},
+    ))
+    return JSONResponse({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# Health + SPA fallback
+# ---------------------------------------------------------------------------
 
 @app.get("/health")
-async def health():
+async def health() -> JSONResponse:
     return JSONResponse({"status": "ok"})
+
+
+@app.get("/{full_path:path}")
+async def spa_fallback(full_path: str = "") -> FileResponse:  # path captured for routing; not used directly
+    """Serve index.html for all non-API, non-asset paths (React client routing)."""
+    index = _FRONTEND_DIST / "index.html"
+    if not index.exists():
+        raise HTTPException(status_code=404, detail="Frontend not built. Run: cd frontend && npm run build")
+    return FileResponse(str(index))

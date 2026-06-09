@@ -1,0 +1,143 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import type {
+  ChatMessage,
+  GatewayEvent,
+  StreamingTurn,
+  ToolCall,
+} from "../types/events";
+import { useWebSocket } from "./useWebSocket";
+
+interface UseChatStreamResult {
+  messages: ChatMessage[];
+  streaming: StreamingTurn | null;
+  isStreaming: boolean;
+  sendQuery: (query: string) => void;
+  sessionId: string;
+}
+
+function isGatewayEvent(v: unknown): v is GatewayEvent {
+  return typeof v === "object" && v !== null && "type" in v;
+}
+
+/**
+ * Manages a chat session over a single WebSocket connection.
+ *
+ * Processes the LoCAL2 gateway event protocol into a flat messages array
+ * plus a streaming-turn object for in-progress responses. The WebSocket URL
+ * embeds the session_id so the backend can correlate envelopes.
+ */
+export function useChatStream(sessionId: string): UseChatStreamResult {
+  const wsUrl =
+    typeof window !== "undefined"
+      ? `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws/chat/${sessionId}`
+      : `/ws/chat/${sessionId}`;
+
+  const { sendJson, onMessage, readyState } = useWebSocket(wsUrl);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [streaming, setStreaming] = useState<StreamingTurn | null>(null);
+  const pendingToolCallsRef = useRef<ToolCall[]>([]);
+  const pendingQueryIdRef = useRef<string>("");
+
+  useEffect(() => {
+    const unsub = onMessage((raw) => {
+      if (!isGatewayEvent(raw)) return;
+      const ev = raw;
+
+      switch (ev.type) {
+        case "thinking_chunk": {
+          setStreaming((prev) =>
+            prev
+              ? { ...prev, thinking: prev.thinking + ev.chunk }
+              : { query_id: ev.query_id, thinking: ev.chunk, active_tool: null }
+          );
+          break;
+        }
+
+        case "tool_start": {
+          pendingQueryIdRef.current = ev.query_id;
+          setStreaming((prev) =>
+            prev
+              ? { ...prev, active_tool: { tool: ev.tool, args: ev.args } }
+              : {
+                  query_id: ev.query_id,
+                  thinking: "",
+                  active_tool: { tool: ev.tool, args: ev.args },
+                }
+          );
+          break;
+        }
+
+        case "tool_result": {
+          // Accumulate completed tool calls; clear the active indicator.
+          pendingToolCallsRef.current = [
+            ...pendingToolCallsRef.current,
+            { tool: ev.tool, args: {}, result: ev.result },
+          ];
+          setStreaming((prev) =>
+            prev ? { ...prev, active_tool: null } : null
+          );
+          break;
+        }
+
+        case "response": {
+          const msg: ChatMessage = {
+            id: ev.query_id,
+            role: "assistant",
+            content: ev.answer,
+            thinking: ev.thinking || undefined,
+            tool_calls:
+              ev.tool_calls.length > 0 ? ev.tool_calls : undefined,
+            prompt_tokens: ev.prompt_tokens,
+          };
+          setMessages((prev) => [...prev, msg]);
+          setStreaming(null);
+          pendingToolCallsRef.current = [];
+          break;
+        }
+
+        case "critique": {
+          // Annotate the most recent assistant message with the critique score.
+          setMessages((prev) => {
+            const idx = prev.findLastIndex((m) => m.id === ev.query_id);
+            if (idx === -1) return prev;
+            const updated = [...prev];
+            updated[idx] = {
+              ...updated[idx],
+              critique: { score: ev.score, feedback: ev.feedback },
+            };
+            return updated;
+          });
+          break;
+        }
+      }
+    });
+    return unsub;
+  }, [onMessage]);
+
+  const sendQuery = useCallback(
+    (query: string) => {
+      if (readyState !== "open" || !query.trim()) return;
+
+      // Append the user message immediately for optimistic UI.
+      const userMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: query,
+      };
+      setMessages((prev) => [...prev, userMsg]);
+      setStreaming({ query_id: "", thinking: "", active_tool: null });
+      pendingToolCallsRef.current = [];
+
+      sendJson({ query });
+    },
+    [readyState, sendJson]
+  );
+
+  return {
+    messages,
+    streaming,
+    isStreaming: streaming !== null,
+    sendQuery,
+    sessionId,
+  };
+}

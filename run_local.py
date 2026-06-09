@@ -99,6 +99,7 @@ def _start_web(port: int) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run LoCAL2")
     parser.add_argument("--desktop", action="store_true", help="Legacy PySide6 UI instead of web")
+    parser.add_argument("--panels", action="store_true", help="Open Qt observer panels alongside the web UI")
     parser.add_argument("--headless", action="store_true", help="Web server only, no browser")
     parser.add_argument("--web-port", type=int, default=8000, metavar="PORT")
     parser.add_argument("--model", default="", metavar="MODEL", help="Ollama model override")
@@ -185,11 +186,30 @@ def main() -> None:
             time.sleep(1.0)
             webbrowser.open(url)
 
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("\n[local] Shutting down.")
+        if args.panels:
+            # Qt observer panels run in the main thread (Qt event loop requirement).
+            import signal as _signal
+            from PySide6.QtCore import QTimer
+            from PySide6.QtWidgets import QApplication
+            from local.ui.monitor_app import MonitorApp
+
+            app_qt = QApplication([])
+            _signal.signal(_signal.SIGINT, lambda *_: app_qt.quit())
+            _sigint_timer = QTimer()
+            _sigint_timer.start(200)
+            _sigint_timer.timeout.connect(lambda: None)
+            _monitor = MonitorApp(
+                memory_service=shared_memory,
+                conversation_service=shared_conv,
+            )
+            app_qt.exec()
+            _monitor.close()
+        else:
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\n[local] Shutting down.")
 
 
 if __name__ == "__main__":

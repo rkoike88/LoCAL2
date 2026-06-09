@@ -102,17 +102,17 @@ export default function App() {
         {isStreaming && streaming && (
           <div className="space-y-2 opacity-70">
             {streaming.thinking && (
-              <pre className="text-xs text-gray-400 whitespace-pre-wrap bg-surface-1 rounded-lg p-3 border border-surface-3 animate-pulse">
+              <pre className="text-xs text-gray-400 whitespace-pre-wrap bg-surface-1 rounded-lg p-3 border border-surface-3">
                 {streaming.thinking}
               </pre>
             )}
             {streaming.active_tool && (
-              <span className="text-xs bg-surface-2 border border-surface-3 rounded px-2 py-0.5 text-accent-muted animate-pulse">
+              <span className="text-xs bg-surface-2 border border-surface-3 rounded px-2 py-0.5 text-accent-muted">
                 {streaming.active_tool.tool}…
               </span>
             )}
             {!streaming.thinking && !streaming.active_tool && (
-              <span className="text-xs text-gray-500 animate-pulse">
+              <span className="text-xs text-gray-500">
                 generating…
               </span>
             )}

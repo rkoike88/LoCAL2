@@ -205,6 +205,7 @@ export default function App() {
         sessions={sessions}
         activeSessionId={activeSessionId}
         open={sidebarOpen}
+        onToggle={() => setSidebarOpen((o) => !o)}
         onNewChat={handleNewChat}
         onSelectSession={handleSelectSession}
         onDeleteSession={handleDeleteSession}
@@ -213,14 +214,7 @@ export default function App() {
       {/* Chat panel */}
       <div className="flex flex-col flex-1 min-w-0">
         {/* Header */}
-        <header className="shrink-0 px-4 py-3 border-b border-surface-3 flex items-center gap-3">
-          <button
-            onClick={() => setSidebarOpen((o) => !o)}
-            title={sidebarOpen ? "Close sidebar" : "Open sidebar"}
-            className="text-gray-600 hover:text-gray-300 transition-colors p-1 rounded"
-          >
-            <SidebarIcon />
-          </button>
+        <header className="shrink-0 px-6 py-3 border-b border-surface-3 flex items-center gap-3">
           <span className="text-gray-400 text-sm">
             {isStreaming ? (
               <span className="flex items-center gap-1.5">
@@ -300,15 +294,6 @@ export default function App() {
         </div>
       </div>
     </div>
-  );
-}
-
-function SidebarIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-      <rect x="1.5" y="1.5" width="15" height="15" rx="2" />
-      <line x1="6" y1="1.5" x2="6" y2="16.5" />
-    </svg>
   );
 }
 

@@ -12,7 +12,8 @@ interface UseChatStreamResult {
   streaming: StreamingTurn | null;
   isStreaming: boolean;
   sendQuery: (query: string) => void;
-  sessionId: string;
+  loadHistory: (msgs: ChatMessage[]) => void;
+  tokenCount: number;
 }
 
 function isGatewayEvent(v: unknown): v is GatewayEvent {
@@ -25,8 +26,14 @@ function isGatewayEvent(v: unknown): v is GatewayEvent {
  * Processes the LoCAL2 gateway event protocol into a flat messages array
  * plus a streaming-turn object for in-progress responses. The WebSocket URL
  * embeds the session_id so the backend can correlate envelopes.
+ *
+ * @param sessionId - Active session; changing this reconnects the WebSocket.
+ * @param onResponse - Optional callback fired after each completed response.
  */
-export function useChatStream(sessionId: string): UseChatStreamResult {
+export function useChatStream(
+  sessionId: string,
+  onResponse?: () => void
+): UseChatStreamResult {
   const wsUrl =
     typeof window !== "undefined"
       ? `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws/chat/${sessionId}`
@@ -35,8 +42,11 @@ export function useChatStream(sessionId: string): UseChatStreamResult {
   const { sendJson, onMessage, readyState } = useWebSocket(wsUrl);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState<StreamingTurn | null>(null);
+  const [tokenCount, setTokenCount] = useState(0);
   const pendingToolCallsRef = useRef<ToolCall[]>([]);
   const pendingQueryIdRef = useRef<string>("");
+  const onResponseRef = useRef(onResponse);
+  onResponseRef.current = onResponse;
 
   useEffect(() => {
     const unsub = onMessage((raw) => {
@@ -89,9 +99,11 @@ export function useChatStream(sessionId: string): UseChatStreamResult {
               ev.tool_calls.length > 0 ? ev.tool_calls : undefined,
             prompt_tokens: ev.prompt_tokens,
           };
+          if (ev.prompt_tokens) setTokenCount(ev.prompt_tokens);
           setMessages((prev) => [...prev, msg]);
           setStreaming(null);
           pendingToolCallsRef.current = [];
+          onResponseRef.current?.();
           break;
         }
 
@@ -133,11 +145,19 @@ export function useChatStream(sessionId: string): UseChatStreamResult {
     [readyState, sendJson]
   );
 
+  const loadHistory = useCallback((msgs: ChatMessage[]) => {
+    setMessages(msgs);
+    setStreaming(null);
+    setTokenCount(0);
+    pendingToolCallsRef.current = [];
+  }, []);
+
   return {
     messages,
     streaming,
     isStreaming: streaming !== null,
     sendQuery,
-    sessionId,
+    loadHistory,
+    tokenCount,
   };
 }

@@ -1,0 +1,62 @@
+import { useCallback, useEffect, useState } from "react";
+import type { ChatMessage } from "../types/events";
+
+export interface SessionMeta {
+  session_id: string;
+  title: string;
+  message_count: number;
+  started_at: number;
+  last_active: number;
+}
+
+export interface UseSessionsResult {
+  sessions: SessionMeta[];
+  fetchSessions: () => Promise<void>;
+  loadSession: (id: string) => Promise<ChatMessage[]>;
+  deleteSession: (id: string) => Promise<void>;
+}
+
+export function useSessions(): UseSessionsResult {
+  const [sessions, setSessions] = useState<SessionMeta[]>([]);
+
+  const fetchSessions = useCallback(async () => {
+    try {
+      const res = await fetch("/api/sessions");
+      if (res.ok) setSessions(await res.json());
+    } catch {
+      // ignore network errors
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
+
+  const loadSession = useCallback(async (id: string): Promise<ChatMessage[]> => {
+    try {
+      const res = await fetch(`/api/sessions/${id}`);
+      if (!res.ok) return [];
+      const data: { messages: Array<{ role: string; content: string }> } =
+        await res.json();
+      return (data.messages ?? [])
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({
+          id: crypto.randomUUID(),
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        }));
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const deleteSession = useCallback(
+    async (id: string) => {
+      await fetch(`/api/sessions/${id}`, { method: "DELETE" });
+      fetchSessions();
+    },
+    [fetchSessions]
+  );
+
+  return { sessions, fetchSessions, loadSession, deleteSession };
+}

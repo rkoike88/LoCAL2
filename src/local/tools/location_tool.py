@@ -57,17 +57,39 @@ def _from_config() -> str | None:
 
 
 def _from_ip() -> str:
-    """Fetch location from ipinfo.io. Raises on network error."""
-    resp = httpx.get("https://ipinfo.io/json", timeout=5.0)
+    """Fetch location from ipinfo.io with ip-api.com fallback. Raises if both fail."""
+    # Primary: ipinfo.io
+    try:
+        resp = httpx.get("https://ipinfo.io/json", timeout=5.0)
+        resp.raise_for_status()
+        data = resp.json()
+        parts = [data.get("city", ""), data.get("region", ""), data.get("country", "")]
+        location = ", ".join(p for p in parts if p)
+        extras = []
+        if data.get("timezone"):
+            extras.append(data["timezone"])
+        if data.get("loc"):
+            extras.append(_format_coords(data["loc"]))
+        if extras:
+            location += f" ({', '.join(extras)})"
+        return location
+    except Exception as exc:
+        logger.warning("LocationTool: ipinfo.io failed (%s), trying ip-api.com", exc)
+
+    # Fallback: ip-api.com
+    resp = httpx.get("http://ip-api.com/json", timeout=5.0)
     resp.raise_for_status()
     data = resp.json()
-    parts = [data.get("city", ""), data.get("region", ""), data.get("country", "")]
+    if data.get("status") != "success":
+        raise RuntimeError(f"ip-api.com returned status={data.get('status')}")
+    parts = [data.get("city", ""), data.get("regionName", ""), data.get("country", "")]
     location = ", ".join(p for p in parts if p)
     extras = []
     if data.get("timezone"):
         extras.append(data["timezone"])
-    if data.get("loc"):
-        extras.append(_format_coords(data["loc"]))
+    lat, lon = data.get("lat"), data.get("lon")
+    if lat is not None and lon is not None:
+        extras.append(_format_coords(f"{lat},{lon}"))
     if extras:
         location += f" ({', '.join(extras)})"
     return location

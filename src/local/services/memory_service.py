@@ -30,6 +30,17 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryService:
+    """Episodic and topic memory backed by ChromaDB.
+
+    Two logical stores share a single ChromaDB collection, distinguished
+    by a ``type`` metadata field:
+
+    - **Topic store** — exact lookup by deterministic ID
+      (``"topic:<key>"``). Use for standing facts like user preferences.
+    - **Episodic store** — Q+A traces retrieved by embedding similarity
+      with entity overlap and critic score re-ranking.
+    """
+
     def __init__(
         self,
         chroma_path: Optional[str] = None,
@@ -37,6 +48,18 @@ class MemoryService:
         embed_model: Optional[str] = None,
         n_results: Optional[int] = None,
     ) -> None:
+        """Initialize the memory store.
+
+        All parameters fall back to ``config/memory.yaml`` when ``None``:
+        ``embed_model``, ``n_results``, ``chroma_path``, ``collection``.
+
+        Args:
+            chroma_path: Override ChromaDB storage path. Tests typically
+                pass a ``tmp_path`` fixture here.
+            collection_name: Override ChromaDB collection name.
+            embed_model: Override Ollama embedding model.
+            n_results: Override default candidate count for similarity search.
+        """
         cfg = get_config("memory")
         self._embed_model = embed_model or cfg.get("embed_model", "nomic-embed-text")
         self._n_results = n_results or cfg.get("n_results", 5)
@@ -77,11 +100,20 @@ class MemoryService:
         metadata: Optional[dict[str, Any]] = None,
         query_id: Optional[str] = None,
     ) -> str:
-        """Write a Q+A pair as an episodic engram. Returns the engram ID.
+        """Write a Q+A pair as an episodic engram.
 
-        query_id, when provided, is used as the ChromaDB document ID so
-        CriticAgent can later call update_engram_score() with the same ID.
-        Falls back to a random UUID if omitted.
+        Args:
+            query: The user's question.
+            answer: The agent's response.
+            metadata: Optional enrichment. Supported keys: ``intent`` (str),
+                ``entities`` (list[str]), ``respondent_id`` (str, default
+                ``"A"``), ``session_id`` (str).
+            query_id: When provided, used as the ChromaDB document ID so
+                CriticAgent can later annotate the same record via
+                ``update_engram_score()``. Falls back to a random UUID.
+
+        Returns:
+            The engram ID (``query_id`` if supplied, otherwise a UUID).
         """
         content = f"{query}\n{answer}"
         embedding = self._embed_document(content)
@@ -117,10 +149,23 @@ class MemoryService:
         query: str,
         n: Optional[int] = None,
     ) -> list[dict[str, Any]]:
-        """Return top-n episodic engrams by similarity, with entity overlap boost.
+        """Return the top-n most relevant episodic engrams by meaning.
 
-        Candidates with stored entities that appear in the query text are
-        boosted. Candidates without entity metadata pass through unmodified.
+        Fetches ``3 × n`` candidates from Chroma and re-ranks by a composite
+        score:
+
+        - Base: ``1.0 - cosine_distance``
+        - Entity overlap: ``+0.1`` if any stored entity appears in the query
+        - Critic offset: ``+(critic_score - 3) × critic_score_weight``
+
+        Args:
+            query: Natural-language search text; embedded with the
+                ``"search_query:"`` nomic prefix.
+            n: Max results to return. Defaults to ``config n_results``.
+
+        Returns:
+            List of dicts with keys ``content``, ``metadata``, ``score``,
+            sorted by ``score`` descending. Returns ``[]`` on Chroma errors.
         """
         n = n or self._n_results
         fetch_n = n * 3
@@ -182,12 +227,18 @@ class MemoryService:
         ]
 
     def update_engram_score(self, query_id: str, score: int) -> None:
-        """Merge critic_score into an existing engram's metadata.
+        """Merge ``critic_score`` into an existing engram's metadata.
 
-        Reads existing metadata first so the update does not wipe type,
-        query, timestamp, intent, or entities — ChromaDB update() replaces
-        the entire metadata dict, not individual fields.
-        Logs a warning and returns cleanly if the engram is not found.
+        Reads the existing metadata first to avoid wiping ``type``,
+        ``query``, ``timestamp``, ``intent``, or ``entities`` — ChromaDB
+        ``update()`` replaces the entire metadata dict, not individual fields.
+
+        Args:
+            query_id: The engram ID returned by ``write_episodic()``.
+            score: Absolute critic score (1–5).
+
+        Note:
+            Logs a warning and returns cleanly if the engram is not found.
         """
         result = self._collection.get(ids=[query_id])
         if not result.get("ids"):
@@ -199,9 +250,18 @@ class MemoryService:
         logger.debug("MemoryService: updated critic_score=%d on engram %s", score, query_id)
 
     def annotate_pairwise(self, query_id_a: str, query_id_b: str, winner: str) -> None:
-        """Write pairwise_winner: True/False to both engrams.
+        """Write ``pairwise_winner`` (bool) to both engrams.
 
-        winner: 'A' or 'B' — the respondent whose answer was judged better.
+        Args:
+            query_id_a: Engram ID for respondent A.
+            query_id_b: Engram ID for respondent B.
+            winner: ``"A"`` or ``"B"`` — the respondent whose answer was
+                judged better. The winning engram gets ``pairwise_winner=True``,
+                the other gets ``False``.
+
+        Note:
+            Uses the same read-before-write pattern as ``update_engram_score``
+            to preserve existing metadata fields.
         """
         for qid, respondent in ((query_id_a, "A"), (query_id_b, "B")):
             result = self._collection.get(ids=[qid])
@@ -217,9 +277,16 @@ class MemoryService:
             )
 
     def update_engram_sentiment(self, query_id: str, sentiment: str) -> None:
-        """Merge user_sentiment into an existing engram's metadata.
+        """Merge ``user_sentiment`` into an existing engram's metadata.
 
-        sentiment: "positive" (+1) or "negative" (-1) stored as integer.
+        Args:
+            query_id: The engram ID returned by ``write_episodic()``.
+            sentiment: ``"positive"`` (stored as ``+1``) or
+                ``"negative"`` (stored as ``-1``).
+
+        Note:
+            Uses the same read-before-write pattern as ``update_engram_score``
+            to preserve existing metadata fields.
         """
         value = 1 if sentiment == "positive" else -1
         result = self._collection.get(ids=[query_id])

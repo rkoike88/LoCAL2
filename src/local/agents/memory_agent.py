@@ -28,6 +28,15 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryAgent:
+    """Episodic memory auto-ingest agent.
+
+    System-triggered: subscribes to ``response.generation`` (ingest Q+A),
+    ``critique.result`` (annotate with score), and ``pairwise.result``
+    (annotate with pairwise winner). Runs a small LLM call to classify
+    intent and extract entities before each write. Classification failure
+    never blocks the ingest — the engram is written without those fields.
+    """
+
     AGENT_ID = "memory_agent"
 
     def __init__(
@@ -35,6 +44,17 @@ class MemoryAgent:
         memory_service: MemoryService | None = None,
         llm: OllamaBackend | None = None,
     ) -> None:
+        """Initialize the MemoryAgent.
+
+        Config keys read from ``config/memory.yaml``: ``model``,
+        ``classify_prompt``.
+
+        Args:
+            memory_service: Injected for testing; defaults to a fresh
+                ``MemoryService``.
+            llm: Injected for testing; defaults to an ``OllamaBackend``
+                built from config.
+        """
         cfg = get_config("memory")
         model = cfg.get("model", "gemma4:e4b")
         self._classify_prompt: str = cfg.get("classify_prompt", "").strip()
@@ -59,6 +79,11 @@ class MemoryAgent:
                 self._handle_pairwise(envelope)
 
     def _do_transition(self, action: MemoryAgentAction) -> None:
+        """Execute a state machine transition and publish ``AGENT_TRANSITION``.
+
+        The publish is wrapped in try/except — transition logging must never
+        propagate and interrupt memory writes.
+        """
         from_state = self._sm.state
         to_state = self._sm.transition(action)
         try:
@@ -144,7 +169,21 @@ class MemoryAgent:
             self._do_transition(MemoryAgentAction.COMPLETE)
 
     def _classify(self, query: str, answer: str) -> dict:
-        """Call LLM to classify intent and extract entities. Returns {} on failure."""
+        """Classify intent and extract named entities via the small LLM.
+
+        Expects the LLM to return a JSON object with ``intent`` and
+        ``entities`` keys. Valid intent values: ``"fact"``,
+        ``"explanation"``, ``"comparison"``, ``"procedure"``. Any other
+        value is discarded.
+
+        Args:
+            query: The user's question.
+            answer: The agent's response, truncated to 500 chars in the prompt.
+
+        Returns:
+            Dict with ``intent`` (str) and ``entities`` (list[str]),
+            or ``{}`` if the LLM returns no text or unparseable JSON.
+        """
         prompt = self._classify_prompt.format(query=query, answer=answer[:500])
         text, _ = self._llm.chat([{"role": "user", "content": prompt}])
         if not text:

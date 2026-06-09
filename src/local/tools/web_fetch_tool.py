@@ -3,16 +3,14 @@ from __future__ import annotations
 
 import logging
 
-from local.config_loader import ConfigManager, get_config
+from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     TOOL_ACTIVITY_WEB_FETCH,
     TOOL_REQUEST_WEB_FETCH,
     TOOL_RESULT_WEB_FETCH,
-    TOOL_SCHEMA,
-    TOOL_SCHEMA_REQUEST,
 )
-from local.transport.bus_config import make_participant_bus
+from local.tools.base_tool import BaseTool
 
 logger = logging.getLogger(__name__)
 
@@ -24,29 +22,18 @@ _USER_AGENT = (
 )
 
 
-class WebFetchTool:
+class WebFetchTool(BaseTool):
     TOOL_ID = "web_fetch_tool"
+    TOOL_NAME = "web_fetch"
+    ACTIVITY_SUBJECT = TOOL_ACTIVITY_WEB_FETCH
+    CONFIG_NAME = CONFIG_NAME
 
     def __init__(self) -> None:
         cfg = get_config(CONFIG_NAME)
         self._max_chars: int = cfg.get("max_chars", 3000)
         self._timeout: float = cfg.get("timeout", 15)
-        self._pub, self._sub = make_participant_bus([TOOL_REQUEST_WEB_FETCH, TOOL_SCHEMA_REQUEST])
-
-    def run(self) -> None:
-        self._announce_schema()
+        super().__init__(TOOL_REQUEST_WEB_FETCH)
         logger.info("web_fetch_tool: max_chars=%s  timeout=%s", self._max_chars, self._timeout)
-        while True:
-            try:
-                envelope = self._sub.receive()
-            except Exception as exc:
-                logger.error("WebFetchTool: receive error: %s", exc)
-                continue
-            if envelope.subject == TOOL_SCHEMA_REQUEST:
-                ConfigManager.invalidate(CONFIG_NAME)
-                self._announce_schema()
-            elif envelope.subject == TOOL_REQUEST_WEB_FETCH:
-                self._handle_request(envelope)
 
     def _build_schema(self) -> dict:
         cfg = get_config(CONFIG_NAME)
@@ -55,7 +42,7 @@ class WebFetchTool:
         return {
             "type": "function",
             "function": {
-                "name": "web_fetch",
+                "name": self.TOOL_NAME,
                 "description": description,
                 "parameters": {
                     "type": "object",
@@ -66,14 +53,6 @@ class WebFetchTool:
                 },
             },
         }
-
-    def _announce_schema(self) -> None:
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_schema",
-            subject=TOOL_SCHEMA,
-            sender_id=self.TOOL_ID,
-            payload={"schema": self._build_schema()},
-        ))
 
     def _handle_request(self, envelope: MessageEnvelope) -> None:
         args: dict = envelope.payload.get("args", {})
@@ -94,7 +73,7 @@ class WebFetchTool:
             message_type="tool_result",
             subject=TOOL_RESULT_WEB_FETCH,
             sender_id=self.TOOL_ID,
-            payload={"result": result, "tool": "web_fetch"},
+            payload={"result": result, "tool": self.TOOL_NAME},
             correlation_id=correlation_id,
             metadata={},
         ))
@@ -118,13 +97,3 @@ class WebFetchTool:
         if len(content) > self._max_chars:
             content = content[:self._max_chars] + f"\n[truncated at {self._max_chars} chars]"
         return content
-
-    def _publish_activity(self, event_type: str, data: dict, correlation_id: str | None) -> None:
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_activity",
-            subject=TOOL_ACTIVITY_WEB_FETCH,
-            sender_id=self.TOOL_ID,
-            payload={"event": event_type, "tool": "web_fetch", **data},
-            correlation_id=correlation_id or "",
-            metadata={},
-        ))

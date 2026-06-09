@@ -15,12 +15,25 @@ SERVICE_ID = "reward_service"
 
 
 class RewardService:
+    """Routes user thumbs-up/down feedback to memory and broadcasts reward events.
+
+    Subscribes to ``user.feedback``. On each event, annotates the corresponding
+    episodic engram with the sentiment and publishes ``reward.event`` so
+    downstream agents can act on the signal.
+    """
+
     def __init__(self, memory_service: MemoryService | None = None) -> None:
+        """Initialize the RewardService.
+
+        Args:
+            memory_service: Injected for testing; defaults to a fresh
+                ``MemoryService``.
+        """
         self._memory = memory_service or MemoryService()
         self._pub, self._sub = make_participant_bus([USER_FEEDBACK])
 
     def run(self) -> None:
-        print("[reward_service] ready")
+        logger.info("reward_service ready")
         while True:
             try:
                 envelope = self._sub.receive()
@@ -34,6 +47,13 @@ class RewardService:
                     logger.error("RewardService: unhandled error: %s", exc, exc_info=True)
 
     def _handle_feedback(self, envelope: MessageEnvelope) -> None:
+        """Handle a ``user.feedback`` event.
+
+        Args:
+            envelope: Payload must contain ``query_id`` (str) and
+                ``sentiment`` (``"positive"`` or ``"negative"``). Logs a
+                warning and returns if either field is missing or invalid.
+        """
         payload = envelope.payload
         query_id: str = payload.get("query_id") or ""
         session_id: str = payload.get("session_id") or ""

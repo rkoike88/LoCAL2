@@ -13,11 +13,27 @@ def _repo_root() -> Path:
 
 
 class ConfigManager:
+    """In-process cache of YAML configs loaded from ``config/<name>.yaml``.
+
+    All agents and services call ``get_config(name)`` rather than reading
+    YAML directly. Cache is process-wide (class-level dict). Call
+    ``invalidate(name)`` to force a fresh read on next access — used by
+    ``BaseTool`` when it receives a ``TOOL_SCHEMA_REQUEST``.
+    """
+
     _configs: dict[str, dict[str, Any]] = {}
 
     @classmethod
     def load(cls, name: str) -> dict[str, Any]:
-        """Load config/<name>.yaml, caching the result."""
+        """Load ``config/<name>.yaml``, caching the result in-process.
+
+        Args:
+            name: Config file stem (e.g. ``"generator"`` loads
+                ``config/generator.yaml``).
+
+        Returns:
+            Parsed YAML as a dict, or ``{}`` if the file is absent.
+        """
         if name in cls._configs:
             return cls._configs[name]
         config_path = _repo_root() / "config" / f"{name}.yaml"
@@ -49,4 +65,12 @@ class ConfigManager:
 
 
 def get_config(name: str) -> dict[str, Any]:
+    """Return the config dict for ``config/<name>.yaml``, caching on first read.
+
+    Args:
+        name: Config file stem (e.g. ``"generator"`` → ``config/generator.yaml``).
+
+    Returns:
+        Parsed YAML as a dict, or ``{}`` if the file is absent.
+    """
     return ConfigManager.load(name)

@@ -48,12 +48,33 @@ def _chunk_id(collection: str, source_file: str, chunk_index: int) -> str:
 
 
 class DocumentService:
+    """RAG document knowledge base backed by ChromaDB.
+
+    Documents are chunked, embedded, and stored with a ``collection``
+    metadata field for logical grouping. Chunk IDs are deterministic
+    (SHA-256 of ``collection::source_file::chunk_index``) so re-ingesting
+    a file is safe — existing chunks are upserted, not duplicated.
+    """
+
     def __init__(
         self,
         chroma_path: Optional[str] = None,
         collection_name: Optional[str] = None,
         embed_model: Optional[str] = None,
     ) -> None:
+        """Initialize the document store.
+
+        All parameters fall back to ``config/documents.yaml`` when ``None``:
+        ``embed_model``, ``chunk_size`` (default 1500), ``chunk_overlap``
+        (default 200), ``n_results`` (default 5), ``chroma_path``,
+        ``collection`` (default ``"collective.documents"``).
+
+        Args:
+            chroma_path: Override ChromaDB storage path. Tests typically
+                pass a ``tmp_path`` fixture here.
+            collection_name: Override ChromaDB collection name.
+            embed_model: Override Ollama embedding model.
+        """
         cfg = get_config(_CONFIG) or {}
         self._embed_model = embed_model or cfg.get("embed_model", "nomic-embed-text")
         self._chunk_size = cfg.get("chunk_size", 1500)
@@ -81,7 +102,20 @@ class DocumentService:
     def ingest_file(self, path: str, collection: str, on_progress=None) -> int:
         """Chunk, embed, and store a file into the named collection.
 
-        Returns number of chunks written.
+        Dispatches to ``_ingest_pdf`` for ``.pdf`` or ``ingest_text`` for
+        plain text formats. Raises ``ValueError`` for unsupported extensions.
+
+        Args:
+            path: Absolute path to the file.
+            collection: Logical collection name (must exist in documents.yaml).
+            on_progress: Optional callable ``(current: int, total: int)``
+                called after each page (PDF) or chunk (text) is embedded.
+
+        Returns:
+            Number of chunks written.
+
+        Raises:
+            ValueError: If the file extension is not supported.
         """
         from pathlib import Path as _Path
         from local.utils.file_extract import PDF_EXT, TEXT_EXTS, extract_text
@@ -169,10 +203,20 @@ class DocumentService:
     # ------------------------------------------------------------------
 
     def search(self, query: str, collection: Optional[str] = None, n: Optional[int] = None) -> list[dict]:
-        """Return top-n chunks by similarity.
+        """Return the top-n most similar document chunks.
 
-        collection=None searches across all collections.
-        Each result: {content, source_file, collection, chunk_index, page?, score}
+        Args:
+            query: Natural-language search text; embedded with the
+                ``"search_query:"`` nomic prefix.
+            collection: Restrict results to this collection. ``None``
+                searches across all collections.
+            n: Max results. Defaults to ``config n_results``.
+
+        Returns:
+            List of dicts with keys ``content``, ``source_file``,
+            ``collection``, ``chunk_index``, ``score``, and optionally
+            ``page`` (for PDF-sourced chunks). Returns ``[]`` on errors
+            or when the store is empty.
         """
         n = n or self._n_results
         total = self._chroma_col.count()
@@ -271,9 +315,16 @@ class DocumentService:
     def move_source(self, source_file: str, from_collection: str, to_collection: str) -> int:
         """Move all chunks of source_file from one collection to another.
 
-        Uses get+upsert+delete so all metadata fields are preserved.
+        Uses get → upsert (new collection-scoped IDs) → delete (old IDs).
         Embeddings are reused from Chroma — no Ollama call needed.
-        Returns number of chunks moved.
+
+        Args:
+            source_file: Filename as stored in chunk metadata (not a full path).
+            from_collection: Source collection name.
+            to_collection: Destination collection name.
+
+        Returns:
+            Number of chunks moved, or ``0`` on error or if no chunks matched.
         """
         try:
             where = {"$and": [{"source_file": {"$eq": source_file}},

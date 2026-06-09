@@ -8,7 +8,7 @@ from local.protocol.subjects import TOOL_RESULT_WEB_FETCH, TOOL_SCHEMA
 
 
 def _make_tool(max_chars=200) -> WebFetchTool:
-    with patch("local.tools.web_fetch_tool.make_participant_bus") as mock_bus, \
+    with patch("local.tools.base_tool.make_participant_bus") as mock_bus, \
          patch("local.tools.web_fetch_tool.get_config") as mock_cfg:
         mock_cfg.return_value = {"max_chars": max_chars, "timeout": 5}
         mock_pub = MagicMock()

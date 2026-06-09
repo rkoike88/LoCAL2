@@ -115,7 +115,7 @@ class TestSearchPapers:
 
 class TestSemanticScholarToolBus:
     def _make_tool(self):
-        with patch("local.tools.semantic_scholar_tool.make_participant_bus") as mock_bus:
+        with patch("local.tools.base_tool.make_participant_bus") as mock_bus:
             mock_pub, mock_sub = MagicMock(), MagicMock()
             mock_bus.return_value = (mock_pub, mock_sub)
             tool = SemanticScholarTool()

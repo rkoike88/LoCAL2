@@ -42,7 +42,7 @@ class TestGetDatetime:
 
 class TestDateTimeToolBus:
     def _make_tool(self):
-        with patch("local.tools.datetime_tool.make_participant_bus") as mock_bus:
+        with patch("local.tools.base_tool.make_participant_bus") as mock_bus:
             mock_pub = MagicMock()
             mock_sub = MagicMock()
             mock_bus.return_value = (mock_pub, mock_sub)

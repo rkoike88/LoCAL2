@@ -1,3 +1,4 @@
+"""MemoryAgent transition table and StateMachine executor."""
 from local.agents.memory_agent_actions import MemoryAgentAction
 from local.agents.memory_agent_states import MemoryAgentState
 

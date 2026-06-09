@@ -12,6 +12,12 @@ class ZmqPublisher:
     """Publishes MessageEnvelope objects over a ZeroMQ PUB socket."""
 
     def __init__(self, address: str, bind: bool = True):
+        """
+        Args:
+            address: ZeroMQ address string (e.g. ``"tcp://127.0.0.1:5570"``).
+            bind: If ``True``, socket binds to the address (server side). Bus
+                participants always connect (``bind=False``); the proxy binds.
+        """
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.PUB)
         if bind:
@@ -34,6 +40,15 @@ class ZmqSubscriber:
     """Subscribes to one or more subjects over a ZeroMQ SUB socket."""
 
     def __init__(self, address: str, subscriptions: list[str], bind: bool = False):
+        """
+        Args:
+            address: ZeroMQ address string for the XPUB proxy backend.
+            subscriptions: Subject prefixes to subscribe to. ZMQ
+                prefix-matches on the topic frame, so ``"tool.result"``
+                matches all subjects starting with that string.
+            bind: If ``True``, socket binds (server side). Participants
+                always connect (default ``False``).
+        """
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.SUB)
         if bind:

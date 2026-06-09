@@ -32,7 +32,18 @@ PROXY_BACKEND_BIND_ADDR = f"tcp://0.0.0.0:{_proxy_backend_port}"
 
 
 def make_participant_bus(subscriptions: list[str]) -> tuple[ZmqPublisher, ZmqSubscriber]:
-    """Return (publisher, subscriber) wired to the proxy for a bus participant."""
+    """Create a connected publisher+subscriber pair for a bus participant.
+
+    Args:
+        subscriptions: Bus subjects to subscribe to. Include every
+            ``tool.request.*`` or agent subject the caller needs to receive.
+            ``TOOL_SCHEMA_REQUEST`` is added automatically by ``BaseTool``.
+
+    Returns:
+        A ``(ZmqPublisher, ZmqSubscriber)`` tuple connected to the proxy.
+        All participants share the same proxy addresses (``PROXY_FRONTEND_ADDR``
+        for publishing, ``PROXY_BACKEND_ADDR`` for receiving).
+    """
     publisher = ZmqPublisher(PROXY_FRONTEND_ADDR, bind=False)
     subscriber = ZmqSubscriber(PROXY_BACKEND_ADDR, subscriptions=subscriptions, bind=False)
     return publisher, subscriber

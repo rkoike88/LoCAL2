@@ -19,14 +19,11 @@ from local.protocol.subjects import (
     TOOL_ACTIVITY_SEARCH_PAPERS,
     TOOL_REQUEST_SEARCH_PAPERS,
     TOOL_RESULT_SEARCH_PAPERS,
-    TOOL_SCHEMA,
-    TOOL_SCHEMA_REQUEST,
 )
-from local.transport.bus_config import make_participant_bus
+from local.tools.base_tool import BaseTool
 
 logger = logging.getLogger(__name__)
 
-TOOL_NAME = "search_papers"
 _API_BASE = "https://api.semanticscholar.org/graph/v1/paper/search"
 _DEFAULT_FIELDS = "title,authors,year,abstract,citationCount,url,externalIds"
 
@@ -34,34 +31,6 @@ _DEFAULT_FIELDS = "title,authors,year,abstract,citationCount,url,externalIds"
 # Enforce minimum gap between requests to avoid 429s from rapid consecutive calls.
 _rate_lock = threading.Lock()
 _last_request_at: float = 0.0
-
-_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": TOOL_NAME,
-        "description": (
-            "Searches the Semantic Scholar academic paper database and returns ranked "
-            "results with titles, authors, years, citation counts, abstracts, and URLs. "
-            "Call this tool for any question about research papers, scientific studies, "
-            "academic literature, or when the user asks to find papers on a topic. "
-            "Do not guess at citations or paper details — always call this tool."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Research topic, keywords, or paper title to search for.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum number of papers to return (default 5, max 10).",
-                },
-            },
-            "required": ["query"],
-        },
-    },
-}
 
 
 def _throttled_get(params: dict, headers: dict, timeout: float, min_gap: float) -> httpx.Response:
@@ -139,38 +108,50 @@ def _search_papers(query: str, limit: int) -> str:
     return "\n".join(lines).rstrip()
 
 
-class SemanticScholarTool:
+class SemanticScholarTool(BaseTool):
     TOOL_ID = "semantic_scholar_tool"
+    TOOL_NAME = "search_papers"
+    ACTIVITY_SUBJECT = TOOL_ACTIVITY_SEARCH_PAPERS
 
     def __init__(self) -> None:
-        self._pub, self._sub = make_participant_bus([TOOL_REQUEST_SEARCH_PAPERS, TOOL_SCHEMA_REQUEST])
+        super().__init__(TOOL_REQUEST_SEARCH_PAPERS)
 
-    def run(self) -> None:
-        self._announce_schema()
-        logger.info("semantic_scholar_tool ready")
-        while True:
-            try:
-                envelope = self._sub.receive()
-            except Exception as exc:
-                logger.error("SemanticScholarTool: receive error: %s", exc)
-                continue
-            if envelope.subject == TOOL_SCHEMA_REQUEST:
-                self._announce_schema()
-            elif envelope.subject == TOOL_REQUEST_SEARCH_PAPERS:
-                self._handle_request(envelope)
-
-    def _announce_schema(self) -> None:
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_schema",
-            subject=TOOL_SCHEMA,
-            sender_id=self.TOOL_ID,
-            payload={"schema": _SCHEMA},
-        ))
+    def _build_schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.TOOL_NAME,
+                "description": (
+                    "Searches the Semantic Scholar academic paper database and returns ranked "
+                    "results with titles, authors, years, citation counts, abstracts, and URLs. "
+                    "Call this tool for any question about research papers, scientific studies, "
+                    "academic literature, or when the user asks to find papers on a topic. "
+                    "Do not guess at citations or paper details — always call this tool."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Research topic, keywords, or paper title to search for.",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of papers to return (default 5, max 10).",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+        }
 
     def _handle_request(self, envelope: MessageEnvelope) -> None:
         args = envelope.payload.get("args") or {}
         query = args.get("query", "")
         limit = int(args.get("limit") or 5)
+        correlation_id = envelope.correlation_id
+
+        self._publish_activity("request", {"query": query, "limit": limit}, correlation_id)
 
         try:
             result = _search_papers(query, limit)
@@ -178,19 +159,13 @@ class SemanticScholarTool:
             logger.warning("SemanticScholarTool: search failed: %s", exc)
             result = f"Search failed: {exc}"
 
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_activity",
-            subject=TOOL_ACTIVITY_SEARCH_PAPERS,
-            sender_id=self.TOOL_ID,
-            payload={"request": {"query": query, "limit": limit}, "result": result},
-            correlation_id=envelope.correlation_id,
-        ))
+        self._publish_activity("result", {"result": result}, correlation_id)
         self._pub.publish(MessageEnvelope.create(
             message_type="tool_result",
             subject=TOOL_RESULT_SEARCH_PAPERS,
             sender_id=self.TOOL_ID,
             payload={"result": result},
-            correlation_id=envelope.correlation_id,
+            correlation_id=correlation_id,
         ))
 
 

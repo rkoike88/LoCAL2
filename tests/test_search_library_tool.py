@@ -8,7 +8,7 @@ from local.tools.search_library_tool import SearchLibraryTool
 
 def _make_tool(collections: list[dict] | None = None) -> SearchLibraryTool:
     """Build a SearchLibraryTool with mocked bus and configurable collections."""
-    with patch("local.tools.search_library_tool.make_participant_bus") as mock_bus:
+    with patch("local.tools.base_tool.make_participant_bus") as mock_bus:
         mock_pub = MagicMock()
         mock_sub = MagicMock()
         mock_bus.return_value = (mock_pub, mock_sub)
@@ -95,7 +95,7 @@ class TestSchemaGeneration:
 class TestCollectionRouting:
     def setup_method(self):
         self.docs = MagicMock()
-        with patch("local.tools.search_library_tool.make_participant_bus") as mock_bus:
+        with patch("local.tools.base_tool.make_participant_bus") as mock_bus:
             mock_bus.return_value = (MagicMock(), MagicMock())
             self.tool = SearchLibraryTool(document_service=self.docs)
         self.docs.count.return_value = 10

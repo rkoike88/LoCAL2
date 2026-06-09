@@ -6,7 +6,7 @@ from local.tools.search_library_tool import SearchLibraryTool
 
 
 def _make_tool() -> SearchLibraryTool:
-    with patch("local.tools.search_library_tool.make_participant_bus") as mock_bus:
+    with patch("local.tools.base_tool.make_participant_bus") as mock_bus:
         mock_pub, mock_sub = MagicMock(), MagicMock()
         mock_bus.return_value = (mock_pub, mock_sub)
         mock_docs = MagicMock()

@@ -34,6 +34,14 @@ logger = logging.getLogger(__name__)
 
 
 class GeneratorAgent:
+    """Core LLM agent for LoCAL2.
+
+    Maintains per-session conversation history, dispatches tool calls over
+    the bus, and streams thinking tokens to the UI. Supports dual-respondent
+    mode: RespondentA owns the shared session history; RespondentB generates
+    a comparison answer without appending to it (used for pairwise evaluation).
+    """
+
     AGENT_ID = "generator"
 
     def __init__(
@@ -43,6 +51,19 @@ class GeneratorAgent:
         respondent_id: str = "A",
         conversation_service=None,
     ) -> None:
+        """Initialize the GeneratorAgent.
+
+        All parameters fall back to ``config/generator.yaml`` when ``None``.
+
+        Args:
+            model: Ollama model name (e.g. ``"gemma4:e2b"``).
+            temperature: Sampling temperature (0.0 = deterministic).
+            respondent_id: ``"A"`` or ``"B"``. RespondentA appends to shared
+                session history after each turn; RespondentB generates a
+                comparison answer but does not modify history.
+            conversation_service: Injected for testing; defaults to a fresh
+                ``ConversationService``.
+        """
         cfg = get_config("generator")
         sys_cfg = get_config("system") or {}
         self._model: str = model or cfg.get("model", "gemma4:e2b")
@@ -172,7 +193,23 @@ class GeneratorAgent:
         session_id: str | None,
         attachments: list[dict] | None = None,
     ) -> list[dict]:
-        """Construct the messages array for ollama.chat() from history + new query."""
+        """Build the messages array for ``ollama.chat()`` from history + new query.
+
+        Message order: system prompt (if configured), session history, new
+        user turn. Attachment text is prepended to the user message content;
+        images are passed as base64 strings in the ``"images"`` key.
+
+        Args:
+            query: The user's raw query text.
+            session_id: Active session for history lookup. ``None`` produces
+                a stateless single-turn call with no history.
+            attachments: List of dicts with keys ``type`` (``"text"`` or
+                ``"image"``), ``name``, and ``data``. Text is truncated to
+                ``max_attachment_chars`` from config (default 8000).
+
+        Returns:
+            A messages list suitable for ``ollama.chat(messages=...)``.
+        """
         history = self._conv.get_history(session_id)
         messages: list[dict] = []
         if self._system_prompt:
@@ -203,7 +240,33 @@ class GeneratorAgent:
         session_id: str | None = None,
         query_id: str = "",
     ) -> tuple[str, str, list[dict], int]:
-        """Stream ollama.chat(); publish thinking chunks; return (answer, thinking, tool_call_log, prompt_tokens)."""
+        """Run the Ollama streaming chat loop with tool call dispatch.
+
+        Streams thinking chunks to the bus as they arrive. On each tool call,
+        dispatches via ``_execute_tool()``, appends the result as a ``"tool"``
+        role message, and continues the loop. Stops when the model produces a
+        plain-text turn or ``max_tool_iterations`` is reached.
+
+        Args:
+            messages: Full messages array (history + new user turn). Modified
+                in-place — assistant and tool turns are appended each iteration
+                and later persisted by the caller via ``ConversationService``.
+            correlation_id: Forwarded to all bus events published during this
+                generation (thinking chunks, tool requests).
+            session_id: Included in bus event payloads for UI routing.
+            query_id: Included in bus event payloads for memory linking.
+
+        Returns:
+            A 4-tuple ``(answer, thinking, tool_call_log, prompt_tokens)``:
+
+            - ``answer``: Final assistant text; empty if ``max_tool_iterations``
+              exhausted without a text turn.
+            - ``thinking``: All concatenated thinking tokens from this generation.
+            - ``tool_call_log``: List of ``{tool, args, result}`` dicts, one per
+              tool call.
+            - ``prompt_tokens``: ``prompt_eval_count`` from the last Ollama chunk
+              (0 if unavailable).
+        """
         import ollama
 
         raw_msg: dict = {}
@@ -275,7 +338,18 @@ class GeneratorAgent:
         return answer, thinking, tool_call_log, prompt_tokens
 
     def _handle_compaction(self, envelope: MessageEnvelope) -> None:
-        """Summarize a session's history and replace messages with summary + tail."""
+        """Summarize a session's history and replace it with a summary + tail turns.
+
+        Calls Ollama synchronously with ``compaction_system_prompt`` from
+        config. Keeps the last ``compaction_tail_turns`` (default 4)
+        user+assistant pairs verbatim after the summary. Post-compaction token
+        count is estimated from character count (÷ 4).
+
+        Args:
+            envelope: Must contain ``payload["session_id"]``. If the generator
+                is not IDLE, publishes a ``COMPACTION_RESULT`` error and returns
+                immediately without modifying history.
+        """
         import ollama
 
         if self._sm.state != GeneratorState.IDLE:
@@ -375,10 +449,22 @@ class GeneratorAgent:
         return name
 
     def _execute_tool(self, name: str, args: dict, correlation_id: str) -> str:
-        """Dispatch a tool call over the bus and block until the result arrives or timeout.
+        """Dispatch a single tool call over the bus and block for the result.
 
-        Opens a short-lived ZmqSubscriber for tool.result.<name> BEFORE publishing
-        tool.request.<name> to avoid a race between publish and subscribe.
+        Opens a short-lived ``ZmqSubscriber`` for ``tool.result.<name>``
+        **before** publishing ``tool.request.<name>`` to avoid a race between
+        publish and subscribe. Polls until ``correlation_id`` matches or
+        ``tool_timeout`` (from config) expires.
+
+        Args:
+            name: Tool function name; normalized via ``_normalize_tool_name``
+                first to handle Gemma hallucinations.
+            args: Tool arguments dict from the model's tool call.
+            correlation_id: Forwarded on the request envelope; used to match
+                the response.
+
+        Returns:
+            Tool result string, or an error string on timeout.
         """
         name = self._normalize_tool_name(name)
         req_subject = f"tool.request.{name}"

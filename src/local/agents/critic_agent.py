@@ -30,9 +30,28 @@ logger = logging.getLogger(__name__)
 
 
 class CriticAgent:
+    """Post-generation quality observer.
+
+    Grades every non-tool-call answer with an absolute score (1–5) via
+    Prometheus. When both RespondentA and RespondentB answers arrive for the
+    same ``correlation_id``, also runs a pairwise comparison. Never raises —
+    publishes ``score=None`` on any Prometheus failure so downstream consumers
+    (MemoryAgent, UI) can treat null as "not graded" and continue normally.
+    """
+
     AGENT_ID = "critic"
 
     def __init__(self, llm: OllamaBackend | None = None) -> None:
+        """Initialize the CriticAgent.
+
+        Config keys read from ``config/critic.yaml``: ``model``, ``rubric``,
+        ``grade_prompt``, ``pairwise_prompt``, ``pairwise_buffer_max``,
+        ``num_ctx``, ``temperature``, ``grade_timeout``.
+
+        Args:
+            llm: Injected for testing; defaults to an ``OllamaBackend`` built
+                from config.
+        """
         cfg = get_config("critic")
         model: str = cfg.get("model", "prometheus:7b")
         self._rubric: str = cfg.get("rubric", "")
@@ -127,6 +146,13 @@ class CriticAgent:
         answer: str,
         score: int | None,
     ) -> None:
+        """Stage a graded response in the pairwise buffer.
+
+        The buffer accumulates A and B respondent answers keyed by
+        ``correlation_id``. When the buffer reaches ``pairwise_buffer_max``
+        entries the oldest is evicted (FIFO) to prevent unbounded growth.
+        ``_is_pairwise_ready`` checks when both sides have arrived.
+        """
         if correlation_id not in self._pairwise_buffer:
             if len(self._pairwise_buffer) >= self._pairwise_buffer_max:
                 oldest_key = next(iter(self._pairwise_buffer))
@@ -195,6 +221,11 @@ class CriticAgent:
         return score, feedback
 
     def _do_transition(self, action: CriticAction) -> None:
+        """Execute a state machine transition and publish ``AGENT_TRANSITION``.
+
+        The publish is wrapped in try/except — transition logging must never
+        propagate and interrupt grading.
+        """
         from_state = self._sm.state
         to_state = self._sm.transition(action)
         try:

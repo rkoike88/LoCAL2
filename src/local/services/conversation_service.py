@@ -38,7 +38,25 @@ def _derive_title(messages: list[dict]) -> str:
 
 
 class ConversationService:
+    """Session-scoped conversation history store.
+
+    Stores messages in Ollama chat format (``{role, content}``). Persists to
+    ``.conversation_history.json`` on every write so history survives process
+    restarts.
+
+    Caps: ``_MAX_SESSIONS`` (50) total sessions; ``_MAX_TURNS_PER_SESSION``
+    (20 user+assistant pairs) per session. Oldest entries are evicted when
+    caps are reached.
+    """
+
     def __init__(self, persist_path: str | None = None) -> None:
+        """Initialize and load any existing history from disk.
+
+        Args:
+            persist_path: Path to the JSON persistence file. Pass
+                ``":memory:"`` to disable disk I/O entirely (used in tests).
+                Defaults to ``.conversation_history.json`` in the working dir.
+        """
         self._sessions: OrderedDict[str, dict] = OrderedDict()
         # ":memory:" sentinel disables disk I/O (useful in tests)
         raw = persist_path or _DEFAULT_PERSIST_PATH

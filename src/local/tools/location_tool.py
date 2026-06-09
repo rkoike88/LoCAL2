@@ -5,7 +5,7 @@ Priority:
   2. Live IP geolocation via ipinfo.io — used when config is empty/absent
   3. Graceful error string — if both fail (offline, misconfigured)
 
-Live results are cached for CACHE_TTL seconds to avoid hitting the API on every call.
+Live results are cached for cache_ttl seconds to avoid hitting the API on every call.
 """
 from __future__ import annotations
 
@@ -20,33 +20,10 @@ from local.protocol.subjects import (
     TOOL_ACTIVITY_GET_LOCATION,
     TOOL_REQUEST_GET_LOCATION,
     TOOL_RESULT_GET_LOCATION,
-    TOOL_SCHEMA,
-    TOOL_SCHEMA_REQUEST,
 )
-from local.transport.bus_config import make_participant_bus
+from local.tools.base_tool import BaseTool
 
 logger = logging.getLogger(__name__)
-
-TOOL_NAME = "get_location"
-
-_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": TOOL_NAME,
-        "description": (
-            "Returns the user's current location (city, state/region, country, timezone, "
-            "and coordinates). Call this tool for any question that depends on the user's "
-            "physical location — weather, nearby restaurants or places, local events, "
-            "travel distances, or when you need to know where the user is before calling "
-            "another tool such as web_search."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {},
-            "required": [],
-        },
-    },
-}
 
 
 def _format_coords(loc_str: str) -> str:
@@ -96,14 +73,36 @@ def _from_ip() -> str:
     return location
 
 
-class LocationTool:
+class LocationTool(BaseTool):
     TOOL_ID = "location_tool"
+    TOOL_NAME = "get_location"
+    ACTIVITY_SUBJECT = TOOL_ACTIVITY_GET_LOCATION
 
     def __init__(self) -> None:
         cfg = get_config("location") or {}
         self._cache_ttl: float = float(cfg.get("cache_ttl", 300))
         self._cache: tuple[float, str] | None = None  # (monotonic_time, result)
-        self._pub, self._sub = make_participant_bus([TOOL_REQUEST_GET_LOCATION, TOOL_SCHEMA_REQUEST])
+        super().__init__(TOOL_REQUEST_GET_LOCATION)
+
+    def _build_schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.TOOL_NAME,
+                "description": (
+                    "Returns the user's current location (city, state/region, country, timezone, "
+                    "and coordinates). Call this tool for any question that depends on the user's "
+                    "physical location — weather, nearby restaurants or places, local events, "
+                    "travel distances, or when you need to know where the user is before calling "
+                    "another tool such as web_search."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+            },
+        }
 
     def _get_location(self) -> str:
         # 1. Static config override
@@ -125,43 +124,17 @@ class LocationTool:
             logger.warning("LocationTool: live geolocation failed: %s", exc)
             return "Location unavailable — check network or set config/location.yaml"
 
-    def run(self) -> None:
-        self._announce_schema()
-        logger.info("location_tool ready")
-        while True:
-            try:
-                envelope = self._sub.receive()
-            except Exception as exc:
-                logger.error("LocationTool: receive error: %s", exc)
-                continue
-            if envelope.subject == TOOL_SCHEMA_REQUEST:
-                self._announce_schema()
-            elif envelope.subject == TOOL_REQUEST_GET_LOCATION:
-                self._handle_request(envelope)
-
-    def _announce_schema(self) -> None:
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_schema",
-            subject=TOOL_SCHEMA,
-            sender_id=self.TOOL_ID,
-            payload={"schema": _SCHEMA},
-        ))
-
     def _handle_request(self, envelope: MessageEnvelope) -> None:
+        correlation_id = envelope.correlation_id
+        self._publish_activity("request", {}, correlation_id)
         result = self._get_location()
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_activity",
-            subject=TOOL_ACTIVITY_GET_LOCATION,
-            sender_id=self.TOOL_ID,
-            payload={"request": {}, "result": result},
-            correlation_id=envelope.correlation_id,
-        ))
+        self._publish_activity("result", {"result": result}, correlation_id)
         self._pub.publish(MessageEnvelope.create(
             message_type="tool_result",
             subject=TOOL_RESULT_GET_LOCATION,
             sender_id=self.TOOL_ID,
             payload={"result": result},
-            correlation_id=envelope.correlation_id,
+            correlation_id=correlation_id,
         ))
 
 

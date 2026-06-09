@@ -85,7 +85,7 @@ class TestFromIp:
 
 class TestGetLocation:
     def _make_tool(self):
-        with patch("local.tools.location_tool.make_participant_bus",
+        with patch("local.tools.base_tool.make_participant_bus",
                    return_value=(MagicMock(), MagicMock())):
             with patch("local.tools.location_tool.get_config", return_value={}):
                 return LocationTool()
@@ -137,7 +137,7 @@ class TestGetLocation:
 
 class TestLocationToolBus:
     def _make_tool(self):
-        with patch("local.tools.location_tool.make_participant_bus") as mock_bus:
+        with patch("local.tools.base_tool.make_participant_bus") as mock_bus:
             mock_pub, mock_sub = MagicMock(), MagicMock()
             mock_bus.return_value = (mock_pub, mock_sub)
             tool = LocationTool()

@@ -11,7 +11,7 @@ def _make_tool() -> tuple[SearchMemoryTool, MagicMock, MagicMock, MagicMock]:
     mock_memory = MagicMock()
     mock_pub = MagicMock()
     mock_sub = MagicMock()
-    with patch("local.tools.search_memory_tool.make_participant_bus", return_value=(mock_pub, mock_sub)):
+    with patch("local.tools.base_tool.make_participant_bus", return_value=(mock_pub, mock_sub)):
         tool = SearchMemoryTool(memory_service=mock_memory)
     return tool, mock_memory, mock_pub, mock_sub
 

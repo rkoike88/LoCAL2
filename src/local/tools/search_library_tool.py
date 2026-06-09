@@ -3,17 +3,15 @@ from __future__ import annotations
 
 import logging
 
-from local.config_loader import ConfigManager, get_config
+from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     TOOL_ACTIVITY_SEARCH_DOCUMENTS,
     TOOL_REQUEST_SEARCH_DOCUMENTS,
     TOOL_RESULT_SEARCH_DOCUMENTS,
-    TOOL_SCHEMA,
-    TOOL_SCHEMA_REQUEST,
 )
 from local.services.document_service import DocumentService
-from local.transport.bus_config import make_participant_bus
+from local.tools.base_tool import BaseTool
 
 logger = logging.getLogger(__name__)
 
@@ -21,29 +19,15 @@ CONFIG_NAME = "documents"
 TOOL_NAME = "search_library"
 
 
-class SearchLibraryTool:
+class SearchLibraryTool(BaseTool):
     TOOL_ID = "search_library_tool"
+    TOOL_NAME = TOOL_NAME
+    ACTIVITY_SUBJECT = TOOL_ACTIVITY_SEARCH_DOCUMENTS
+    CONFIG_NAME = CONFIG_NAME
 
     def __init__(self, document_service: DocumentService | None = None) -> None:
         self._docs = document_service or DocumentService()
-        self._pub, self._sub = make_participant_bus(
-            [TOOL_REQUEST_SEARCH_DOCUMENTS, TOOL_SCHEMA_REQUEST]
-        )
-
-    def run(self) -> None:
-        self._announce_schema()
-        logger.info("search_library_tool ready")
-        while True:
-            try:
-                envelope = self._sub.receive()
-            except Exception as exc:
-                logger.error("SearchLibraryTool: receive error: %s", exc)
-                continue
-            if envelope.subject == TOOL_SCHEMA_REQUEST:
-                ConfigManager.invalidate(CONFIG_NAME)
-                self._announce_schema()
-            elif envelope.subject == TOOL_REQUEST_SEARCH_DOCUMENTS:
-                self._handle_request(envelope)
+        super().__init__(TOOL_REQUEST_SEARCH_DOCUMENTS)
 
     def _build_schema(self) -> dict:
         cfg = get_config(CONFIG_NAME) or {}
@@ -84,7 +68,6 @@ class SearchLibraryTool:
             }
 
         else:
-            # Build enum description: "name: description; name2: description2"
             enum_desc_parts = []
             for col in collections:
                 name = col.get("name", "")
@@ -112,19 +95,11 @@ class SearchLibraryTool:
         return {
             "type": "function",
             "function": {
-                "name": TOOL_NAME,
+                "name": self.TOOL_NAME,
                 "description": description,
                 "parameters": parameters,
             },
         }
-
-    def _announce_schema(self) -> None:
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_schema",
-            subject=TOOL_SCHEMA,
-            sender_id=self.TOOL_ID,
-            payload={"schema": self._build_schema()},
-        ))
 
     def _handle_request(self, envelope: MessageEnvelope) -> None:
         args: dict = envelope.payload.get("args", {})
@@ -132,14 +107,7 @@ class SearchLibraryTool:
         collection: str | None = args.get("collection") or None
         correlation_id = envelope.correlation_id
 
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_activity",
-            subject=TOOL_ACTIVITY_SEARCH_DOCUMENTS,
-            sender_id=self.TOOL_ID,
-            payload={"event": "request", "tool": TOOL_NAME, "query": query,
-                     "collection": collection},
-            correlation_id=correlation_id,
-        ))
+        self._publish_activity("request", {"query": query, "collection": collection}, correlation_id)
 
         try:
             result = self._search(query, collection)
@@ -147,18 +115,12 @@ class SearchLibraryTool:
             logger.error("SearchLibraryTool: search failed: %s", exc)
             result = f"[search_library error: {exc}]"
 
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_activity",
-            subject=TOOL_ACTIVITY_SEARCH_DOCUMENTS,
-            sender_id=self.TOOL_ID,
-            payload={"event": "result", "tool": TOOL_NAME, "result": result},
-            correlation_id=correlation_id,
-        ))
+        self._publish_activity("result", {"result": result}, correlation_id)
         self._pub.publish(MessageEnvelope.create(
             message_type="tool_result",
             subject=TOOL_RESULT_SEARCH_DOCUMENTS,
             sender_id=self.TOOL_ID,
-            payload={"result": result, "tool": TOOL_NAME},
+            payload={"result": result, "tool": self.TOOL_NAME},
             correlation_id=correlation_id,
         ))
 
@@ -172,7 +134,6 @@ class SearchLibraryTool:
         if not hits:
             return "[No relevant passages found in the library]"
 
-        # Label header with collection scope
         cfg = get_config(CONFIG_NAME) or {}
         collections_cfg = cfg.get("collections") or []
         col_display = collection or "library"

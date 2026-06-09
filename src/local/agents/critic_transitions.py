@@ -1,3 +1,4 @@
+"""CriticAgent transition table and StateMachine executor."""
 from local.agents.critic_actions import CriticAction
 from local.agents.critic_states import CriticState
 

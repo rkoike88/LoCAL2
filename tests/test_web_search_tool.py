@@ -9,7 +9,7 @@ from local.protocol.subjects import TOOL_RESULT_WEB_SEARCH, TOOL_SCHEMA
 
 def _make_tool(provider="mock") -> WebSearchTool:
     """Create a WebSearchTool with patched bus connections."""
-    with patch("local.tools.web_search_tool.make_participant_bus") as mock_bus, \
+    with patch("local.tools.base_tool.make_participant_bus") as mock_bus, \
          patch("local.tools.web_search_tool.get_config") as mock_cfg:
         mock_cfg.return_value = {
             "provider": provider,

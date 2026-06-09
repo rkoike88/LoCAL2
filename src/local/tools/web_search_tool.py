@@ -4,24 +4,25 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from local.config_loader import ConfigManager, get_config
+from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     TOOL_ACTIVITY_WEB_SEARCH,
     TOOL_REQUEST_WEB_SEARCH,
     TOOL_RESULT_WEB_SEARCH,
-    TOOL_SCHEMA,
-    TOOL_SCHEMA_REQUEST,
 )
-from local.transport.bus_config import make_participant_bus
+from local.tools.base_tool import BaseTool
 
 logger = logging.getLogger(__name__)
 
 CONFIG_NAME = "web_search"
 
 
-class WebSearchTool:
+class WebSearchTool(BaseTool):
     TOOL_ID = "web_search_tool"
+    TOOL_NAME = "web_search"
+    ACTIVITY_SUBJECT = TOOL_ACTIVITY_WEB_SEARCH
+    CONFIG_NAME = CONFIG_NAME
 
     def __init__(self) -> None:
         cfg = get_config(CONFIG_NAME)
@@ -29,22 +30,8 @@ class WebSearchTool:
         self._searxng_url: str = cfg.get("searxng_url", "http://localhost:8080")
         self._max_results: int = cfg.get("max_results", 5)
         self._timeout: float = cfg.get("timeout", 10)
-        self._pub, self._sub = make_participant_bus([TOOL_REQUEST_WEB_SEARCH, TOOL_SCHEMA_REQUEST])
-
-    def run(self) -> None:
-        self._announce_schema()
+        super().__init__(TOOL_REQUEST_WEB_SEARCH)
         logger.info("web_search_tool: provider=%s  max_results=%s", self._provider, self._max_results)
-        while True:
-            try:
-                envelope = self._sub.receive()
-            except Exception as exc:
-                logger.error("WebSearchTool: receive error: %s", exc)
-                continue
-            if envelope.subject == TOOL_SCHEMA_REQUEST:
-                ConfigManager.invalidate(CONFIG_NAME)
-                self._announce_schema()
-            elif envelope.subject == TOOL_REQUEST_WEB_SEARCH:
-                self._handle_request(envelope)
 
     def _build_schema(self) -> dict:
         cfg = get_config(CONFIG_NAME)
@@ -53,7 +40,7 @@ class WebSearchTool:
         return {
             "type": "function",
             "function": {
-                "name": "web_search",
+                "name": self.TOOL_NAME,
                 "description": description,
                 "parameters": {
                     "type": "object",
@@ -64,14 +51,6 @@ class WebSearchTool:
                 },
             },
         }
-
-    def _announce_schema(self) -> None:
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_schema",
-            subject=TOOL_SCHEMA,
-            sender_id=self.TOOL_ID,
-            payload={"schema": self._build_schema()},
-        ))
 
     def _handle_request(self, envelope: MessageEnvelope) -> None:
         args: dict = envelope.payload.get("args", {})
@@ -95,7 +74,7 @@ class WebSearchTool:
             message_type="tool_result",
             subject=TOOL_RESULT_WEB_SEARCH,
             sender_id=self.TOOL_ID,
-            payload={"result": result, "tool": "web_search"},
+            payload={"result": result, "tool": self.TOOL_NAME},
             correlation_id=correlation_id,
             metadata={},
         ))
@@ -136,13 +115,3 @@ class WebSearchTool:
             f"   URL: https://example.com/mock\n"
             f"   This is a mock search result for testing purposes."
         )
-
-    def _publish_activity(self, event_type: str, data: dict, correlation_id: str | None) -> None:
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_activity",
-            subject=TOOL_ACTIVITY_WEB_SEARCH,
-            sender_id=self.TOOL_ID,
-            payload={"event": event_type, "tool": "web_search", **data},
-            correlation_id=correlation_id or "",
-            metadata={},
-        ))

@@ -166,8 +166,9 @@ class MonitorApp(QObject):
         """Position all windows according to the 1/3 + 1/3 + 1/6 + 1/6 layout.
 
         The left 1/3 is reserved for the browser — Qt panels occupy the right
-        2/3. Tool windows are placed in fixed slots so their positions are
-        stable as they arrive one by one.
+        2/3. Title bar height is measured from a live window and subtracted
+        from each slot so windows don't overlap. Tool windows occupy fixed
+        slots so positions are stable as they arrive one by one.
         """
         screen = QApplication.primaryScreen()
         if screen is None:
@@ -176,19 +177,26 @@ class MonitorApp(QObject):
         W, H = sg.width(), sg.height()
         x0, y0 = sg.x(), sg.y()
 
+        # Measure actual title bar height from a shown window.
+        fg = self._critic_window.frameGeometry()
+        g  = self._critic_window.geometry()
+        tb = fg.height() - g.height()
+        if tb <= 0:
+            tb = 28  # macOS default fallback
+
         unit = W // 6          # 1/6 of screen width
         mid_x = x0 + 2 * unit  # middle 1/3 starts after the browser 1/3
-        top_h = int(H * 0.58)  # critic+generator take ~58% of height
-        bot_h = H - top_h      # memory takes the rest
+        top_h = int(H * 0.58)  # row boundary for critic+generator / memory split
+        bot_h = H - top_h
 
         # Critic — top-left of middle 1/3.
-        self._critic_window.setGeometry(mid_x, y0, unit, top_h)
+        self._critic_window.setGeometry(mid_x, y0 + tb, unit, top_h - tb)
 
         # Generator — top-right of middle 1/3.
-        self._generator_window.setGeometry(mid_x + unit, y0, unit, top_h)
+        self._generator_window.setGeometry(mid_x + unit, y0 + tb, unit, top_h - tb)
 
         # Memory — full width of middle 1/3, below critic+generator.
-        self._memory_window.setGeometry(mid_x, y0 + top_h, 2 * unit, bot_h)
+        self._memory_window.setGeometry(mid_x, y0 + top_h + tb, 2 * unit, bot_h - tb)
 
         # Col 5: web_search / web_fetch / search_memory — 3 equal slots.
         col5_x = x0 + 4 * unit
@@ -196,15 +204,15 @@ class MonitorApp(QObject):
         for i, name in enumerate(self._COL5):
             win = self._tool_windows.get(name)
             if win:
-                win.setGeometry(col5_x, y0 + i * slot_h5, unit, slot_h5)
+                win.setGeometry(col5_x, y0 + i * slot_h5 + tb, unit, slot_h5 - tb)
 
-        # Col 6: search_library / search_papers / get_location / get_datetime — 4 equal slots.
+        # Col 6: search_library / search_papers / get_location / get_datetime — 4 slots.
         col6_x = x0 + 5 * unit
         slot_h6 = H // len(self._COL6)
         for i, name in enumerate(self._COL6):
             win = self._tool_windows.get(name)
             if win:
-                win.setGeometry(col6_x, y0 + i * slot_h6, unit, slot_h6)
+                win.setGeometry(col6_x, y0 + i * slot_h6 + tb, unit, slot_h6 - tb)
 
     def open_browser(self, url: str) -> None:
         """Open the browser positioned to the left 1/3 of the screen.

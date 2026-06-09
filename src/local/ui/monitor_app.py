@@ -107,6 +107,7 @@ class MonitorApp(QObject):
 
         # Ask tools to re-announce schemas so ToolWindows can be spawned.
         QTimer.singleShot(600, self._request_schemas)
+        self._browser_url: str | None = None
 
     def _request_schemas(self) -> None:
         self._pub.publish(MessageEnvelope.create(
@@ -204,6 +205,41 @@ class MonitorApp(QObject):
             win = self._tool_windows.get(name)
             if win:
                 win.setGeometry(col6_x, y0 + i * slot_h6, unit, slot_h6)
+
+    def open_browser(self, url: str) -> None:
+        """Open the browser positioned to the left 1/3 of the screen.
+
+        Called via QTimer so screen geometry is available and Qt panels are
+        already tiled. Uses literal pixel values in the AppleScript so there
+        are no cross-tell-block variable scoping issues.
+        """
+        import subprocess
+        import sys
+        import webbrowser
+
+        screen = QApplication.primaryScreen()
+        if screen is not None and sys.platform == "darwin":
+            sg = screen.availableGeometry()
+            third = sg.x() + sg.width() // 3
+            bottom = sg.y() + sg.height()
+            script = (
+                f'tell application "Safari"\n'
+                f'    activate\n'
+                f'    open location "{url}"\n'
+                f'    delay 0.8\n'
+                f'    set bounds of front window to {{0, 0, {third}, {bottom}}}\n'
+                f'end tell\n'
+            )
+            try:
+                result = subprocess.run(
+                    ["osascript", "-e", script], check=False, timeout=10
+                )
+                if result.returncode == 0:
+                    return
+            except Exception:
+                pass
+
+        webbrowser.open(url)
 
     def close(self) -> None:
         self._worker.stop()

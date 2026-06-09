@@ -53,7 +53,12 @@ export function SessionSidebar({
       className={`shrink-0 bg-surface-1 border-r border-surface-3 flex flex-col h-screen overflow-hidden transition-[width] duration-200 ${open ? "w-52" : "w-10"}`}
     >
       {/* Toggle + brand row */}
-      <div className="flex items-center gap-2 px-2 py-3 border-b border-surface-3">
+      <div className={`flex items-center px-2 py-3 border-b border-surface-3 ${open ? "" : "justify-center"}`}>
+        {open && (
+          <span className="flex-1 text-accent font-semibold text-sm whitespace-nowrap px-1">
+            LoCAL2
+          </span>
+        )}
         <button
           onClick={onToggle}
           title={open ? "Close sidebar" : "Open sidebar"}
@@ -61,11 +66,6 @@ export function SessionSidebar({
         >
           <PanelIcon />
         </button>
-        {open && (
-          <span className="text-accent font-semibold text-sm whitespace-nowrap">
-            LoCAL2
-          </span>
-        )}
       </div>
 
       {/* New chat — only shown when open */}

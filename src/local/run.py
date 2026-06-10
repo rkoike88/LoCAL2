@@ -6,6 +6,7 @@ All startup logic lives here so that both ``python run_local.py`` (dev) and
 from __future__ import annotations
 
 import argparse
+import os
 import resource
 import signal
 import sys
@@ -119,9 +120,37 @@ def main() -> None:
     parser.add_argument("--desktop", action="store_true", help="Legacy PySide6 UI instead of web")
     parser.add_argument("--panels", action="store_true", help="Open Qt observer panels alongside the web UI")
     parser.add_argument("--headless", action="store_true", help="Web server only, no browser")
+    parser.add_argument("--web-only", action="store_true", help="Web server only — no local agents; use with --ipaddress")
+    parser.add_argument("--ipaddress", default="", metavar="IP", help="Remote bus host IP (sets LOCAL2_PROXY_HOST)")
     parser.add_argument("--web-port", type=int, default=8000, metavar="PORT")
     parser.add_argument("--model", default="", metavar="MODEL", help="Ollama model override")
     args = parser.parse_args()
+
+    if args.ipaddress:
+        os.environ["LOCAL2_PROXY_HOST"] = args.ipaddress
+
+    if args.web_only:
+        # Remote-bus mode: skip proxy and all agents; web server connects to remote bus.
+        from local.services.conversation_service import ConversationService
+        shared_conv = ConversationService()
+        from local.api.gateway import configure
+        configure(conversation_service=shared_conv)
+        web_thread = threading.Thread(
+            target=_start_web, args=(args.web_port,), daemon=True, name="web"
+        )
+        web_thread.start()
+        url = f"http://localhost:{args.web_port}"
+        print(f"[local] Web UI (remote bus: {args.ipaddress or os.environ.get('LOCAL2_PROXY_HOST', '?')})  {url}")
+        if not args.headless:
+            _wait_for_port(args.web_port)
+            import webbrowser
+            webbrowser.open(url)
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\n[local] Shutting down.")
+        return
 
     # -- Proxy ---------------------------------------------------------------
     proxy_thread = threading.Thread(target=_start_proxy, daemon=True, name="proxy")

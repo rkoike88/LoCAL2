@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { randomUUID } from "../utils/uuid";
 import type {
   Attachment,
   ChatMessage,
@@ -132,7 +133,7 @@ export function useChatStream(
       if (readyState !== "open" || !query.trim()) return;
 
       const userMsg: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         role: "user",
         content: query,
         attachments: attachments?.length ? attachments : undefined,

@@ -7,6 +7,7 @@ import { TokenGauge } from "./components/TokenGauge";
 import { useChatStream } from "./hooks/useChatStream";
 import { useSessions } from "./hooks/useSessions";
 import type { Attachment, ChatMessage, ToolCall } from "./types/events";
+import { randomUUID } from "./utils/uuid";
 
 // ---------------------------------------------------------------------------
 // Small helper components
@@ -149,7 +150,7 @@ function CritiqueBar({
 // ---------------------------------------------------------------------------
 
 export default function App() {
-  const [activeSessionId, setActiveSessionId] = useState<string>(() => crypto.randomUUID());
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => randomUUID());
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const { sessions, fetchSessions, loadSession, deleteSession } = useSessions();
 
@@ -190,7 +191,7 @@ export default function App() {
   }
 
   const handleNewChat = useCallback(() => {
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     setActiveSessionId(id);
     loadHistory([]);
   }, [loadHistory]);

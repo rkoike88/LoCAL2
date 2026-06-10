@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ChatMessage } from "../types/events";
+import { randomUUID } from "../utils/uuid";
 
 export interface SessionMeta {
   session_id: string;
@@ -41,7 +42,7 @@ export function useSessions(): UseSessionsResult {
       return (data.messages ?? [])
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           role: m.role as "user" | "assistant",
           content: m.content,
         }));

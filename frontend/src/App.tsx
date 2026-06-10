@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { AttachmentBar } from "./components/AttachmentBar";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { TokenGauge } from "./components/TokenGauge";
 import { useChatStream } from "./hooks/useChatStream";
 import { useSessions } from "./hooks/useSessions";
-import type { ChatMessage, ToolCall } from "./types/events";
+import type { Attachment, ChatMessage, ToolCall } from "./types/events";
 
 // ---------------------------------------------------------------------------
 // Small helper components
@@ -156,6 +157,7 @@ export default function App() {
     useChatStream(activeSessionId, fetchSessions);
 
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -167,8 +169,9 @@ export default function App() {
   function handleSubmit() {
     const q = input.trim();
     if (!q || isStreaming) return;
-    sendQuery(q);
+    sendQuery(q, attachments.length ? attachments : undefined);
     setInput("");
+    setAttachments([]);
     inputRef.current?.focus();
   }
 
@@ -263,30 +266,39 @@ export default function App() {
 
         {/* Input bar */}
         <div className="shrink-0 px-6 py-4 border-t border-surface-3">
-          <div className="flex gap-2 items-end bg-surface-1 rounded-xl border border-surface-3 px-4 py-3 max-w-3xl">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Message LoCAL2…"
-              rows={1}
-              disabled={isStreaming}
-              className="flex-1 bg-transparent resize-none outline-none text-sm text-gray-100 placeholder-gray-600 max-h-40 disabled:opacity-50"
-              style={{ height: "auto" }}
-              onInput={(e) => {
-                const t = e.currentTarget;
-                t.style.height = "auto";
-                t.style.height = `${t.scrollHeight}px`;
-              }}
-            />
-            <button
-              onClick={handleSubmit}
-              disabled={!input.trim() || isStreaming}
-              className="text-accent disabled:text-gray-600 text-sm font-medium transition-colors"
-            >
-              Send
-            </button>
+          <div className="flex flex-col bg-surface-1 rounded-xl border border-surface-3 px-4 py-3 max-w-3xl">
+            <div className="flex gap-2 items-end">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Message LoCAL2…"
+                rows={1}
+                disabled={isStreaming}
+                className="flex-1 bg-transparent resize-none outline-none text-sm text-gray-100 placeholder-gray-600 max-h-40 disabled:opacity-50"
+                style={{ height: "auto" }}
+                onInput={(e) => {
+                  const t = e.currentTarget;
+                  t.style.height = "auto";
+                  t.style.height = `${t.scrollHeight}px`;
+                }}
+              />
+              <button
+                onClick={handleSubmit}
+                disabled={!input.trim() || isStreaming}
+                className="text-accent disabled:text-gray-600 text-sm font-medium transition-colors"
+              >
+                Send
+              </button>
+            </div>
+            <div className="mt-2">
+              <AttachmentBar
+                attachments={attachments}
+                onChange={setAttachments}
+                disabled={isStreaming}
+              />
+            </div>
           </div>
           <p className="text-xs text-gray-700 mt-2 max-w-3xl text-center">
             Enter to send · Shift+Enter for newline

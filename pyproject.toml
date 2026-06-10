@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "local2"
-version = "0.1.2"
+version = "0.1.6"
 description = "LoCAL2 — Loosely Coupled Agent Language model, second generation"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -19,6 +19,7 @@ dependencies = [
     "PySide6>=6.11.0",
     "PyYAML>=6.0.3",
     "httpx>=0.28.1",
+    "python-multipart>=0.0.9",
     "beautifulsoup4>=4.14.3",
     "chromadb>=0.6.0",
     "pypdf>=4.0",
@@ -31,6 +32,9 @@ dev = [
 
 [project.scripts]
 local2 = "local.cli:main"
+
+[tool.hatch.build]
+artifacts = ["src/local/api/static/**"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/local"]

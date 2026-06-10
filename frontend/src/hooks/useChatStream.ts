@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  Attachment,
   ChatMessage,
   GatewayEvent,
   StreamingTurn,
@@ -11,7 +12,7 @@ interface UseChatStreamResult {
   messages: ChatMessage[];
   streaming: StreamingTurn | null;
   isStreaming: boolean;
-  sendQuery: (query: string) => void;
+  sendQuery: (query: string, attachments?: Attachment[]) => void;
   loadHistory: (msgs: ChatMessage[]) => void;
   tokenCount: number;
 }
@@ -127,20 +128,22 @@ export function useChatStream(
   }, [onMessage]);
 
   const sendQuery = useCallback(
-    (query: string) => {
+    (query: string, attachments?: Attachment[]) => {
       if (readyState !== "open" || !query.trim()) return;
 
-      // Append the user message immediately for optimistic UI.
       const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "user",
         content: query,
+        attachments: attachments?.length ? attachments : undefined,
       };
       setMessages((prev) => [...prev, userMsg]);
       setStreaming({ query_id: "", thinking: "", active_tool: null });
       pendingToolCallsRef.current = [];
 
-      sendJson({ query });
+      const payload: Record<string, unknown> = { query };
+      if (attachments?.length) payload.attachments = attachments;
+      sendJson(payload);
     },
     [readyState, sendJson]
   );

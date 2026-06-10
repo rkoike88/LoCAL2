@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -277,6 +277,35 @@ async def post_feedback(body: FeedbackRequest) -> JSONResponse:
         metadata={"session_id": body.session_id or ""},
     ))
     return JSONResponse({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# Attachment upload
+# ---------------------------------------------------------------------------
+
+@app.post("/api/attachments")
+async def upload_attachment(file: UploadFile) -> JSONResponse:
+    """Process an uploaded file and return an attachment dict for the chat payload.
+
+    Returns ``{type, name, data}`` where type is ``"text"`` or ``"image"``,
+    or ``{type: "error", name, error}`` for unsupported/failed files.
+    """
+    import tempfile
+    from local.utils.file_extract import process_for_attachment
+
+    suffix = "." + (file.filename or "file").rsplit(".", 1)[-1] if "." in (file.filename or "") else ""
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(await file.read())
+        tmp_path = tmp.name
+
+    try:
+        result = process_for_attachment(tmp_path)
+        result["name"] = file.filename or result["name"]
+    finally:
+        import os
+        os.unlink(tmp_path)
+
+    return JSONResponse(result)
 
 
 # ---------------------------------------------------------------------------

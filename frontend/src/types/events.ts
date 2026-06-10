@@ -50,6 +50,14 @@ export type GatewayEvent =
   | ResponseEvent
   | CritiqueEvent;
 
+// A processed file attachment ready to send to the generator.
+export interface Attachment {
+  type: "text" | "image" | "error";
+  name: string;
+  data?: string;
+  error?: string;
+}
+
 // A fully resolved message in the chat history.
 export interface ChatMessage {
   id: string;
@@ -59,6 +67,7 @@ export interface ChatMessage {
   tool_calls?: ToolCall[];
   critique?: { score: number | null; feedback: string };
   prompt_tokens?: number;
+  attachments?: Attachment[];
 }
 
 // An in-progress assistant turn while streaming.

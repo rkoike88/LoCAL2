@@ -23,6 +23,22 @@ def _start_proxy() -> None:
     run_proxy()
 
 
+def _late_schema_refresh(delay: float = 2.0) -> None:
+    """Re-broadcast TOOL_SCHEMA_REQUEST after a delay to catch any late-starting tools."""
+    from local.protocol.envelope import MessageEnvelope
+    from local.protocol.subjects import TOOL_SCHEMA_REQUEST
+    from local.transport.bus_config import PROXY_FRONTEND_ADDR
+    from local.transport.zmq_pubsub import ZmqPublisher
+    pub = ZmqPublisher(PROXY_FRONTEND_ADDR, bind=False)
+    time.sleep(delay)  # wait after connecting — ZMQ drops messages sent before the connection settles
+    pub.publish(MessageEnvelope.create(
+        message_type="schema_request",
+        subject=TOOL_SCHEMA_REQUEST,
+        sender_id="run-refresh",
+        payload={},
+    ))
+
+
 def _start_generator(model: str, temperature: float | None = None, conversation_service=None) -> None:
     from local.agents.generator_agent import GeneratorAgent
     agent = GeneratorAgent(model=model or None, temperature=temperature, conversation_service=conversation_service)
@@ -177,6 +193,7 @@ def main() -> None:
             target=_start_web, args=(args.web_port,), daemon=True, name="web"
         )
         web_thread.start()
+        threading.Thread(target=_late_schema_refresh, daemon=True, name="schema_refresh").start()
         url = f"http://localhost:{args.web_port}"
         print(f"[local] Web UI  {url}")
 

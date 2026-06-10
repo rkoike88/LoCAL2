@@ -104,13 +104,14 @@ async def ws_chat(websocket: WebSocket, session_id: str) -> None:
             query: str = data.get("query", "").strip()
             if not query:
                 continue
+            attachments: list = data.get("attachments") or []
 
             session = LoCALSession(publisher, session_id=session_id)
             queue: asyncio.Queue = asyncio.Queue()
 
             def _stream() -> None:
                 try:
-                    for env in session.stream(query):
+                    for env in session.stream(query, attachments=attachments or None):
                         asyncio.run_coroutine_threadsafe(queue.put(env), loop)
                 finally:
                     asyncio.run_coroutine_threadsafe(queue.put(None), loop)

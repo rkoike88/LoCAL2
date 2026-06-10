@@ -89,6 +89,7 @@ class LoCALSession:
         query: str,
         *,
         query_id: Optional[str] = None,
+        attachments: Optional[list] = None,
         timeout: float = 120.0,
     ) -> Iterator[MessageEnvelope]:
         """Publish query.received; yield bus events until RESPONSE_GENERATION + trail.
@@ -98,15 +99,18 @@ class LoCALSession:
         with a plain for-loop; no sentinel is needed.
         """
         query_id = query_id or str(uuid.uuid4())
+        payload: dict = {
+            "query": query,
+            "session_id": self.session_id,
+            "query_id": query_id,
+        }
+        if attachments:
+            payload["attachments"] = attachments
         envelope = MessageEnvelope.create(
             message_type="query",
             subject=QUERY_RECEIVED,
             sender_id="local-session",
-            payload={
-                "query": query,
-                "session_id": self.session_id,
-                "query_id": query_id,
-            },
+            payload=payload,
             correlation_id=query_id,
             metadata={"session_id": self.session_id},
         )

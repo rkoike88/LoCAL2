@@ -1,0 +1,14 @@
+collection: collective.documents
+chroma_path: .chroma
+embed_model: nomic-embed-text
+chunk_size: 1500
+chunk_overlap: 200
+n_results: 5
+collections:
+- name: mba
+  display_name: MBA Textbooks
+  description: MBA textbooks covering strategy, finance, marketing, and operations
+- name: cs
+  display_name: Comp Sci
+  description: Computer Science textbooks including Software Engineering, Artificial
+    Intelligence, Data Structures and Algorithms, Database Systems, and Java

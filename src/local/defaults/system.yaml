@@ -1,0 +1,6 @@
+# Set to true to print Ollama request/response timing to stdout.
+ollama_debug: false
+
+# Unique identifier for this LoCAL2 instance (used by distributed routing, GeneratorWindow).
+# Falls back to socket.gethostname() if absent.
+instance_id: "local2-macbook"

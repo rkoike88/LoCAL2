@@ -4,96 +4,89 @@ Loosely Coupled Agent Language model — Second Generation.
 
 LLM-native tool calling with Gemma 4 as the orchestrator. Web search, memory recall, and feedback loops augment Gemma's native reasoning — the model decides when to use them.
 
-**Reference hardware:** Mac Mini M4 Pro, 64GB memory. Performance on lower-spec hardware will vary — tool calling and thinking tokens work best with sufficient VRAM/unified memory.
+**Reference hardware:** Mac Mini M4 Pro, 64GB unified memory. Tool calling and thinking tokens work best with sufficient VRAM/unified memory; performance on lower-spec hardware will vary.
+
+---
+
+## Quick start
+
+```bash
+brew install ollama          # one-time prerequisite
+pip install local2
+local2 setup                 # pulls required models, writes initial config
+local2                       # opens the web UI at http://localhost:8000
+```
+
+---
 
 ## Prerequisites
 
 - Python 3.11+
-- [Ollama](https://ollama.com)
-- Docker Desktop (for SearXNG web search)
+- [Ollama](https://ollama.com) — download the macOS app or `brew install ollama`
 
-## Setup
+---
 
-### 1. Install Ollama
-
-Download from [ollama.com](https://ollama.com) and install. Verify it's running:
+## Install
 
 ```bash
-curl http://127.0.0.1:11434/api/tags
+pip install local2
+local2 setup
 ```
 
-### 2. Pull the models
+`local2 setup` does three things:
+1. Writes default config files to `~/.local2/config/`
+2. Pulls `gemma4:e4b` (generator + memory classifier)
+3. Pulls `nomic-embed-text` (embeddings for memory and RAG library)
+
+---
+
+## Run
 
 ```bash
-ollama pull gemma4:e4b
-ollama pull nomic-embed-text
+local2                       # web UI, opens browser at http://localhost:8000
+local2 --headless            # web server only, no browser pop
+local2 --panels              # web UI + read-only Qt observer windows
+local2 --desktop             # legacy PySide6 full desktop UI
+local2 --model gemma4:27b    # override the generator model at startup
+local2 --web-port 9000       # use a different port
 ```
 
-`gemma4:e4b` is the default model for the generator and critic. `gemma4:26b` is also supported for stronger tool calling reliability; configure in `config/generator.yaml`. A dedicated grading model can be used for the critic by setting `model` in `config/critic.yaml` — the default is `prometheus-7b:latest` (Prometheus-7B-v2.0).
+---
 
-`nomic-embed-text` is required for episodic memory and the RAG library. Both use it to embed and retrieve passages.
+## Web search
 
-After pulling, do a quick sanity check:
+Web search is optional. Two ways to enable it:
+
+### Option A — Brave or Tavily (no Docker required)
+
+Get an API key from [brave.com/search/api](https://brave.com/search/api) or [tavily.com](https://tavily.com), then edit `~/.local2/config/web_search.yaml`:
+
+```yaml
+provider: brave          # or: tavily
+brave_api_key: sk-...    # or tavily_api_key: tvly-...
+```
+
+### Option B — SearXNG (self-hosted, no API key)
+
+Requires Docker Desktop.
 
 ```bash
-ollama run gemma4:e4b
->>> hello
+docker compose up -d
 ```
 
-Type `/bye` to exit.
+SearXNG runs at `http://localhost:8080`. This is the default provider if you don't change `web_search.yaml`.
 
-### 3. Install Docker Desktop
-
-Download from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/). Check your chip first:
+You need a secret key in `.env` for SearXNG to start:
 
 ```bash
-uname -m   # arm64 = Apple Silicon, x86_64 = Intel
+echo "MY_SEARX_SECRET=$(openssl rand -hex 32)" > .env
 ```
 
-After installing, launch Docker Desktop and verify:
+---
 
-```bash
-docker --version
-```
+## Academic search (optional)
 
-### 4. Set up Python environment
-
-Create and activate a virtual environment:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-You should see `(.venv)` on the left of your prompt. Upgrade pip first:
-
-```bash
-python3 -m pip install --upgrade pip
-```
-
-Then install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-### 5. Configure secrets
-
-```bash
-cp .env.example .env
-```
-
-Open `.env` and fill in `MY_SEARX_SECRET`. SearXNG requires this to start — it's an internal signing key, not a user-facing password. Generate one with:
-
-```bash
-openssl rand -hex 32
-```
-
-Paste the output as `MY_SEARX_SECRET=<value>` in `.env`. You only need to do this once.
-
-`BRAVE_API_KEY` and `TAVILY_API_KEY` are only needed if you switch the search provider in `config/web_search.yaml` away from the default SearXNG.
-
-`SEMANTIC_SCHOLAR_API_KEY` is optional but recommended — the free tier rate-limits to 1 req/sec without a key. Add it to your shell environment (not `.env`):
+`search_papers` uses the Semantic Scholar API. It works without a key at the free rate limit (1 req/sec). For higher limits:
 
 ```bash
 echo 'export SEMANTIC_SCHOLAR_API_KEY=<your-key>' >> ~/.zshrc
@@ -102,71 +95,35 @@ source ~/.zshrc
 
 Get a free key at [semanticscholar.org/product/api](https://www.semanticscholar.org/product/api).
 
-### 6. Start SearXNG
-
-```bash
-docker compose up -d
-```
-
-SearXNG will be available at `http://localhost:8080`. Verify it's running:
-
-```bash
-curl "http://localhost:8080/search?q=test&format=json" | head -c 200
-```
-
-Once started, SearXNG runs in the background and restarts automatically with Docker Desktop on login.
-
-### 7. Run LoCAL2
-
-```bash
-# UI only
-python run_local.py
-
-# UI + REST API
-python run_local.py --api
-
-# Headless (API only)
-python run_local.py --headless --api
-
-# Use a different model
-python run_local.py --model gemma4:26b
-```
+---
 
 ## Configuration
 
-All tunable parameters live in `config/`:
+User config lives in `~/.local2/config/`. Defaults are written there by `local2 setup` and can be edited freely — upgrades never overwrite them.
 
 | File | Controls |
 |---|---|
-| `config/generator.yaml` | Model, context size, temperature, tool schemas, tool timeout |
-| `config/web_search.yaml` | Search provider, max results, request timeout |
-| `config/web_fetch.yaml` | Max chars extracted, fetch timeout |
-| `config/critic.yaml` | Critic model, grading rubric, grade timeout |
-| `config/memory.yaml` | ChromaDB path, episodic memory collection name |
-| `config/search_memory.yaml` | Max results returned by `search_memory` tool |
-| `config/semantic_scholar.yaml` | Max results, timeout, API fields returned |
-| `config/documents.yaml` | Chunk size/overlap, topic, ChromaDB collection for RAG library |
-| `config/location.yaml` | Optional static location override (skips live IP geolocation) |
-| `config/bus.yaml` | ZMQ proxy ports |
-| `config/system.yaml` | Debug flags |
+| `generator.yaml` | Model, context size, temperature, tool timeout, system prompt |
+| `web_search.yaml` | Search provider, API keys, max results |
+| `web_fetch.yaml` | Max chars extracted, fetch timeout |
+| `critic.yaml` | Critic model, grading rubric, grade timeout |
+| `memory.yaml` | ChromaDB path, episodic memory collection |
+| `search_memory.yaml` | Max results from memory search |
+| `semantic_scholar.yaml` | Max results, request timeout |
+| `documents.yaml` | Chunk size/overlap, RAG library collections |
+| `location.yaml` | Optional static location override (skips live IP lookup) |
+| `bus.yaml` | ZMQ proxy ports |
+| `system.yaml` | Instance ID, debug flags |
+
+---
 
 ## Document library (RAG)
 
-LoCAL2 maintains a persistent local knowledge base you can query with `search_library`. Use the **library** window (📚 button in the sidebar) to ingest files.
-
-### Ingest from the UI
-
-1. Click **📚** in the sidebar to open the library window.
-2. Set a **Topic** (e.g. "MBA textbooks covering strategy, finance, and marketing") and click **Save** — Gemma uses this to decide when to search the library instead of the web.
-3. Click **+ Files** to pick individual files, or **+ Folder** to ingest an entire folder recursively. Supported formats: PDF, TXT, MD, PY, YAML, JSON, CSV.
-
-A progress bar shows embedding progress per file. Files are chunked into 1500-character segments and embedded with `nomic-embed-text`. Re-ingesting the same file is safe — chunks are upserted by deterministic ID.
-
-### Ingest from the CLI
+LoCAL2 maintains a persistent local knowledge base you can query with `search_library`. Use the library window in the Qt UI, or the CLI:
 
 ```bash
 # Ingest one or more files
-PYTHONPATH=src python scripts/ingest.py path/to/file.pdf path/to/file.txt
+PYTHONPATH=src python scripts/ingest.py path/to/file.pdf
 
 # List all ingested sources
 PYTHONPATH=src python scripts/ingest.py --list
@@ -175,40 +132,56 @@ PYTHONPATH=src python scripts/ingest.py --list
 PYTHONPATH=src python scripts/ingest.py --delete "file.pdf"
 ```
 
-## Running stories
+Supported formats: PDF, TXT, MD, PY, YAML, JSON, CSV. Files are chunked into 1500-character segments and embedded with `nomic-embed-text`. Re-ingesting the same file is safe — chunks are upserted by deterministic ID.
 
-```bash
-PYTHONPATH=src python tests/run_story.py tests/stories/s1_basic_qa.yaml
-PYTHONPATH=src python tests/run_story.py tests/stories/s2_multi_turn.yaml
-```
+---
 
 ## After a reboot
 
-Two services don't start automatically and need to be launched before running LoCAL2:
-
-**1. Docker Desktop** — SearXNG won't be running. Open Docker Desktop, wait for it to be ready, then verify:
+**Ollama:** On macOS, a stale `ollama serve` process can persist after reboot alongside the freshly launched Ollama.app, splitting IPv4 and IPv6 across two processes. If `ollama.chat()` hangs silently, check:
 
 ```bash
-docker compose ps   # searxng should show "Up"
-docker compose up -d   # if it's not running
+pgrep -fl ollama   # should show exactly one process
 ```
 
-**2. Ollama** — On macOS, a stale `ollama serve` process from before the reboot can persist alongside the freshly launched Ollama.app, splitting IPv4 and IPv6 across two processes. The Python `ollama` library may connect to the wrong one, causing `ollama.chat()` to hang silently with no error.
+Kill the older PID if two appear.
 
-Check before starting:
+**SearXNG (if using Docker):** Docker Desktop needs to be running before `docker compose up -d`.
+
+---
+
+## Development
+
+Clone the repo and install in editable mode:
 
 ```bash
-pgrep -fl ollama   # should show exactly one "ollama serve" process
+git clone https://github.com/rkoike88/LoCAL2
+cd LoCAL2
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
 ```
 
-If two appear (one from `/usr/local/bin/ollama`, one from `/Applications/Ollama.app`), kill the older one:
+Run the app:
 
 ```bash
-kill <old-pid>
+python run_local.py          # equivalent to 'local2'
 ```
 
-The Ollama.app process will then own port 11434 on both IPv4 and IPv6.
+Run tests:
+
+```bash
+make test                    # or: PYTHONPATH=src python -m pytest tests/ -q
+```
+
+Build a distributable wheel (builds frontend first):
+
+```bash
+make dist
+python -m build
+```
+
+---
 
 ## Architecture
 
-See `.claude/plan_local2.html` for the full architecture plan.
+See [docs/architecture/](docs/architecture/) for design documents covering the bus topology, agent state machines, tool protocol, and configuration reference.

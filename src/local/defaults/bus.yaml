@@ -1,0 +1,4 @@
+proxy_host: "127.0.0.1"
+ports:
+  proxy_frontend: 5570
+  proxy_backend: 5571

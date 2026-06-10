@@ -6,6 +6,7 @@ venv/
 *.egg-info/
 dist/
 build/
+src/local/api/static/
 .env
 *.log
 chroma_db/

@@ -1,0 +1,5 @@
+max_results: 5
+timeout: 15
+fields: "title,authors,year,abstract,citationCount,url,externalIds"
+abstract_max_chars: 300   # truncation limit per paper abstract in tool result
+min_request_gap: 1.2      # seconds between API requests (unauthenticated rate limit)

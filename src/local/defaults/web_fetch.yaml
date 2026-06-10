@@ -1,0 +1,11 @@
+max_chars: 3000
+timeout: 15
+
+description: |
+  Fetch and extract the text content of a specific URL.
+  Call this after web_search to retrieve the full content of a search result,
+  or when the user provides a URL they want you to read.
+  Returns cleaned text up to max_chars characters.
+
+param_url: |
+  The full URL to fetch. Must be a valid http or https URL.

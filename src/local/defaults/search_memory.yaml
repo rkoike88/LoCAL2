@@ -1,0 +1,18 @@
+description: |
+  Search episodic memory from past conversations by meaning.
+  Call this for ANY question about the user's personal preferences, habits, history, or facts
+  they may have mentioned — regardless of how the question is phrased:
+    "how do I like my coffee?"
+    "do you know my coffee preference?"
+    "what OS do I use?"
+    "do you remember what I said about X?"
+    "what do you know about me?"
+  Always call this before telling the user you don't know something about them.
+
+param_query: |
+  Natural language description of what you are looking for.
+  Examples: "coffee preference", "operating system", "coding style", "name".
+
+# Critic score weighting: each point above/below 3 adjusts the retrieval score by this amount.
+# Score 5 → +0.1 boost, score 1 → -0.1 penalty, unscored engrams → no adjustment.
+critic_score_weight: 0.05

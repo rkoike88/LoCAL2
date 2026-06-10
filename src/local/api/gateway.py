@@ -41,7 +41,10 @@ from local.transport.zmq_pubsub import ZmqPublisher, ZmqSubscriber
 
 logger = logging.getLogger(__name__)
 
-_FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent.parent / "frontend" / "dist"
+# Package data location (populated by 'make dist'); dev fallback is frontend/dist/.
+_PACKAGE_STATIC = Path(__file__).resolve().parent / "static"
+_DEV_DIST = Path(__file__).resolve().parent.parent.parent.parent / "frontend" / "dist"
+_FRONTEND_DIST = _PACKAGE_STATIC if (_PACKAGE_STATIC / "index.html").exists() else _DEV_DIST
 
 # Injected by configure() before uvicorn starts.
 _conversation_service: ConversationService | None = None

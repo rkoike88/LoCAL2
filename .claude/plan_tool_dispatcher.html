@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Plan — ToolDispatcher extraction</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 960px; margin: 40px auto; padding: 0 24px; background: #0f0f0f; color: #e0e0e0; line-height: 1.6; }
+  h1 { color: #7eb8f7; border-bottom: 1px solid #333; padding-bottom: 12px; }
+  h2 { color: #a0cfff; margin-top: 40px; }
+  h3 { color: #c8d8f0; margin-top: 24px; }
+  h4 { color: #aab8cc; margin-top: 16px; margin-bottom: 4px; }
+  code { background: #1a1a2e; padding: 2px 6px; border-radius: 4px; font-family: "SF Mono", "Fira Code", monospace; font-size: 0.88em; color: #a8d8a8; }
+  pre { background: #1a1a2e; padding: 16px; border-radius: 8px; overflow-x: auto; border-left: 3px solid #3a5a8a; }
+  pre code { background: none; padding: 0; color: #c8e8c8; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th { background: #1a2a3a; padding: 8px 12px; text-align: left; color: #a0cfff; border-bottom: 1px solid #2a4a7a; }
+  td { padding: 8px 12px; border-bottom: 1px solid #1e1e2e; vertical-align: top; }
+  ul li { margin: 4px 0; }
+  .decision { background: #1a1500; border-left: 3px solid #b8960a; padding: 10px 16px; border-radius: 0 6px 6px 0; margin: 12px 0; }
+  .decision strong { color: #e8c040; }
+  .note { background: #0d1a0d; border-left: 3px solid #4a8a4a; padding: 10px 16px; border-radius: 0 6px 6px 0; margin: 12px 0; }
+  .new { color: #7ec87e; }
+  .modified { color: #e8c87e; }
+  .file { font-family: "SF Mono", monospace; font-size: 0.85em; color: #a8d8a8; }
+  .arch-box { background: #0d1a2e; border: 1px solid #2a4a6a; border-radius: 8px; padding: 20px; font-family: monospace; font-size: 0.85em; line-height: 1.8; color: #b0c8e8; white-space: pre; overflow-x: auto; }
+</style>
+</head>
+<body>
+
+<h1>Plan — ToolDispatcher extraction</h1>
+<p><em>Extract _execute_tool and _normalize_tool_name from GeneratorAgent into a dedicated ToolDispatcher helper. State transitions stay in the generator.</em></p>
+
+<h2>Motivation</h2>
+<p>GeneratorAgent._execute_tool() owns bus I/O mechanics that have nothing to do with generation: opening a short-lived subscriber, publishing a tool request, polling for a matching correlation_id, handling timeout. This is reusable bus plumbing. _normalize_tool_name() is similarly a tool-registry concern.</p>
+<p>Both belong in a dedicated helper, injected into the generator the same way CompactionService was.</p>
+
+<h2>What ToolDispatcher is</h2>
+<div class="decision">
+  <strong>ToolDispatcher is a synchronous Participant.</strong> It has its own <code>ZmqPublisher</code>, <code>CONFIG_NAME</code>, and <code>self.id</code>. It is a bus participant in spirit — it owns a bus connection and has a single clear responsibility — but has no event-driven run loop. It is called synchronously by the generator mid-generation turn. This is consistent with the architectural invariant that tool calls are synchronous within a generation turn.
+</div>
+
+<h2>Responsibility Split</h2>
+
+<table>
+  <tr><th>Concern</th><th>Owner</th><th>Why</th></tr>
+  <tr><td>Bus I/O: open subscriber, publish request, poll, close subscriber</td><td>ToolDispatcher</td><td>Generic bus plumbing, reusable, testable in isolation</td></tr>
+  <tr><td>Name normalization: map hallucinated names to registered schema names</td><td>ToolDispatcher</td><td>Tool-registry logic, not generation logic</td></tr>
+  <tr><td>State transitions: DISPATCH_TOOL, AWAIT_RESULT, TOOL_RESULT, TOOL_TIMEOUT</td><td>GeneratorAgent</td><td>Generator state machine; transitions must stay co-located with the machine they describe</td></tr>
+  <tr><td>Tool schema registry: maintain, register, expose</td><td>GeneratorAgent (unchanged)</td><td>Registry is used for status publishing and schema re-broadcast — broader than tool dispatch</td></tr>
+</table>
+
+<h2>ToolDispatcher API</h2>
+
+<p>File: <span class="file">src/local/tools/tool_dispatcher.py</span></p>
+
+<pre><code>class ToolDispatcher:
+    """Bus I/O helper for synchronous tool call dispatch.
+
+    Owned by GeneratorAgent. Uses the generator's publisher to send
+    tool.request.* and opens a short-lived subscriber to receive
+    tool.result.*. State transitions are the caller's responsibility.
+    """
+
+    CONFIG_NAME = "tool_dispatcher"
+
+    def __init__(self, tool_timeout: float) -> None:
+        self._tool_timeout = tool_timeout
+        self._pub = ZmqPublisher(PROXY_FRONTEND_ADDR, bind=False)
+
+    def execute(
+        self,
+        name: str,
+        args: dict,
+        correlation_id: str,
+        schemas: list,
+    ) -> tuple[str, bool]:
+        """Dispatch a tool call and block for the result.
+
+        Opens a ZmqSubscriber for tool.result.<name> BEFORE publishing
+        tool.request.<name> to avoid a race between publish and subscribe.
+        Polls until correlation_id matches or tool_timeout expires.
+
+        Args:
+            name: Tool function name; normalized via _normalize() first.
+            args: Tool arguments dict from the model's tool call.
+            correlation_id: Used to match the response envelope.
+            schemas: Current tool schema list; used for name normalization.
+
+        Returns:
+            (result, timed_out): result is the tool output string;
+            timed_out is True if no matching response arrived in time.
+        """
+        name = self._normalize(name, schemas)
+        req_subject = f"tool.request.{name}"
+        res_subject = f"tool.result.{name}"
+
+        result_sub = ZmqSubscriber(PROXY_BACKEND_ADDR, subscriptions=[res_subject])
+        try:
+            self._pub.publish(MessageEnvelope.create(
+                message_type="tool_request",
+                subject=req_subject,
+                sender_id=self.id,
+                payload={"tool": name, "args": args},
+                correlation_id=correlation_id,
+            ))
+            deadline = time.monotonic() + self._tool_timeout
+            while time.monotonic() < deadline:
+                remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
+                msg = result_sub.receive_with_timeout(remaining_ms)
+                if msg is None:
+                    break
+                if msg.correlation_id == correlation_id:
+                    return msg.payload.get("result", ""), False
+        finally:
+            result_sub.close()
+
+        return f"[tool timeout: {name!r} did not respond within {self._tool_timeout}s]", True
+
+    def _normalize(self, name: str, schemas: list) -> str:
+        registered = {s.get("function", {}).get("name") for s in schemas}
+        if name in registered:
+            return name
+        name_lower = name.lower()
+        for rname in registered:
+            if rname in name_lower or name_lower in rname:
+                logger.warning("ToolDispatcher: normalizing tool name %r → %r", name, rname)
+                return rname
+        return name
+</code></pre>
+
+<div class="note">
+  <code>sender_id</code> on the tool request: currently hardcoded as <code>"generator"</code> inside <code>_execute_tool</code> via <code>self._make_envelope</code>. The full implementation passes the generator's <code>self.id</code> to <code>execute()</code> as a parameter so ToolDispatcher doesn't reach into generator state.
+</div>
+
+<h2>GeneratorAgent changes</h2>
+
+<h3>__init__</h3>
+<p>Accept injected ToolDispatcher (constructed in run.py with <code>tool_timeout</code> from config):</p>
+<pre><code>def __init__(
+    self,
+    model: str | None = None,
+    temperature: float | None = None,
+    conversation_service=None,
+    compaction_service=None,
+    tool_dispatcher=None,           # ← add
+) -> None:
+    ...
+    self._tool_dispatcher = tool_dispatcher or ToolDispatcher(self._tool_timeout)
+</code></pre>
+
+<div class="note">
+  Fallback construction in <code>__init__</code> keeps tests that instantiate GeneratorAgent directly working without wiring up run.py.
+</div>
+
+<h3>_generate() — state transitions move out of _execute_tool, stay in _generate()</h3>
+<pre><code># before (inside for tc in tool_calls loop):
+self._do_transition(GeneratorAction.DISPATCH_TOOL)
+result = self._execute_tool(name, args, correlation_id)
+
+# after:
+self._do_transition(GeneratorAction.DISPATCH_TOOL)
+self._do_transition(GeneratorAction.AWAIT_RESULT)
+result, timed_out = self._tool_dispatcher.execute(
+    name, args, correlation_id, self._tool_schemas
+)
+if timed_out:
+    self._do_transition(GeneratorAction.TOOL_TIMEOUT)
+else:
+    self._do_transition(GeneratorAction.TOOL_RESULT)
+</code></pre>
+
+<h3>Methods removed</h3>
+<ul>
+  <li><code>_execute_tool()</code> — replaced by <code>self._tool_dispatcher.execute()</code></li>
+  <li><code>_normalize_tool_name()</code> — moved to <code>ToolDispatcher._normalize()</code></li>
+</ul>
+
+<h3>Imports removed</h3>
+<ul>
+  <li><code>PROXY_BACKEND_ADDR</code> from bus_config (used only by _execute_tool)</li>
+  <li><code>ZmqSubscriber</code> (used only by _execute_tool)</li>
+</ul>
+
+<h2>run.py change</h2>
+<pre><code>from local.tools.tool_dispatcher import ToolDispatcher
+
+_gen_cfg = get_config("generator") or {}
+shared_tool_dispatcher = ToolDispatcher(
+    tool_timeout=_gen_cfg.get("tool_timeout", 20),
+)
+
+# Pass into generator:
+gen_thread = threading.Thread(
+    target=_start_generator, args=(args.model,),
+    kwargs={
+        "conversation_service": shared_conv,
+        "compaction_service": shared_compaction,
+        "tool_dispatcher": shared_tool_dispatcher,
+    },
+    ...
+)
+</code></pre>
+
+<h2>Transition sequence — before and after</h2>
+
+<div class="arch-box">Before (all in _execute_tool):
+  _generate() calls:  DISPATCH_TOOL
+  _execute_tool():    open subscriber
+                      AWAIT_RESULT
+                      publish tool.request.*
+                      poll ...
+                      TOOL_RESULT  (or TOOL_TIMEOUT)
+                      close subscriber
+
+After (transitions in _generate, I/O in ToolDispatcher):
+  _generate():        DISPATCH_TOOL
+                      AWAIT_RESULT
+  tool_dispatcher.execute():
+                      open subscriber
+                      publish tool.request.*
+                      poll ...
+                      close subscriber
+                      return (result, timed_out)
+  _generate():        TOOL_RESULT  (or TOOL_TIMEOUT)
+</div>
+
+<div class="note">
+  The state machine sees the same transition sequence. The only change is that AWAIT_RESULT now fires before the subscriber opens rather than after. This is safe — AWAIT_RESULT is a visibility signal, not a coordination mechanism. The race-condition protection is subscribe-before-publish, which ToolDispatcher preserves internally.
+</div>
+
+<h2>File Map</h2>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>src/local/tools/tool_dispatcher.py</code></td><td class="new">new — bus I/O + name normalization</td></tr>
+  <tr><td><code>src/local/agents/generator_agent.py</code></td><td class="modified">inject tool_dispatcher; remove _execute_tool + _normalize_tool_name; transitions moved inline in _generate()</td></tr>
+  <tr><td><code>src/local/run.py</code></td><td class="modified">construct ToolDispatcher; inject into generator</td></tr>
+  <tr><td><code>config/tool_dispatcher.yaml</code></td><td class="new">id: tool_dispatcher</td></tr>
+  <tr><td><code>src/local/defaults/tool_dispatcher.yaml</code></td><td class="new">id: tool_dispatcher</td></tr>
+</table>
+
+<h2>Acceptance Criteria</h2>
+<ul>
+  <li>Generator state machine sees the same DISPATCH_TOOL → AWAIT_RESULT → TOOL_RESULT/TIMEOUT sequence</li>
+  <li>Tool calls still execute with correct correlation_id matching</li>
+  <li>Tool timeout still returns an error string and logs a warning</li>
+  <li>Hallucinated tool names are still normalized before dispatch</li>
+  <li><code>_execute_tool</code> and <code>_normalize_tool_name</code> no longer exist in GeneratorAgent</li>
+  <li>All existing tests pass</li>
+</ul>
+
+</body>
+</html>

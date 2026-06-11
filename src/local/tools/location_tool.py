@@ -99,6 +99,7 @@ class LocationTool(BaseTool):
     TOOL_ID = "location_tool"
     TOOL_NAME = "get_location"
     ACTIVITY_SUBJECT = TOOL_ACTIVITY_GET_LOCATION
+    RESULT_SUBJECT = TOOL_RESULT_GET_LOCATION
 
     def __init__(self) -> None:
         cfg = get_config("location") or {}
@@ -151,13 +152,7 @@ class LocationTool(BaseTool):
         self._publish_activity("request", {}, correlation_id)
         result = self._get_location()
         self._publish_activity("result", {"result": result}, correlation_id)
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_result",
-            subject=TOOL_RESULT_GET_LOCATION,
-            sender_id=self.TOOL_ID,
-            payload={"result": result},
-            correlation_id=correlation_id,
-        ))
+        self._publish_result(result, correlation_id)
 
 
 if __name__ == "__main__":

@@ -112,6 +112,7 @@ class SemanticScholarTool(BaseTool):
     TOOL_ID = "semantic_scholar_tool"
     TOOL_NAME = "search_papers"
     ACTIVITY_SUBJECT = TOOL_ACTIVITY_SEARCH_PAPERS
+    RESULT_SUBJECT = TOOL_RESULT_SEARCH_PAPERS
 
     def __init__(self) -> None:
         super().__init__(TOOL_REQUEST_SEARCH_PAPERS)
@@ -160,13 +161,7 @@ class SemanticScholarTool(BaseTool):
             result = f"Search failed: {exc}"
 
         self._publish_activity("result", {"result": result}, correlation_id)
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_result",
-            subject=TOOL_RESULT_SEARCH_PAPERS,
-            sender_id=self.TOOL_ID,
-            payload={"result": result},
-            correlation_id=correlation_id,
-        ))
+        self._publish_result(result, correlation_id)
 
 
 if __name__ == "__main__":

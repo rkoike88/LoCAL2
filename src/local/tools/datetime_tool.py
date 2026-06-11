@@ -30,6 +30,7 @@ class DateTimeTool(BaseTool):
     TOOL_ID = "datetime_tool"
     TOOL_NAME = "get_datetime"
     ACTIVITY_SUBJECT = TOOL_ACTIVITY_GET_DATETIME
+    RESULT_SUBJECT = TOOL_RESULT_GET_DATETIME
 
     def __init__(self) -> None:
         super().__init__(TOOL_REQUEST_GET_DATETIME)
@@ -59,13 +60,7 @@ class DateTimeTool(BaseTool):
         result = _get_datetime()
         logger.info("DateTimeTool: %s", result)
         self._publish_activity("result", {"result": result}, correlation_id)
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_result",
-            subject=TOOL_RESULT_GET_DATETIME,
-            sender_id=self.TOOL_ID,
-            payload={"result": result},
-            correlation_id=correlation_id,
-        ))
+        self._publish_result(result, correlation_id)
 
 
 if __name__ == "__main__":

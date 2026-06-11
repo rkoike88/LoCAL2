@@ -23,6 +23,7 @@ class SearchMemoryTool(BaseTool):
     TOOL_ID = "search_memory_tool"
     TOOL_NAME = "search_memory"
     ACTIVITY_SUBJECT = TOOL_ACTIVITY_SEARCH_MEMORY
+    RESULT_SUBJECT = TOOL_RESULT_SEARCH_MEMORY
     CONFIG_NAME = CONFIG_NAME
 
     def __init__(self, memory_service: MemoryService | None = None) -> None:
@@ -63,14 +64,7 @@ class SearchMemoryTool(BaseTool):
 
         self._publish_activity("result", {"result": result}, correlation_id)
 
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_result",
-            subject=TOOL_RESULT_SEARCH_MEMORY,
-            sender_id=self.TOOL_ID,
-            payload={"result": result, "tool": self.TOOL_NAME},
-            correlation_id=correlation_id,
-            metadata={},
-        ))
+        self._publish_result(result, correlation_id)
 
     def _search(self, query: str) -> str:
         if not query:

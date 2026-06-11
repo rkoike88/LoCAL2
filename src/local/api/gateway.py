@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -144,11 +145,12 @@ async def ws_bus(websocket: WebSocket, session_id: str) -> None:
     logger.debug("ws_bus: session %s connected", session_id)
     loop = asyncio.get_event_loop()
     queue: asyncio.Queue = asyncio.Queue()
+    stop = threading.Event()
 
     def _subscribe() -> None:
         sub = ZmqSubscriber(PROXY_BACKEND_ADDR, subscriptions=[""], bind=False)
         try:
-            while True:
+            while not stop.is_set():
                 msg = sub.receive_with_timeout(200)
                 if msg is not None:
                     asyncio.run_coroutine_threadsafe(queue.put(msg), loop)
@@ -168,6 +170,8 @@ async def ws_bus(websocket: WebSocket, session_id: str) -> None:
             })
     except WebSocketDisconnect:
         pass
+    finally:
+        stop.set()
 
 
 # ---------------------------------------------------------------------------

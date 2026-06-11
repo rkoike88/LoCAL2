@@ -22,6 +22,7 @@ class WebSearchTool(BaseTool):
     TOOL_ID = "web_search_tool"
     TOOL_NAME = "web_search"
     ACTIVITY_SUBJECT = TOOL_ACTIVITY_WEB_SEARCH
+    RESULT_SUBJECT = TOOL_RESULT_WEB_SEARCH
     CONFIG_NAME = CONFIG_NAME
 
     def __init__(self) -> None:
@@ -70,14 +71,7 @@ class WebSearchTool(BaseTool):
 
         self._publish_activity("result", {"result": result[:200]}, correlation_id)
 
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_result",
-            subject=TOOL_RESULT_WEB_SEARCH,
-            sender_id=self.TOOL_ID,
-            payload={"result": result, "tool": self.TOOL_NAME},
-            correlation_id=correlation_id,
-            metadata={},
-        ))
+        self._publish_result(result, correlation_id)
 
     def _search(self, query: str) -> str:
         if self._provider == "mock":

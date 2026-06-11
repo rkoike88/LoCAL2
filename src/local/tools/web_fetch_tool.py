@@ -26,6 +26,7 @@ class WebFetchTool(BaseTool):
     TOOL_ID = "web_fetch_tool"
     TOOL_NAME = "web_fetch"
     ACTIVITY_SUBJECT = TOOL_ACTIVITY_WEB_FETCH
+    RESULT_SUBJECT = TOOL_RESULT_WEB_FETCH
     CONFIG_NAME = CONFIG_NAME
 
     def __init__(self) -> None:
@@ -69,14 +70,7 @@ class WebFetchTool(BaseTool):
 
         self._publish_activity("result", {"result": result[:200]}, correlation_id)
 
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_result",
-            subject=TOOL_RESULT_WEB_FETCH,
-            sender_id=self.TOOL_ID,
-            payload={"result": result, "tool": self.TOOL_NAME},
-            correlation_id=correlation_id,
-            metadata={},
-        ))
+        self._publish_result(result, correlation_id)
 
     def _fetch(self, url: str) -> str:
         import httpx

@@ -23,6 +23,7 @@ class SearchLibraryTool(BaseTool):
     TOOL_ID = "search_library_tool"
     TOOL_NAME = TOOL_NAME
     ACTIVITY_SUBJECT = TOOL_ACTIVITY_SEARCH_DOCUMENTS
+    RESULT_SUBJECT = TOOL_RESULT_SEARCH_DOCUMENTS
     CONFIG_NAME = CONFIG_NAME
 
     def __init__(self, document_service: DocumentService | None = None) -> None:
@@ -116,13 +117,7 @@ class SearchLibraryTool(BaseTool):
             result = f"[search_library error: {exc}]"
 
         self._publish_activity("result", {"result": result}, correlation_id)
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_result",
-            subject=TOOL_RESULT_SEARCH_DOCUMENTS,
-            sender_id=self.TOOL_ID,
-            payload={"result": result, "tool": self.TOOL_NAME},
-            correlation_id=correlation_id,
-        ))
+        self._publish_result(result, correlation_id)
 
     def _search(self, query: str, collection: str | None = None) -> str:
         if not query:

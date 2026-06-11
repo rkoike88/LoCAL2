@@ -13,3 +13,4 @@ chroma_db/
 .chroma/
 .conversation_history.json
 .DS_Store
+generator_agent_flowchart.png

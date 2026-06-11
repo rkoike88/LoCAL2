@@ -29,7 +29,7 @@ Instance-level identity. Read by GeneratorAgent at startup.
 
 | Key | Default | Description |
 |---|---|---|
-| `instance_id` | hostname | Unique identifier for this LoCAL2 instance. Used in `generator.status` payloads and reserved for distributed routing (Phase 16). Falls back to `socket.gethostname()` if absent. |
+| `instance_id` | hostname | Unique identifier for this LoCAL2 instance. Used in `generator.status` payloads and reserved for distributed routing (future). Falls back to `socket.gethostname()` if absent. |
 | `ollama_debug` | `false` | Print Ollama request/response timing to stdout |
 
 ---

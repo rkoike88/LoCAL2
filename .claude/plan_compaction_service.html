@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Plan — CompactionService + COMPACTING state</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 960px; margin: 40px auto; padding: 0 24px; background: #0f0f0f; color: #e0e0e0; line-height: 1.6; }
+  h1 { color: #7eb8f7; border-bottom: 1px solid #333; padding-bottom: 12px; }
+  h2 { color: #a0cfff; margin-top: 40px; }
+  h3 { color: #c8d8f0; margin-top: 24px; }
+  h4 { color: #aab8cc; margin-top: 16px; margin-bottom: 4px; }
+  code { background: #1a1a2e; padding: 2px 6px; border-radius: 4px; font-family: "SF Mono", "Fira Code", monospace; font-size: 0.88em; color: #a8d8a8; }
+  pre { background: #1a1a2e; padding: 16px; border-radius: 8px; overflow-x: auto; border-left: 3px solid #3a5a8a; }
+  pre code { background: none; padding: 0; color: #c8e8c8; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th { background: #1a2a3a; padding: 8px 12px; text-align: left; color: #a0cfff; border-bottom: 1px solid #2a4a7a; }
+  td { padding: 8px 12px; border-bottom: 1px solid #1e1e2e; vertical-align: top; }
+  ul li { margin: 4px 0; }
+  .decision { background: #1a1500; border-left: 3px solid #b8960a; padding: 10px 16px; border-radius: 0 6px 6px 0; margin: 12px 0; }
+  .decision strong { color: #e8c040; }
+  .note { background: #0d1a0d; border-left: 3px solid #4a8a4a; padding: 10px 16px; border-radius: 0 6px 6px 0; margin: 12px 0; }
+  .new { color: #7ec87e; }
+  .modified { color: #e8c87e; }
+  .file { font-family: "SF Mono", monospace; font-size: 0.85em; color: #a8d8a8; }
+  .arch-box { background: #0d1a2e; border: 1px solid #2a4a6a; border-radius: 8px; padding: 20px; font-family: monospace; font-size: 0.85em; line-height: 1.8; color: #b0c8e8; white-space: pre; overflow-x: auto; }
+</style>
+</head>
+<body>
+
+<h1>Plan — CompactionService + <code>COMPACTING</code> state</h1>
+<p><em>Extract compaction decision AND execution from GeneratorAgent into a dedicated CompactionService. Add an explicit COMPACTING state to the generator state machine.</em></p>
+
+<h2>Motivation</h2>
+
+<p>GeneratorAgent currently handles two distinct concerns under compaction:</p>
+<ol>
+  <li><strong>The decision</strong> — should this context be compacted? (watches token count vs threshold)</li>
+  <li><strong>The execution</strong> — summarize history, replace it, publish result</li>
+</ol>
+
+<p>Neither belongs in a generation agent. The decision is a monitoring concern. The execution is a history-maintenance operation. Both belong in CompactionService.</p>
+
+<div class="decision">
+  <strong>Serialization constraint:</strong> Compaction execution must be serialized with <code>_handle_query()</code> — both mutate conversation history and both must not interleave. The generator's single-threaded event loop is the serialization mechanism. CompactionService provides the logic; GeneratorAgent calls into it from within its dispatch loop, under the state machine gate.
+</div>
+
+<div class="decision">
+  <strong>Additional fix:</strong> the generator currently runs compaction while appearing IDLE to the state machine and to GeneratorWindow. Adding a <code>COMPACTING</code> state makes the actual runtime state visible and honest.
+</div>
+
+<h2>Responsibility Split</h2>
+
+<table>
+  <tr><th>Concern</th><th>Owner</th><th>Why</th></tr>
+  <tr><td>Decision: should we compact?</td><td>CompactionService (bus listener)</td><td>Observes <code>response.generation</code>, checks threshold — no generation knowledge needed</td></tr>
+  <tr><td>Execution: summarize + replace history</td><td>CompactionService (<code>compact()</code> method)</td><td>All compaction logic in one place; called by generator under its state gate</td></tr>
+  <tr><td>State gate: IDLE check + transitions</td><td>GeneratorAgent</td><td>Only the generator knows when it's safe to mutate history; enforces serialization with <code>_handle_query()</code></td></tr>
+</table>
+
+<h2>Architecture After This Change</h2>
+
+<div class="arch-box">
+response.generation  ───▶  CompactionService._check()
+                                │
+                    prompt_tokens &gt; threshold * num_ctx?
+                                │ yes
+                                ▼
+                         compaction.request  ───▶  GeneratorAgent._handle_compaction()
+                                                         │
+                                                   IDLE → COMPACTING
+                                                         │
+                                                         ▼
+                                               CompactionService.compact()
+                                               (reads history, calls Ollama,
+                                                replaces history, publishes result)
+                                                         │
+                                                   COMPACTING → IDLE
+</div>
+
+<div class="note">
+  User-triggered compaction (Compact button in the web UI) continues to publish <code>compaction.request</code> directly via the gateway — no change to that path.
+</div>
+
+<h2>CompactionService (revised)</h2>
+
+<p>File: <span class="file">src/local/services/compaction_service.py</span></p>
+
+<p>Two responsibilities in one service: (1) the bus listener that watches <code>response.generation</code> and fires <code>compaction.request</code> when threshold is crossed; (2) the <code>compact()</code> method called synchronously by GeneratorAgent from within its dispatch loop.</p>
+
+<pre><code>class CompactionService:
+    """Auto-compaction decision and execution for GeneratorAgent.
+
+    Bus listener: subscribes to response.generation, publishes compaction.request
+    when prompt_tokens crosses the threshold.
+
+    Executor: compact() is called synchronously by GeneratorAgent under its
+    IDLE gate — runs in the generator's thread, serialized with _handle_query().
+    """
+
+    AGENT_ID = "compaction_service"
+
+    def __init__(self, conversation_service: ConversationService, model: str, options: dict) -> None:
+        self._conv = conversation_service
+        self._model = model
+        self._options = options
+        self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION])
+
+    def run(self) -> None:
+        logger.info("CompactionService ready")
+        while True:
+            try:
+                envelope = self._sub.receive()
+            except Exception as exc:
+                logger.error("CompactionService: receive error: %s", exc)
+                continue
+            self._check(envelope)
+
+    def _check(self, envelope: MessageEnvelope) -> None:
+        cfg = get_config("generator") or {}
+        threshold = cfg.get("compaction_threshold", 0.8)
+        if not threshold:
+            return
+
+        num_ctx = cfg.get("num_ctx", 32000)
+        prompt_tokens: int = envelope.payload.get("prompt_tokens", 0)
+        session_id: str | None = envelope.payload.get("session_id")
+
+        if prompt_tokens >= threshold * num_ctx:
+            logger.info(
+                "CompactionService: auto-compacting session %s (%d / %d tokens, threshold %.0f%%)",
+                (session_id or "")[:8], prompt_tokens, num_ctx, threshold * 100,
+            )
+            self._pub.publish(MessageEnvelope.create(
+                message_type="compaction_request",
+                subject=COMPACTION_REQUEST,
+                sender_id=self.AGENT_ID,
+                payload={"session_id": session_id, "auto": True},
+            ))
+
+    def compact(self, envelope: MessageEnvelope, publisher, make_envelope) -> None:
+        """Summarize a session's history and replace it with a summary + tail turns.
+
+        Called synchronously by GeneratorAgent._handle_compaction() while the
+        generator is in COMPACTING state. Runs in the generator's thread.
+        """
+        import ollama
+
+        session_id: str | None = envelope.payload.get("session_id")
+        cfg = get_config("generator") or {}
+        tail_turns: int = cfg.get("compaction_tail_turns", 4)
+
+        history = self._conv.get_history(session_id)
+        tokens_before = self._conv.get_token_count(session_id)
+
+        if not history:
+            publisher.publish(make_envelope(
+                COMPACTION_RESULT, "compaction",
+                {"error": "no history to compact", "session_id": session_id},
+                envelope.correlation_id or str(uuid.uuid4()), None,
+            ))
+            return
+
+        convo_text = []
+        for m in history:
+            role = m.get("role", "")
+            content = m.get("content") or ""
+            if role in ("user", "assistant") and content:
+                convo_text.append(f"{role.upper()}: {content}")
+        summary_input = "\n\n".join(convo_text)
+
+        compaction_system = cfg.get(
+            "compaction_system_prompt",
+            "Summarize this conversation concisely, preserving key facts and decisions.",
+        ).strip()
+
+        resp = ollama.chat(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": compaction_system},
+                {"role": "user", "content": summary_input},
+            ],
+            stream=False,
+            options=self._options,
+        )
+        summary_text = (resp.message.content or "").strip()
+
+        tail_messages: list[dict] = []
+        pairs_collected = 0
+        i = len(history) - 1
+        while i >= 1 and pairs_collected < tail_turns:
+            if history[i].get("role") == "assistant" and history[i - 1].get("role") == "user":
+                tail_messages = history[i - 1: i + 1] + tail_messages
+                pairs_collected += 1
+                i -= 2
+            else:
+                i -= 1
+
+        new_messages = [{"role": "assistant", "content": f"[SUMMARY] {summary_text}"}] + tail_messages
+        total_chars = sum(len(m.get("content") or "") for m in new_messages)
+        tokens_estimated_after = total_chars // 4
+
+        self._conv.replace_messages(session_id, new_messages)
+        self._conv.set_token_count(session_id, tokens_estimated_after)
+
+        publisher.publish(make_envelope(
+            COMPACTION_RESULT, "compaction",
+            {"session_id": session_id,
+             "tokens_before": tokens_before,
+             "tokens_after": tokens_estimated_after,
+             "summary": summary_text},
+            envelope.correlation_id or str(uuid.uuid4()), None,
+        ))
+        logger.info(
+            "CompactionService: compacted session %s — %d → ~%d tokens",
+            (session_id or "")[:8], tokens_before, tokens_estimated_after,
+        )
+</code></pre>
+
+<h2>Generator State Machine Changes</h2>
+
+<h3>generator_states.py</h3>
+<pre><code>class GeneratorState(Enum):
+    IDLE               = "idle"
+    RECEIVING          = "receiving"
+    GENERATING         = "generating"
+    DISPATCHING_TOOL   = "dispatching_tool"
+    WAITING_FOR_TOOL   = "waiting_for_tool"
+    PUBLISHING         = "publishing"
+    COMPACTING         = "compacting"          # ← add
+    ERROR              = "error"
+</code></pre>
+
+<h3>generator_actions.py</h3>
+<pre><code>class GeneratorAction(Enum):
+    RECEIVE            = "receive"
+    START_GENERATION   = "start_generation"
+    DISPATCH_TOOL      = "dispatch_tool"
+    AWAIT_RESULT       = "await_result"
+    TOOL_RESULT        = "tool_result"
+    TOOL_TIMEOUT       = "tool_timeout"
+    PUBLISH            = "publish"
+    RESET              = "reset"
+    FAIL               = "fail"
+    START_COMPACTION   = "start_compaction"    # ← add
+    COMPLETE_COMPACTION = "complete_compaction" # ← add
+</code></pre>
+
+<h3>generator_transitions.py</h3>
+<p>Add two transitions alongside the existing table:</p>
+<pre><code>(S.IDLE,       A.START_COMPACTION):    S.COMPACTING,
+(S.COMPACTING, A.COMPLETE_COMPACTION): S.IDLE,
+</code></pre>
+<p>The existing <code>FAIL</code> loop already covers <code>COMPACTING → ERROR</code> because it iterates over all non-IDLE states.</p>
+
+<h3>generator_agent.py — _handle_compaction()</h3>
+<p>Replace the existing implementation with a thin gate that delegates to CompactionService:</p>
+<pre><code>def _handle_compaction(self, envelope: MessageEnvelope) -> None:
+    if self._sm.state != GeneratorState.IDLE:
+        self._pub.publish(self._make_envelope(
+            COMPACTION_RESULT, "compaction",
+            {"error": "generator busy — try again after current query finishes",
+             "session_id": envelope.payload.get("session_id")},
+            envelope.correlation_id or str(uuid.uuid4()), None,
+        ))
+        return
+
+    self._do_transition(GeneratorAction.START_COMPACTION)   # IDLE → COMPACTING
+    try:
+        self._compaction_service.compact(envelope, self._pub, self._make_envelope)
+    finally:
+        self._do_transition(GeneratorAction.COMPLETE_COMPACTION)  # COMPACTING → IDLE
+</code></pre>
+
+<h3>generator_agent.py — __init__()</h3>
+<p>Accept <code>compaction_service</code> as an injected parameter (like <code>conversation_service</code>):</p>
+<pre><code>def __init__(
+    self,
+    model: str | None = None,
+    temperature: float | None = None,
+    conversation_service=None,
+    compaction_service=None,
+) -> None:
+    ...
+    self._compaction_service = compaction_service  # set before run.py wires it
+</code></pre>
+
+<h2>Config Change</h2>
+
+<p>Add to <span class="file">config/generator.yaml</span> and <span class="file">src/local/defaults/generator.yaml</span>:</p>
+<pre><code># Fraction of num_ctx at which auto-compaction triggers (0 = disabled)
+compaction_threshold: 0.8
+</code></pre>
+
+<h2>Startup Change</h2>
+
+<p>File: <span class="file">src/local/run.py</span></p>
+<p>Create CompactionService with the shared dependencies, start its bus-listener thread, inject it into GeneratorAgent:</p>
+<pre><code>from local.services.compaction_service import CompactionService
+
+# After shared_conv is created, before generator starts:
+shared_compaction = CompactionService(
+    conversation_service=shared_conv,
+    model=args.model or cfg.get("model", "gemma4:e4b"),
+    options={"num_ctx": cfg.get("num_ctx", 128000), "temperature": cfg.get("temperature", 0.1)},
+)
+threading.Thread(target=shared_compaction.run, daemon=True, name="compaction_service").start()
+
+# Pass into generator:
+gen_thread = threading.Thread(
+    target=_start_generator,
+    args=(args.model,),
+    kwargs={"conversation_service": shared_conv, "compaction_service": shared_compaction},
+    ...
+)
+</code></pre>
+
+<h2>File Map</h2>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>src/local/services/compaction_service.py</code></td><td class="new">new — decision + execution logic</td></tr>
+  <tr><td><code>src/local/agents/generator_states.py</code></td><td class="modified">add COMPACTING</td></tr>
+  <tr><td><code>src/local/agents/generator_actions.py</code></td><td class="modified">add START_COMPACTION, COMPLETE_COMPACTION</td></tr>
+  <tr><td><code>src/local/agents/generator_transitions.py</code></td><td class="modified">add IDLE→COMPACTING, COMPACTING→IDLE transitions</td></tr>
+  <tr><td><code>src/local/agents/generator_agent.py</code></td><td class="modified">inject compaction_service; _handle_compaction() becomes a thin gate</td></tr>
+  <tr><td><code>src/local/run.py</code></td><td class="modified">construct + start CompactionService; inject into generator</td></tr>
+  <tr><td><code>config/generator.yaml</code></td><td class="modified">add compaction_threshold: 0.8</td></tr>
+  <tr><td><code>src/local/defaults/generator.yaml</code></td><td class="modified">same</td></tr>
+</table>
+
+<h2>Bus Subjects</h2>
+<p>No new subjects. CompactionService subscribes to <code>response.generation</code> (existing) and publishes <code>compaction.request</code> (existing). The generator publishes <code>compaction.result</code> (existing) — via <code>CompactionService.compact()</code> which receives the publisher.</p>
+
+<h2>Acceptance Criteria</h2>
+<ul>
+  <li>After a generation that crosses the threshold, <code>compaction.request</code> appears on the bus from <code>compaction_service</code> without any user action</li>
+  <li>After auto-compaction, <code>compaction.result</code> appears on the bus with valid <code>tokens_before</code> and <code>tokens_after</code></li>
+  <li>User-triggered compact button still works via the existing gateway path</li>
+  <li>Setting <code>compaction_threshold: 0</code> disables auto-compaction — no <code>compaction.request</code> published by the service</li>
+  <li>During compaction, GeneratorWindow shows state <code>compacting</code> (not <code>idle</code>)</li>
+  <li>If a query arrives during compaction, the IDLE check rejects it with an error result and the generator returns to COMPACTING cleanly</li>
+  <li>All existing tests pass</li>
+</ul>
+
+</body>
+</html>

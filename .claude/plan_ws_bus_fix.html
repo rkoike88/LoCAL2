@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fix — ws/bus subscriber thread leak</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 900px; margin: 40px auto; padding: 0 24px; background: #0f0f0f; color: #e0e0e0; line-height: 1.6; }
+  h1 { color: #7eb8f7; border-bottom: 1px solid #333; padding-bottom: 12px; }
+  h2 { color: #a0cfff; margin-top: 36px; }
+  h3 { color: #c8d8f0; margin-top: 24px; }
+  code { background: #1a1a2e; padding: 2px 6px; border-radius: 4px; font-family: "SF Mono", "Fira Code", monospace; font-size: 0.88em; color: #a8d8a8; }
+  pre { background: #1a1a2e; padding: 16px; border-radius: 8px; overflow-x: auto; border-left: 3px solid #3a5a8a; }
+  pre code { background: none; padding: 0; color: #c8e8c8; }
+  pre code .del { color: #e87e7e; text-decoration: line-through; }
+  pre code .add { color: #7ec87e; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th { background: #1a2a3a; padding: 8px 12px; text-align: left; color: #a0cfff; border-bottom: 1px solid #2a4a7a; }
+  td { padding: 8px 12px; border-bottom: 1px solid #1e1e2e; vertical-align: top; }
+  ul li { margin: 4px 0; }
+  .bug { background: #1f0a0a; border-left: 3px solid #e87e7e; padding: 10px 16px; border-radius: 0 6px 6px 0; margin: 12px 0; }
+  .bug strong { color: #e87e7e; }
+  .fix { background: #0a1f0a; border-left: 3px solid #7ec87e; padding: 10px 16px; border-radius: 0 6px 6px 0; margin: 12px 0; }
+  .fix strong { color: #7ec87e; }
+  .note { background: #1a1500; border-left: 3px solid #b8960a; padding: 10px 16px; border-radius: 0 6px 6px 0; margin: 12px 0; color: #d4b84a; }
+  .file { font-family: "SF Mono", monospace; font-size: 0.85em; color: #a8d8a8; }
+</style>
+</head>
+<body>
+
+<h1>Fix — <code>/ws/bus</code> subscriber thread leak</h1>
+<p><em>Every client that connects to <code>/ws/bus/{session_id}</code> spawns a thread that never exits after disconnect.</em></p>
+
+<h2>Bug</h2>
+
+<div class="bug">
+  <strong>Root cause:</strong> <code>_subscribe()</code> in <span class="file">gateway.py:148</span> runs in a thread-pool thread via <code>run_in_executor</code> with an unbounded <code>while True</code> loop. The <code>WebSocketDisconnect</code> handler at line 169 exits the coroutine but has no way to signal the thread. The thread keeps running — and holding a ZMQ subscriber socket — until the process restarts.
+</div>
+
+<h3>Lifetime diagram (buggy)</h3>
+<pre><code>client connects
+  → coroutine starts
+  → run_in_executor(_subscribe)  ← thread T1 starts, loops forever
+  → coroutine pumps queue
+
+client disconnects
+  → WebSocketDisconnect caught
+  → coroutine exits
+  → T1 still running ✗  ZMQ socket still open ✗
+</code></pre>
+
+<h3>Lifetime diagram (fixed)</h3>
+<pre><code>client connects
+  → stop = threading.Event()
+  → run_in_executor(_subscribe)  ← thread T1 starts, checks stop
+  → coroutine pumps queue
+
+client disconnects
+  → WebSocketDisconnect caught
+  → finally: stop.set()
+  → T1 exits within ≤200 ms (next receive_with_timeout wake-up) ✓
+</code></pre>
+
+<h2>Fix</h2>
+
+<div class="fix">
+  <strong>Approach:</strong> Add a <code>threading.Event</code> stop flag. Thread checks it on every loop iteration. Coroutine sets it in a <code>finally</code> block, guaranteeing cleanup on both normal close and error.
+</div>
+
+<p>Single file: <span class="file">src/local/api/gateway.py</span>, function <code>ws_bus</code>.</p>
+
+<h3>Before</h3>
+<pre><code>    loop = asyncio.get_event_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def _subscribe() -> None:
+        sub = ZmqSubscriber(PROXY_BACKEND_ADDR, subscriptions=[""], bind=False)
+        try:
+            while True:
+                msg = sub.receive_with_timeout(200)
+                if msg is not None:
+                    asyncio.run_coroutine_threadsafe(queue.put(msg), loop)
+        finally:
+            sub.close()
+
+    loop.run_in_executor(None, _subscribe)
+
+    try:
+        while True:
+            env: MessageEnvelope = await queue.get()
+            await websocket.send_json({...})
+    except WebSocketDisconnect:
+        pass
+</code></pre>
+
+<h3>After</h3>
+<pre><code>    import threading
+    loop = asyncio.get_event_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    stop = threading.Event()
+
+    def _subscribe() -> None:
+        sub = ZmqSubscriber(PROXY_BACKEND_ADDR, subscriptions=[""], bind=False)
+        try:
+            while not stop.is_set():
+                msg = sub.receive_with_timeout(200)
+                if msg is not None:
+                    asyncio.run_coroutine_threadsafe(queue.put(msg), loop)
+        finally:
+            sub.close()
+
+    loop.run_in_executor(None, _subscribe)
+
+    try:
+        while True:
+            env: MessageEnvelope = await queue.get()
+            await websocket.send_json({...})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        stop.set()
+</code></pre>
+
+<div class="note">
+  <code>threading</code> is already in the stdlib — no new dependency. <code>receive_with_timeout(200)</code> already exists, so the thread wakes every 200 ms regardless. The <code>finally</code> block fires on both clean close and any exception, so no code path leaks.
+</div>
+
+<h2>File Map</h2>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>src/local/api/gateway.py</code></td><td>Add <code>stop = threading.Event()</code>; change <code>while True</code> → <code>while not stop.is_set()</code>; add <code>finally: stop.set()</code> to coroutine</td></tr>
+</table>
+
+<h2>Acceptance Criteria</h2>
+<ul>
+  <li>Connect a client to <code>/ws/bus/{id}</code>, then disconnect — confirm no orphaned threads in <code>threading.enumerate()</code></li>
+  <li>Connect and disconnect 10 times in succession — thread count returns to baseline each time</li>
+  <li>All existing tests pass unchanged</li>
+  <li>Normal <code>/ws/chat</code> operation unaffected</li>
+</ul>
+
+</body>
+</html>

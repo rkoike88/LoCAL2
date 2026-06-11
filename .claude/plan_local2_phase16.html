@@ -37,8 +37,22 @@
 </head>
 <body>
 
-<h1>Phase 16 — Web UI</h1>
+<h1>Phase 16 — Web UI <span style="font-size:0.65em; color:#22c55e; font-weight:600; vertical-align:middle;">✅ COMPLETE</span></h1>
 <p><em>Replace the PySide6 layer with a browser-based frontend served by the existing FastAPI gateway. The Python backend — agents, tools, services, ZMQ bus — is untouched.</em></p>
+
+<div class="decision" style="margin-bottom: 24px;">
+  <strong>Completion summary (commits b4d1333 → 5ed4b4e, 2026-06-09/10):</strong>
+  <ul style="margin-top:8px;">
+    <li>16.1 ✅ WebSocket gateway — <code>/ws/chat/{session_id}</code>, <code>/ws/bus/{session_id}</code>, REST settings/sessions/feedback/compact endpoints</li>
+    <li>16.2 ✅ React + Vite frontend scaffold — <code>frontend/</code>, useWebSocket, useChatStream hooks</li>
+    <li>16.3 ✅ Chat interface — MessageList, ThinkingBlock, ToolCallChip, MessageInput, CritiqueBar, TokenGauge, session navigator, feedback buttons</li>
+    <li>16.4 ✅ Settings page — per-tool gear icon, settings panel with cancel + save confirm; collapsible sidebar</li>
+    <li>16.5 ✅ Conversation navigator — left sidebar, session list, rejoin, collapse to icon-only</li>
+    <li>16.6 ⚠️ Developer mode (bus stream, per-participant panels) — deferred; bus observability available via <code>--panels</code> mode</li>
+    <li>➕ File attachments in web UI — paperclip button, <code>/api/attachments</code> endpoint (added in Phase 17)</li>
+    <li>➕ <code>--web-only</code> and <code>--ipaddress</code> flags for remote-bus / LAN use (added in Phase 17)</li>
+  </ul>
+</div>
 
 <h2>Motivation</h2>
 <p>LoCAL2 is heading toward being shared with others. The current PySide6 UI has real barriers: Qt dependency friction, a chat layout that doesn't match what people expect from frontier models, context and compaction as separate windows, no settings page. Every successful local LLM tool that's been shared widely (Open WebUI, Jan, AnythingLLM) is browser-based. The LoCAL2 backend is the differentiator — the bus architecture, CriticAgent, score-weighted memory, reward loop. The frontend should be as frictionless as possible to install and use.</p>
@@ -258,8 +272,8 @@ python run_local.py --api-port 8080</code></pre>
 <ul>
   <li>Multi-user auth — still single-user local tool</li>
   <li>Docker / containerisation</li>
-  <li>Removing PySide6 (Phase 17)</li>
-  <li>pip packaging / PyPI (future)</li>
+  <li>Removing PySide6 — kept as <code>--panels</code> / <code>--desktop</code> fallback</li>
+  <li>pip packaging / PyPI — done in <a href="plan_local2_phase17.html">Phase 17</a> (v0.1.9)</li>
   <li>Mobile layout</li>
 </ul>
 

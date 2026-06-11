@@ -21,10 +21,13 @@ Phase-by-phase implementation plans. Each HTML file describes the design decisio
 | 15 | GeneratorWindow: identity, state, context, tool registry, transitions | ✅ | [plan_local2_phase15.html](../../.claude/plan_local2_phase15.html) |
 | — | Refactor: BaseTool + Google-style docstrings (commit 68976e0) | ✅ | — |
 | — | Refactor: RespondentB removal + BaseAgent (commit dd5404e) | ✅ | — |
-| 16 | Web UI: WebSocket gateway + React frontend replacing PySide6 | 📋 | [plan_local2_phase16.html](../../.claude/plan_local2_phase16.html) |
+| 16 | Web UI: WebSocket gateway + React frontend; settings/sessions REST; Qt panels retained as `--panels` observer mode | ✅ | [plan_local2_phase16.html](../../.claude/plan_local2_phase16.html) |
+| 17 | pip packaging: `pyproject.toml`, `local2` CLI, `~/.local2/` data dir, `local2 setup`, `local2 searxng`, file attachments in web UI, `--web-only`/`--ipaddress` for remote-bus mode | ✅ | [plan_local2_phase17.html](../../.claude/plan_local2_phase17.html) |
 
 ## Notes
 
-**Phase 5 rollback:** The dual-respondent / pairwise comparison architecture was implemented and then removed in the 2026-06-08 refactor. `GeneratorAgent` no longer has an A/B identity. Pairwise comparison will be re-added at the `CriticAgent` layer when multiple independent generator processes are introduced (separate processes, matched by `correlation_id`).
+**Phase 5 rollback:** The dual-respondent / pairwise comparison architecture was implemented and then removed in the 2026-06-08 refactor. `GeneratorAgent` no longer has an A/B identity.
 
-**Refactor passes:** Two non-feature refactors were applied after Phase 15 — `BaseTool(ABC)` extracting common tool boilerplate, and `BaseAgent(ABC)` extracting common agent boilerplate (`_do_transition`, `run`, `_dispatch`).
+**Refactor passes (post-Phase 15):** `BaseTool(ABC)` extracting common tool boilerplate, and `BaseAgent(ABC)` extracting common agent boilerplate (`_do_transition`, `run`, `_dispatch`).
+
+**Phase 16 cut scope:** Settings page and developer mode panel (16.4, 16.6) were cut from the web UI. Settings remain in Qt panels (`--panels` mode); the bus stream is accessible via the `/ws/bus/{session_id}` endpoint for future tooling.

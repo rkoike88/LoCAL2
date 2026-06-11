@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LoCAL2 Phase 17 — pip Packaging + local2 CLI</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 960px; margin: 40px auto; padding: 0 24px; background: #0f0f0f; color: #e0e0e0; line-height: 1.6; }
+  h1 { color: #7eb8f7; border-bottom: 1px solid #333; padding-bottom: 12px; }
+  h2 { color: #a0cfff; margin-top: 40px; }
+  h3 { color: #c8d8f0; }
+  h4 { color: #aab8cc; margin-top: 16px; margin-bottom: 4px; }
+  code { background: #1a1a2e; padding: 2px 6px; border-radius: 4px; font-family: "SF Mono", "Fira Code", monospace; font-size: 0.88em; color: #a8d8a8; }
+  pre { background: #1a1a2e; padding: 16px; border-radius: 8px; overflow-x: auto; border-left: 3px solid #3a5a8a; }
+  pre code { background: none; padding: 0; color: #c8e8c8; }
+  .milestone { background: #0d1f35; border: 1px solid #2a4a7a; border-radius: 8px; padding: 16px 20px; margin: 16px 0; }
+  .milestone h3 { margin: 0 0 8px 0; color: #7eb8f7; }
+  .file-list { background: #141414; border-radius: 6px; padding: 12px 16px; margin: 8px 0; }
+  .file-list li { font-family: "SF Mono", monospace; font-size: 0.85em; margin: 4px 0; }
+  .new { color: #7ec87e; }
+  .modified { color: #e8c87e; }
+  .removed { color: #e87e7e; }
+  .kept { color: #7eb8e8; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th { background: #1a2a3a; padding: 8px 12px; text-align: left; color: #a0cfff; border-bottom: 1px solid #2a4a7a; }
+  td { padding: 8px 12px; border-bottom: 1px solid #1e1e2e; vertical-align: top; }
+  blockquote { border-left: 3px solid #3a5a8a; margin: 12px 0; padding: 8px 16px; background: #111827; color: #a0b0c0; }
+  ul li { margin: 4px 0; }
+  .decision { background: #1a1500; border-left: 3px solid #b8960a; padding: 10px 16px; border-radius: 0 6px 6px 0; margin: 12px 0; }
+  .decision strong { color: #e8c040; }
+  .done-banner { background: #0a1f0a; border: 1px solid #22c55e; border-radius: 8px; padding: 12px 20px; margin-bottom: 24px; color: #4ade80; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>Phase 17 — pip Packaging + <code>local2</code> CLI <span style="font-size:0.65em; color:#22c55e; font-weight:600; vertical-align:middle;">✅ COMPLETE</span></h1>
+<p><em>Make LoCAL2 installable as a standard Python package. The install story goes from "clone repo, manage paths manually" to <code>pip install local2</code>.</em></p>
+
+<div class="done-banner">
+  ✅ Complete — commits c3780bc → 5ed4b4e (2026-06-10), version 0.1.9
+</div>
+
+<h2>Motivation</h2>
+<p>Phase 16 delivered the web UI. The remaining friction to sharing LoCAL2 was the install story: users had to clone the repo, set <code>PYTHONPATH</code>, and figure out SearXNG setup themselves. Phase 17 resolves this with a proper <code>pyproject.toml</code>, a <code>local2</code> CLI entry point that handles first-run setup, and a data directory (<code>~/.local2/</code>) that stores user config outside the repo.</p>
+
+<blockquote>Install story after Phase 17: <code>pip install local2</code> → <code>local2 setup</code> → <code>local2</code> → open browser</blockquote>
+
+<h2>Milestones</h2>
+
+<div class="milestone">
+  <h3>17.1 — pyproject.toml + hatchling build</h3>
+  <p>Replace <code>setup.py</code> / <code>requirements.txt</code> with a <code>pyproject.toml</code> using hatchling as the build backend. All runtime dependencies declared. The React <code>frontend/dist/</code> bundle is included as a build artifact so it ships with the wheel.</p>
+  <ul>
+    <li>Build backend: <code>hatchling</code></li>
+    <li>Package name: <code>local2</code></li>
+    <li>Entry point: <code>local2 = "local.cli:main"</code></li>
+    <li>Artifacts: <code>src/local/api/static/**</code> (React build output)</li>
+    <li>Python ≥ 3.11 required</li>
+  </ul>
+  <h4>Dependencies declared</h4>
+  <pre><code>ollama, fastapi, uvicorn, websockets, pydantic, pyzmq, PySide6,
+PyYAML, httpx, python-multipart, beautifulsoup4, chromadb, pypdf</code></pre>
+  <h4>Files</h4>
+  <ul class="file-list">
+    <li class="new">pyproject.toml — build config, deps, entry point</li>
+    <li class="removed">requirements.txt — superseded by pyproject.toml deps</li>
+  </ul>
+</div>
+
+<div class="milestone">
+  <h3>17.2 — Data directory (<code>~/.local2/</code>)</h3>
+  <p>User config, SearXNG docker-compose, and generated secrets live in <code>~/.local2/</code> — not inside the repo or install path. This lets the package be updated without clobbering user settings.</p>
+  <ul>
+    <li><code>~/.local2/config/*.yaml</code> — user YAML configs (copied from package defaults on first <code>local2 setup</code>)</li>
+    <li><code>~/.local2/docker-compose.yml</code> — SearXNG compose file</li>
+    <li><code>~/.local2/searxng/</code> — SearXNG settings directory</li>
+    <li><code>~/.local2/.env</code> — auto-generated <code>MY_SEARX_SECRET</code></li>
+    <li><code>LOCAL2_DATA_DIR</code> env var overrides the default path</li>
+  </ul>
+  <h4>Files</h4>
+  <ul class="file-list">
+    <li class="new">src/local/data_dir.py — <code>get_data_dir()</code>, <code>get_defaults_dir()</code></li>
+    <li class="modified">src/local/config/config_loader.py — reads YAML from data dir first, falls back to package defaults</li>
+  </ul>
+</div>
+
+<div class="milestone">
+  <h3>17.3 — <code>local2</code> CLI entry point</h3>
+  <p>A single <code>local2</code> command handles all startup modes and first-run setup. Delegates to <code>src/local/run.py</code> for the main runtime.</p>
+  <pre><code>local2                       # web UI, opens browser
+local2 --headless            # web server only (no browser pop)
+local2 --panels              # web UI + Qt observer panels
+local2 --desktop             # legacy PySide6 UI
+local2 setup                 # init config + pull Ollama models
+local2 setup --models-only   # re-pull models only
+local2 setup --config-only   # re-init config only
+local2 searxng up            # start SearXNG in Docker
+local2 searxng down          # stop SearXNG
+local2 searxng status        # show container status</code></pre>
+  <h4>Files</h4>
+  <ul class="file-list">
+    <li class="new">src/local/cli.py — entry point registered in pyproject.toml</li>
+    <li class="new">src/local/run.py — main runtime (moved from run_local.py)</li>
+  </ul>
+</div>
+
+<div class="milestone">
+  <h3>17.4 — File attachments in web UI</h3>
+  <p>Paperclip button in the web chat interface. Files are uploaded via <code>POST /api/attachments</code>, stored server-side for the duration of the query, and passed through the WebSocket → session → bus pipeline to the GeneratorAgent.</p>
+  <ul>
+    <li>Paperclip button opens file picker; attached filenames shown as chips</li>
+    <li>Images: base64-encoded → Ollama <code>images</code> field (same path as Qt Phase 7)</li>
+    <li>PDFs / text: extracted server-side, prepended to user message content</li>
+    <li>Dependency added: <code>python-multipart</code></li>
+  </ul>
+  <h4>Files</h4>
+  <ul class="file-list">
+    <li class="modified">src/local/api/gateway.py — <code>POST /api/attachments</code> endpoint</li>
+    <li class="modified">frontend/src/components/MessageInput.tsx — paperclip button + chip display</li>
+  </ul>
+</div>
+
+<div class="milestone">
+  <h3>17.5 — Remote-bus mode (<code>--web-only</code> / <code>--ipaddress</code>)</h3>
+  <p>Enables a split deployment where the web server runs on one machine and the agent bus runs on another (LAN use case). The web server connects to a remote ZMQ proxy rather than starting its own.</p>
+  <ul>
+    <li><code>--web-only</code> — start FastAPI + WebSocket bridge only; no local agents</li>
+    <li><code>--ipaddress IP</code> — connect to ZMQ proxy at <code>IP</code> (sets <code>LOCAL2_PROXY_HOST</code>)</li>
+    <li>Use case: run agents on a GPU machine, open browser on a laptop on the same LAN</li>
+  </ul>
+  <h4>Files</h4>
+  <ul class="file-list">
+    <li class="modified">src/local/run.py — <code>--web-only</code>, <code>--ipaddress</code> args; <code>LOCAL2_PROXY_HOST</code> env</li>
+  </ul>
+</div>
+
+<h2>File Map</h2>
+<table>
+  <tr><th>File</th><th>Status</th><th>Notes</th></tr>
+  <tr><td><code>pyproject.toml</code></td><td class="new">new</td><td>hatchling build, all deps, local2 entry point, frontend/dist artifact</td></tr>
+  <tr><td><code>src/local/cli.py</code></td><td class="new">new</td><td>local2 CLI: setup, searxng subcommands; delegates to run.py</td></tr>
+  <tr><td><code>src/local/run.py</code></td><td class="new">new</td><td>main runtime moved from run_local.py; --web-only/--ipaddress flags</td></tr>
+  <tr><td><code>src/local/data_dir.py</code></td><td class="new">new</td><td>get_data_dir() → ~/.local2/; LOCAL2_DATA_DIR override</td></tr>
+  <tr><td><code>src/local/api/gateway.py</code></td><td class="modified">modified</td><td>POST /api/attachments endpoint; python-multipart dep</td></tr>
+  <tr><td><code>frontend/src/components/MessageInput.tsx</code></td><td class="modified">modified</td><td>paperclip button, attachment chip display</td></tr>
+  <tr><td><code>run_local.py</code></td><td class="kept">kept</td><td>thin shim delegating to src/local/run.py for dev-mode runs</td></tr>
+</table>
+
+<h2>Run Modes After Phase 17</h2>
+<pre><code># Standard (pip install)
+pip install local2
+local2 setup        # first run: write config, pull models
+local2              # open browser → localhost:8080
+
+# Dev (repo checkout)
+python run_local.py              # same as local2
+python run_local.py --headless   # no browser
+python run_local.py --panels     # Qt observer panels alongside web UI
+python run_local.py --desktop    # legacy PySide6 UI
+
+# Remote / LAN split
+local2 --ipaddress 192.168.1.42 --web-only   # web layer only, bus on remote machine
+
+# SearXNG
+local2 searxng up      # start Docker container
+local2 searxng status  # check it's running
+local2 searxng down    # stop it</code></pre>
+
+<h2>Acceptance Criteria</h2>
+<ul>
+  <li><code>pip install -e .</code> succeeds; <code>local2 --help</code> runs without error</li>
+  <li><code>local2 setup</code> writes YAML configs to <code>~/.local2/config/</code> and pulls Ollama models</li>
+  <li><code>local2 searxng up/down/status</code> manages the Docker container using <code>~/.local2/docker-compose.yml</code></li>
+  <li>File attachment in web UI: image sent to Gemma vision; PDF/text content prepended to message</li>
+  <li><code>--web-only --ipaddress X</code> connects to remote ZMQ proxy; queries complete end-to-end</li>
+  <li>All existing Python tests continue to pass</li>
+  <li>Version: 0.1.9</li>
+</ul>
+
+<h2>What's Next</h2>
+<ul>
+  <li>PyPI publish (<code>hatch publish</code>) — not yet done; package is installable from source</li>
+  <li>Developer mode (16.6) — bus stream panel, per-participant observability in web UI</li>
+  <li>PySide6 removal — kept as fallback; can remove once web UI reaches full feature parity</li>
+  <li>Docker image / one-command install for non-Python users</li>
+</ul>
+
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Refactor — BaseTool _publish_result() helper</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 900px; margin: 40px auto; padding: 0 24px; background: #0f0f0f; color: #e0e0e0; line-height: 1.6; }
+  h1 { color: #7eb8f7; border-bottom: 1px solid #333; padding-bottom: 12px; }
+  h2 { color: #a0cfff; margin-top: 36px; }
+  h3 { color: #c8d8f0; margin-top: 24px; }
+  code { background: #1a1a2e; padding: 2px 6px; border-radius: 4px; font-family: "SF Mono", "Fira Code", monospace; font-size: 0.88em; color: #a8d8a8; }
+  pre { background: #1a1a2e; padding: 16px; border-radius: 8px; overflow-x: auto; border-left: 3px solid #3a5a8a; }
+  pre code { background: none; padding: 0; color: #c8e8c8; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th { background: #1a2a3a; padding: 8px 12px; text-align: left; color: #a0cfff; border-bottom: 1px solid #2a4a7a; }
+  td { padding: 8px 12px; border-bottom: 1px solid #1e1e2e; vertical-align: top; font-family: "SF Mono", monospace; font-size: 0.85em; }
+  td.desc { font-family: inherit; font-size: 1em; }
+  ul li { margin: 4px 0; }
+  .problem { background: #1f0a0a; border-left: 3px solid #e87e7e; padding: 10px 16px; border-radius: 0 6px 6px 0; margin: 12px 0; }
+  .problem strong { color: #e87e7e; }
+  .solution { background: #0a1f0a; border-left: 3px solid #7ec87e; padding: 10px 16px; border-radius: 0 6px 6px 0; margin: 12px 0; }
+  .solution strong { color: #7ec87e; }
+  .note { background: #1a1500; border-left: 3px solid #b8960a; padding: 10px 16px; border-radius: 0 6px 6px 0; margin: 12px 0; color: #d4b84a; }
+  .file { font-family: "SF Mono", monospace; font-size: 0.85em; color: #a8d8a8; }
+</style>
+</head>
+<body>
+
+<h1>Refactor — <code>BaseTool._publish_result()</code> helper</h1>
+<p><em>Every tool's <code>_handle_request</code> ends with the same 8-line envelope block. BaseTool should own it.</em></p>
+
+<h2>Problem</h2>
+
+<div class="problem">
+  <strong>Pattern:</strong> Despite <code>BaseTool</code> existing, the <code>tool.result.*</code> envelope is constructed identically in all 7 tool implementations. <code>_publish_activity()</code> was already extracted into BaseTool — <code>_publish_result()</code> is the same idea applied to the result envelope.
+</div>
+
+<h3>The repeated block (all 7 tools)</h3>
+<pre><code>self._pub.publish(MessageEnvelope.create(
+    message_type="tool_result",
+    subject=TOOL_RESULT_&lt;NAME&gt;,        # only thing that varies
+    sender_id=self.TOOL_ID,
+    payload={"result": result, "tool": self.TOOL_NAME},
+    correlation_id=correlation_id,
+    metadata={},
+))
+</code></pre>
+
+<p>The only variation is the <code>subject</code>. Everything else — <code>message_type</code>, <code>sender_id</code>, payload shape, field names — is identical across all tools.</p>
+
+<h2>Solution</h2>
+
+<div class="solution">
+  <strong>Approach:</strong> Add <code>RESULT_SUBJECT</code> as a class variable (parallel to the existing <code>ACTIVITY_SUBJECT</code>), then add <code>_publish_result()</code> to BaseTool. Each tool declares its result subject and calls the helper instead of constructing the envelope.
+</div>
+
+<h2>BaseTool Changes</h2>
+
+<p>File: <span class="file">src/local/tools/base_tool.py</span></p>
+
+<h3>Add class variable</h3>
+<pre><code>TOOL_ID: ClassVar[str]
+TOOL_NAME: ClassVar[str]
+ACTIVITY_SUBJECT: ClassVar[str]
+RESULT_SUBJECT: ClassVar[str]          # ← add this
+CONFIG_NAME: ClassVar[str | None] = None
+</code></pre>
+
+<h3>Add method (alongside _publish_activity)</h3>
+<pre><code>def _publish_result(
+    self,
+    result: str,
+    correlation_id: str | None,
+    extra: dict | None = None,
+) -> None:
+    """Publish a tool.result.* envelope to the bus.
+
+    Args:
+        result: The tool's string output, forwarded to GeneratorAgent.
+        correlation_id: Forwarded from the originating request envelope.
+        extra: Optional additional payload fields (rarely needed).
+    """
+    self._pub.publish(MessageEnvelope.create(
+        message_type="tool_result",
+        subject=self.RESULT_SUBJECT,
+        sender_id=self.TOOL_ID,
+        payload={"result": result, "tool": self.TOOL_NAME, **(extra or {})},
+        correlation_id=correlation_id or "",
+    ))
+</code></pre>
+
+<h3>Update _handle_request docstring</h3>
+<p>Replace step 5 ("Publish the <code>tool.result.*</code> envelope via <code>self._pub</code>") with "Call <code>_publish_result(result, correlation_id)</code>."</p>
+
+<h2>Per-Tool Changes</h2>
+
+<p>Each tool: add <code>RESULT_SUBJECT</code> class var, replace the 8-line envelope block with one line.</p>
+
+<table>
+  <tr><th>Tool file</th><th>RESULT_SUBJECT value</th></tr>
+  <tr><td>web_search_tool.py</td><td class="desc"><code>TOOL_RESULT_WEB_SEARCH</code></td></tr>
+  <tr><td>web_fetch_tool.py</td><td class="desc"><code>TOOL_RESULT_WEB_FETCH</code></td></tr>
+  <tr><td>search_memory_tool.py</td><td class="desc"><code>TOOL_RESULT_SEARCH_MEMORY</code></td></tr>
+  <tr><td>datetime_tool.py</td><td class="desc"><code>TOOL_RESULT_GET_DATETIME</code></td></tr>
+  <tr><td>location_tool.py</td><td class="desc"><code>TOOL_RESULT_GET_LOCATION</code></td></tr>
+  <tr><td>semantic_scholar_tool.py</td><td class="desc"><code>TOOL_RESULT_SEARCH_PAPERS</code></td></tr>
+  <tr><td>search_library_tool.py</td><td class="desc"><code>TOOL_RESULT_SEARCH_LIBRARY</code></td></tr>
+</table>
+
+<h3>Before (e.g. datetime_tool.py)</h3>
+<pre><code>    def _handle_request(self, envelope: MessageEnvelope) -> None:
+        correlation_id = envelope.correlation_id
+        self._publish_activity("request", {}, correlation_id)
+        result = _get_datetime()
+        self._publish_activity("result", {"result": result}, correlation_id)
+        self._pub.publish(MessageEnvelope.create(
+            message_type="tool_result",
+            subject=TOOL_RESULT_GET_DATETIME,
+            sender_id=self.TOOL_ID,
+            payload={"result": result},
+            correlation_id=correlation_id,
+        ))
+</code></pre>
+
+<h3>After</h3>
+<pre><code>    def _handle_request(self, envelope: MessageEnvelope) -> None:
+        correlation_id = envelope.correlation_id
+        self._publish_activity("request", {}, correlation_id)
+        result = _get_datetime()
+        self._publish_activity("result", {"result": result}, correlation_id)
+        self._publish_result(result, correlation_id)
+</code></pre>
+
+<div class="note">
+  The subject import (<code>TOOL_RESULT_GET_DATETIME</code> etc.) can be removed from each tool file once the class var is declared and the envelope block is gone — fewer imports per file.
+</div>
+
+<h2>File Map</h2>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td>src/local/tools/base_tool.py</td><td class="desc">Add <code>RESULT_SUBJECT</code> class var; add <code>_publish_result()</code> method; update <code>_handle_request</code> docstring</td></tr>
+  <tr><td>src/local/tools/web_search_tool.py</td><td class="desc">Add <code>RESULT_SUBJECT</code>; replace envelope block; remove unused subject import</td></tr>
+  <tr><td>src/local/tools/web_fetch_tool.py</td><td class="desc">Same</td></tr>
+  <tr><td>src/local/tools/search_memory_tool.py</td><td class="desc">Same</td></tr>
+  <tr><td>src/local/tools/datetime_tool.py</td><td class="desc">Same</td></tr>
+  <tr><td>src/local/tools/location_tool.py</td><td class="desc">Same</td></tr>
+  <tr><td>src/local/tools/semantic_scholar_tool.py</td><td class="desc">Same</td></tr>
+  <tr><td>src/local/tools/search_library_tool.py</td><td class="desc">Same</td></tr>
+</table>
+
+<h2>Acceptance Criteria</h2>
+<ul>
+  <li>All existing tests pass unchanged — no behavior change, only envelope construction moved to base class</li>
+  <li>Each tool file has <code>RESULT_SUBJECT</code> declared and no <code>MessageEnvelope.create(message_type="tool_result"...)</code> call remaining</li>
+  <li><code>base_tool.py</code> has <code>_publish_result()</code> and <code>RESULT_SUBJECT</code> in the abstract class</li>
+  <li>No <code>TOOL_RESULT_*</code> subject imports remaining in individual tool files (moved to be unused once class var is set)</li>
+</ul>
+
+</body>
+</html>

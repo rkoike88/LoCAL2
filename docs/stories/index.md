@@ -12,7 +12,7 @@ Stories live in `tests/stories/`. Run them against the live stack after signific
 | S4 | [s4_web_fetch.yaml](../../tests/stories/s4_web_fetch.yaml) | Web fetch — Gemma calls web_fetch to read a specific URL |
 | S5 | [s5_memory_episodic.yaml](../../tests/stories/s5_memory_episodic.yaml) | Episodic memory recall — Gemma calls search_memory for prior preferences |
 | S6 | [s6_critic_absolute.yaml](../../tests/stories/s6_critic_absolute.yaml) | Critic absolute grading — critique.result published after every answer |
-| S7 | [s7_pairwise_respondents.yaml](../../tests/stories/s7_pairwise_respondents.yaml) | Dual respondents + pairwise — A and B both answer, critic compares |
+| ~~S7~~ | ~~s7_pairwise_respondents.yaml~~ | Dual respondents + pairwise — removed with Phase 5 rollback (2026-06-08) |
 | S8 | [s8_phase6_observability.yaml](../../tests/stories/s8_phase6_observability.yaml) | Observability — agent.transition events published by all agents |
 | S9 | [s9_multimodal.yaml](../../tests/stories/s9_multimodal.yaml) | Multimodal — image attachment passed to vision model |
 | S10 | [s10_datetime_location.yaml](../../tests/stories/s10_datetime_location.yaml) | Date/time + location grounding — Gemma calls get_datetime and get_location instead of hallucinating |

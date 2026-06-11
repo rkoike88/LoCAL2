@@ -103,7 +103,111 @@ Schema descriptions are the mechanism for "when to call" guidance — they tell 
 
 ---
 
-## 7. File Attachments
+## 7. Web UI Layer (Phase 16)
+
+The user-facing layer is a browser-based frontend. There is no required desktop app — any browser on the same machine (or same network) can connect.
+
+**Stack:** React + Vite + TypeScript frontend served as static files by the FastAPI gateway. The frontend communicates over two WebSocket endpoints.
+
+### WebSocket endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `WS /ws/chat/{session_id}` | Query/response stream for the chat UI |
+| `WS /ws/bus/{session_id}` | Raw bus event stream (developer/observer use) |
+
+### WebSocket event protocol (`/ws/chat`)
+
+Client → server (one message per query):
+```json
+{ "query": "...", "session_id": "uuid", "attachments": [...] }
+```
+
+Server → client (streaming, multiple messages per query):
+```json
+{ "type": "thinking_chunk",  "chunk": "...",  "query_id": "uuid" }
+{ "type": "tool_start",  "tool": "web_search", "args": {...}, "query_id": "uuid" }
+{ "type": "tool_result", "tool": "web_search", "result": "...", "query_id": "uuid" }
+{ "type": "response", "answer": "...", "thinking": "...", "tool_calls": [...], "session_id": "uuid", "query_id": "uuid", "prompt_tokens": 4710 }
+{ "type": "critique", "score": 4, "feedback": "...", "query_id": "uuid" }
+```
+
+The gateway translates ZMQ bus events into this WebSocket stream. The `ws_bridge.py` module manages the ZMQ subscriptions per connected session and fans out to the WebSocket.
+
+### Run modes
+
+| Command | What starts | Browser |
+|---|---|---|
+| `local2` | Proxy + agents + tools + FastAPI | Auto-opened |
+| `local2 --headless` | Proxy + agents + tools + FastAPI | Not opened |
+| `local2 --panels` | Proxy + agents + tools + FastAPI + Qt observer windows | Auto-opened; Qt windows tile to right 2/3 |
+| `local2 --desktop` | Proxy + agents + tools + legacy PySide6 UI | N/A |
+| `local2 --web-only --ipaddress <ip>` | FastAPI only (no proxy, no agents) | Auto-opened |
+
+`--panels` mode starts the Qt observer windows (GeneratorWindow, CriticWindow, MemoryWindow, ToolWindows) alongside the web UI. The Qt windows are read-only — they subscribe to bus events but never publish except for config saves via the gear buttons.
+
+### REST endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/sessions` | List sessions from ConversationService |
+| `GET /api/sessions/{id}` | Load session message history |
+| `DELETE /api/sessions/{id}` | Delete a session |
+| `POST /api/sessions/{id}/compact` | Trigger compaction |
+| `GET/PUT /api/settings/{section}` | Read/write a YAML config section |
+| `POST /api/feedback` | Publish `user.feedback` to bus |
+| `POST /api/attachments` | Upload and process file attachments |
+
+---
+
+## 8. Install and Packaging (Phase 17)
+
+LoCAL2 is a standard Python package installable via pip.
+
+```bash
+pip install local2
+local2 setup     # first run: write config, pull Ollama models
+local2           # start the web UI
+```
+
+### `local2` CLI
+
+| Command | What it does |
+|---|---|
+| `local2` | Start the full stack (web UI, opens browser) |
+| `local2 setup` | Init `~/.local2/config/`, pull `gemma4:e4b` and `nomic-embed-text` |
+| `local2 setup --models-only` | Re-pull models without touching config |
+| `local2 setup --config-only` | Re-init config without pulling models |
+| `local2 searxng up` | Start SearXNG in Docker (uses `~/.local2/docker-compose.yml`) |
+| `local2 searxng down` | Stop SearXNG |
+| `local2 searxng status` | Show container status |
+
+### Data directory (`~/.local2/`)
+
+All user-editable state lives in `~/.local2/`, not inside the package or repo. This means upgrades never overwrite user settings.
+
+| Path | Contents |
+|---|---|
+| `~/.local2/config/*.yaml` | User YAML configs (written by `local2 setup`, editable freely) |
+| `~/.local2/docker-compose.yml` | SearXNG compose file |
+| `~/.local2/searxng/` | SearXNG settings |
+| `~/.local2/.env` | Auto-generated `MY_SEARX_SECRET` |
+
+`LOCAL2_DATA_DIR` env var overrides the default path.
+
+### Config search order
+
+`config_loader.py` resolves config files in this priority:
+
+1. `~/.local2/config/<name>.yaml` — user config (takes precedence)
+2. `config/<name>.yaml` — repo root (dev-mode checkout)
+3. `src/local/defaults/<name>.yaml` — bundled package defaults (read-only)
+
+`save()` always writes to `~/.local2/config/`, so user edits survive upgrades.
+
+---
+
+## 9. File Attachments
 
 The web UI supports attaching files to a query. On submit, the frontend uploads each file to `POST /api/attachments`, which processes it server-side and returns an `Attachment` object:
 
@@ -119,7 +223,7 @@ GeneratorAgent builds the user message as:
 
 ---
 
-## 8. Remote-Bus Mode
+## 10. Remote-Bus Mode
 
 The ZMQ proxy binds to `0.0.0.0`, making it reachable from the local network. Participants connect to `127.0.0.1` by default; setting `LOCAL2_PROXY_HOST` (or `--ipaddress`) redirects connections to a remote proxy.
 
@@ -131,7 +235,7 @@ The ZMQ proxy binds to `0.0.0.0`, making it reachable from the local network. Pa
 
 ---
 
-## 9. Architecture Invariants
+## 11. Architecture Invariants
 
 - The bus is the only coordination mechanism. No direct agent-to-agent function calls.
 - The LLM receives the raw query and full conversation history — no preprocessing or rewriting before the generator sees it.

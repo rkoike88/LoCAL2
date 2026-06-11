@@ -1,3 +1,4 @@
+id: web_search_tool
 provider: searxng          # searxng | mock
 searxng_url: http://localhost:8080
 max_results: 5

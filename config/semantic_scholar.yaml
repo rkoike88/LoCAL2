@@ -1,3 +1,4 @@
+id: semantic_scholar_tool
 max_results: 5
 timeout: 15
 fields: "title,authors,year,abstract,citationCount,url,externalIds"

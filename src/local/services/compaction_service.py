@@ -13,6 +13,7 @@ import logging
 import uuid
 
 from local.config_loader import get_config
+from local.participants.base_service import BaseService
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     COMPACTION_REQUEST,
@@ -25,10 +26,10 @@ from local.transport.bus_config import make_participant_bus
 logger = logging.getLogger(__name__)
 
 
-class CompactionService:
+class CompactionService(BaseService):
     """Auto-compaction decision and execution for GeneratorAgent."""
 
-    AGENT_ID = "compaction_service"
+    CONFIG_NAME = "compaction"
 
     def __init__(
         self,
@@ -45,17 +46,7 @@ class CompactionService:
     # Bus listener — decision
     # ------------------------------------------------------------------
 
-    def run(self) -> None:
-        logger.info("CompactionService ready")
-        while True:
-            try:
-                envelope = self._sub.receive()
-            except Exception as exc:
-                logger.error("CompactionService: receive error: %s", exc)
-                continue
-            self._check(envelope)
-
-    def _check(self, envelope: MessageEnvelope) -> None:
+    def _handle(self, envelope: MessageEnvelope) -> None:
         cfg = get_config("generator") or {}
         threshold = cfg.get("compaction_threshold", 0.8)
         if not threshold:
@@ -73,7 +64,7 @@ class CompactionService:
             self._pub.publish(MessageEnvelope.create(
                 message_type="compaction_request",
                 subject=COMPACTION_REQUEST,
-                sender_id=self.AGENT_ID,
+                sender_id=self.id,
                 payload={"session_id": session_id, "auto": True},
             ))
 

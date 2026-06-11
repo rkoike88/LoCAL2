@@ -27,7 +27,7 @@ def _get_datetime() -> str:
 
 
 class DateTimeTool(BaseTool):
-    TOOL_ID = "datetime_tool"
+    CONFIG_NAME = "datetime"
     TOOL_NAME = "get_datetime"
     ACTIVITY_SUBJECT = TOOL_ACTIVITY_GET_DATETIME
     RESULT_SUBJECT = TOOL_RESULT_GET_DATETIME

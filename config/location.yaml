@@ -1,3 +1,4 @@
+id: location_tool
 # Static location override — leave blank to use live IP geolocation.
 # Set city/state/country here to pin a specific location (e.g. a server or privacy preference).
 #

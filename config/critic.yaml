@@ -1,3 +1,4 @@
+id: critic
 model: "prometheus-7b:latest"
 temperature: 0.0
 num_ctx: 4096

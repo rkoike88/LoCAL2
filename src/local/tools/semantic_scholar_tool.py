@@ -109,7 +109,7 @@ def _search_papers(query: str, limit: int) -> str:
 
 
 class SemanticScholarTool(BaseTool):
-    TOOL_ID = "semantic_scholar_tool"
+    CONFIG_NAME = "semantic_scholar"
     TOOL_NAME = "search_papers"
     ACTIVITY_SUBJECT = TOOL_ACTIVITY_SEARCH_PAPERS
     RESULT_SUBJECT = TOOL_RESULT_SEARCH_PAPERS

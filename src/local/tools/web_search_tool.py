@@ -19,7 +19,6 @@ CONFIG_NAME = "web_search"
 
 
 class WebSearchTool(BaseTool):
-    TOOL_ID = "web_search_tool"
     TOOL_NAME = "web_search"
     ACTIVITY_SUBJECT = TOOL_ACTIVITY_WEB_SEARCH
     RESULT_SUBJECT = TOOL_RESULT_WEB_SEARCH

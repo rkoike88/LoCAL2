@@ -1,3 +1,4 @@
+id: memory_agent
 collection: "local_memory"
 chroma_path: ".chroma"
 embed_model: "nomic-embed-text"

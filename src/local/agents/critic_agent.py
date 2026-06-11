@@ -34,7 +34,7 @@ class CriticAgent(BaseAgent):
     "not graded" and continue normally.
     """
 
-    AGENT_ID = "critic"
+    CONFIG_NAME = "critic"
 
     def __init__(self, llm: OllamaBackend | None = None) -> None:
         """Initialize the CriticAgent.
@@ -56,7 +56,7 @@ class CriticAgent(BaseAgent):
             "temperature": cfg.get("temperature", 0.0),
         }
         timeout: int = cfg.get("grade_timeout", 30)
-        self._llm = llm or OllamaBackend(model=model, agent_name=self.AGENT_ID, timeout=timeout)
+        self._llm = llm or OllamaBackend(model=model, agent_name=self.id, timeout=timeout)
         self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION])
         self._sm = CriticStateMachine()
 
@@ -99,7 +99,7 @@ class CriticAgent(BaseAgent):
         self._pub.publish(MessageEnvelope.create(
             message_type="critique",
             subject=CRITIQUE,
-            sender_id=self.AGENT_ID,
+            sender_id=self.id,
             payload={
                 "score": score,
                 "feedback": feedback,

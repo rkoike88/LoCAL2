@@ -20,7 +20,6 @@ TOOL_NAME = "search_library"
 
 
 class SearchLibraryTool(BaseTool):
-    TOOL_ID = "search_library_tool"
     TOOL_NAME = TOOL_NAME
     ACTIVITY_SUBJECT = TOOL_ACTIVITY_SEARCH_DOCUMENTS
     RESULT_SUBJECT = TOOL_RESULT_SEARCH_DOCUMENTS

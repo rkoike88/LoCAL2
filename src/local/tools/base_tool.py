@@ -6,10 +6,11 @@ implement _build_schema() and _handle_request(). Everything else is inherited.
 from __future__ import annotations
 
 import logging
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import ClassVar
 
 from local.config_loader import ConfigManager
+from local.participants.participant import Participant
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import TOOL_SCHEMA, TOOL_SCHEMA_REQUEST
 from local.transport.bus_config import make_participant_bus
@@ -17,28 +18,25 @@ from local.transport.bus_config import make_participant_bus
 logger = logging.getLogger(__name__)
 
 
-class BaseTool(ABC):
+class BaseTool(Participant):
     """Abstract base for all LoCAL2 tools.
 
     Handles the run loop, schema broadcasting, and activity event publishing.
-    Subclasses must declare four class variables and implement two methods.
+    Subclasses must declare class variables and implement two methods.
 
     Class Variables:
-        TOOL_ID: Unique participant identifier used as sender_id on bus events
-            (e.g. ``"datetime_tool"``).
+        CONFIG_NAME: Config key for this tool's yaml (required by Participant).
+            ``ConfigManager.invalidate`` is called on each ``TOOL_SCHEMA_REQUEST``
+            so ``_build_schema`` always sees the latest on-disk config.
         TOOL_NAME: Function name in the OpenAI schema and in activity payloads
             (e.g. ``"get_datetime"``).
         ACTIVITY_SUBJECT: Bus subject for ``tool.activity.*`` events.
-        CONFIG_NAME: Optional config key. When set, ``ConfigManager.invalidate``
-            is called on each ``TOOL_SCHEMA_REQUEST`` so ``_build_schema`` always
-            sees the latest on-disk config without restarting the tool.
+        RESULT_SUBJECT: Bus subject for ``tool.result.*`` events.
     """
 
-    TOOL_ID: ClassVar[str]
     TOOL_NAME: ClassVar[str]
     ACTIVITY_SUBJECT: ClassVar[str]
     RESULT_SUBJECT: ClassVar[str]
-    CONFIG_NAME: ClassVar[str | None] = None
 
     def __init__(self, request_subject: str) -> None:
         """Set up pub/sub bus subscriptions.
@@ -103,7 +101,7 @@ class BaseTool(ABC):
         self._pub.publish(MessageEnvelope.create(
             message_type="tool_result",
             subject=self.RESULT_SUBJECT,
-            sender_id=self.TOOL_ID,
+            sender_id=self.id,
             payload={"result": result, "tool": self.TOOL_NAME, **(extra or {})},
             correlation_id=correlation_id or "",
         ))
@@ -112,7 +110,7 @@ class BaseTool(ABC):
         self._pub.publish(MessageEnvelope.create(
             message_type="tool_schema",
             subject=TOOL_SCHEMA,
-            sender_id=self.TOOL_ID,
+            sender_id=self.id,
             payload={"schema": self._build_schema()},
         ))
 
@@ -132,14 +130,14 @@ class BaseTool(ABC):
         self._pub.publish(MessageEnvelope.create(
             message_type="tool_activity",
             subject=self.ACTIVITY_SUBJECT,
-            sender_id=self.TOOL_ID,
+            sender_id=self.id,
             payload={"event": event_type, "tool": self.TOOL_NAME, **data},
             correlation_id=correlation_id or "",
         ))
 
     def run(self) -> None:
         self._announce_schema()
-        logger.info("%s ready", self.TOOL_ID)
+        logger.info("%s ready", self.id)
         while True:
             try:
                 envelope = self._sub.receive()

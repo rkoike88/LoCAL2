@@ -1,3 +1,4 @@
+id: search_library_tool
 collection: collective.documents
 chroma_path: .chroma
 embed_model: nomic-embed-text

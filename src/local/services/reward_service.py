@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from local.participants.base_service import BaseService
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import REWARD_EVENT, USER_FEEDBACK
 from local.services.memory_service import MemoryService
@@ -11,16 +12,16 @@ from local.transport.bus_config import make_participant_bus
 
 logger = logging.getLogger(__name__)
 
-SERVICE_ID = "reward_service"
 
-
-class RewardService:
+class RewardService(BaseService):
     """Routes user thumbs-up/down feedback to memory and broadcasts reward events.
 
     Subscribes to ``user.feedback``. On each event, annotates the corresponding
     episodic engram with the sentiment and publishes ``reward.event`` so
     downstream agents can act on the signal.
     """
+
+    CONFIG_NAME = "reward"
 
     def __init__(self, memory_service: MemoryService | None = None) -> None:
         """Initialize the RewardService.
@@ -32,19 +33,9 @@ class RewardService:
         self._memory = memory_service or MemoryService()
         self._pub, self._sub = make_participant_bus([USER_FEEDBACK])
 
-    def run(self) -> None:
-        logger.info("reward_service ready")
-        while True:
-            try:
-                envelope = self._sub.receive()
-            except Exception as exc:
-                logger.error("RewardService: receive error: %s", exc)
-                continue
-            if envelope.subject == USER_FEEDBACK:
-                try:
-                    self._handle_feedback(envelope)
-                except Exception as exc:
-                    logger.error("RewardService: unhandled error: %s", exc, exc_info=True)
+    def _handle(self, envelope: MessageEnvelope) -> None:
+        if envelope.subject == USER_FEEDBACK:
+            self._handle_feedback(envelope)
 
     def _handle_feedback(self, envelope: MessageEnvelope) -> None:
         """Handle a ``user.feedback`` event.
@@ -68,7 +59,7 @@ class RewardService:
         self._pub.publish(MessageEnvelope.create(
             message_type="reward",
             subject=REWARD_EVENT,
-            sender_id=SERVICE_ID,
+            sender_id=self.id,
             payload={
                 "query_id": query_id,
                 "session_id": session_id,

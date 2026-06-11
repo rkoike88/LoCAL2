@@ -96,7 +96,7 @@ def _from_ip() -> str:
 
 
 class LocationTool(BaseTool):
-    TOOL_ID = "location_tool"
+    CONFIG_NAME = "location"
     TOOL_NAME = "get_location"
     ACTIVITY_SUBJECT = TOOL_ACTIVITY_GET_LOCATION
     RESULT_SUBJECT = TOOL_RESULT_GET_LOCATION

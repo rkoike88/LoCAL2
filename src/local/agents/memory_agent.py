@@ -35,7 +35,7 @@ class MemoryAgent(BaseAgent):
     failure never blocks the ingest — the engram is written without those fields.
     """
 
-    AGENT_ID = "memory_agent"
+    CONFIG_NAME = "memory"
 
     def __init__(
         self,
@@ -57,7 +57,7 @@ class MemoryAgent(BaseAgent):
         model = cfg.get("model", "gemma4:e4b")
         self._classify_prompt: str = cfg.get("classify_prompt", "").strip()
         self._memory = memory_service or MemoryService()
-        self._llm = llm or OllamaBackend(model=model, agent_name=self.AGENT_ID)
+        self._llm = llm or OllamaBackend(model=model, agent_name=self.id)
         self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION, CRITIQUE])
         self._sm = MemoryAgentStateMachine()
 

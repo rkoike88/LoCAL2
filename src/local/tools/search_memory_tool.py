@@ -20,7 +20,6 @@ CONFIG_NAME = "search_memory"
 
 
 class SearchMemoryTool(BaseTool):
-    TOOL_ID = "search_memory_tool"
     TOOL_NAME = "search_memory"
     ACTIVITY_SUBJECT = TOOL_ACTIVITY_SEARCH_MEMORY
     RESULT_SUBJECT = TOOL_RESULT_SEARCH_MEMORY

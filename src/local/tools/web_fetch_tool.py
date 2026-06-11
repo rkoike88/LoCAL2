@@ -23,7 +23,6 @@ _USER_AGENT = (
 
 
 class WebFetchTool(BaseTool):
-    TOOL_ID = "web_fetch_tool"
     TOOL_NAME = "web_fetch"
     ACTIVITY_SUBJECT = TOOL_ACTIVITY_WEB_FETCH
     RESULT_SUBJECT = TOOL_RESULT_WEB_FETCH

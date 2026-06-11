@@ -40,7 +40,7 @@ class GeneratorAgent(BaseAgent):
     the bus, and streams thinking tokens to the UI.
     """
 
-    AGENT_ID = "generator"
+    CONFIG_NAME = "generator"
 
     def __init__(
         self,
@@ -352,7 +352,7 @@ class GeneratorAgent(BaseAgent):
         self._pub.publish(MessageEnvelope.create(
             message_type="generator_status",
             subject=GENERATOR_STATUS,
-            sender_id=self.AGENT_ID,
+            sender_id=self.id,
             payload={
                 "instance_id":   self._instance_id,
                 "model":         self._model,
@@ -369,7 +369,7 @@ class GeneratorAgent(BaseAgent):
         self._pub.publish(MessageEnvelope.create(
             message_type="schema_request",
             subject=TOOL_SCHEMA_REQUEST,
-            sender_id=self.AGENT_ID,
+            sender_id=self.id,
             payload={},
         ))
 
@@ -484,7 +484,7 @@ class GeneratorAgent(BaseAgent):
         return MessageEnvelope.create(
             message_type=message_type,
             subject=subject,
-            sender_id=self.AGENT_ID,
+            sender_id=self.id,
             payload=payload,
             correlation_id=correlation_id,
             metadata={"session_id": session_id or ""},

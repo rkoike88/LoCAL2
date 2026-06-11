@@ -13,3 +13,5 @@ class GeneratorAction(Enum):
     PUBLISH = "publish"                 # no tool calls, answer ready
     RESET = "reset"                     # response.generation published, back to idle
     FAIL = "fail"                       # unrecoverable error
+    START_COMPACTION = "start_compaction"       # IDLE → COMPACTING
+    COMPLETE_COMPACTION = "complete_compaction" # COMPACTING → IDLE

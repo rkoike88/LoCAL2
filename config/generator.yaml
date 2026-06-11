@@ -4,6 +4,7 @@ temperature: 0.1
 max_tool_iterations: 5
 tool_timeout: 20          # seconds to wait for a tool result before returning error
 max_attachment_chars: 8000  # truncation limit per text attachment
+compaction_threshold: 0.8   # fraction of num_ctx at which auto-compaction triggers (0 = disabled)
 compaction_tail_turns: 4    # verbatim turn pairs kept after compaction summary
 compaction_system_prompt: |
   You are a conversation summarizer.

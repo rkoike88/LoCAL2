@@ -47,6 +47,7 @@ class GeneratorAgent(BaseAgent):
         model: str | None = None,
         temperature: float | None = None,
         conversation_service=None,
+        compaction_service=None,
     ) -> None:
         """Initialize the GeneratorAgent.
 
@@ -72,6 +73,7 @@ class GeneratorAgent(BaseAgent):
         self._instance_id: str = sys_cfg.get("instance_id") or socket.gethostname()
         self._token_count: int = 0
         self._conv = conversation_service or ConversationService()
+        self._compaction_service = compaction_service
         self._sm = GeneratorStateMachine()
         self._pub, self._sub = make_participant_bus([QUERY_RECEIVED, TOOL_SCHEMA, COMPACTION_REQUEST])
 
@@ -321,20 +323,7 @@ class GeneratorAgent(BaseAgent):
         return answer, thinking, tool_call_log, prompt_tokens
 
     def _handle_compaction(self, envelope: MessageEnvelope) -> None:
-        """Summarize a session's history and replace it with a summary + tail turns.
-
-        Calls Ollama synchronously with ``compaction_system_prompt`` from
-        config. Keeps the last ``compaction_tail_turns`` (default 4)
-        user+assistant pairs verbatim after the summary. Post-compaction token
-        count is estimated from character count (÷ 4).
-
-        Args:
-            envelope: Must contain ``payload["session_id"]``. If the generator
-                is not IDLE, publishes a ``COMPACTION_RESULT`` error and returns
-                immediately without modifying history.
-        """
-        import ollama
-
+        """Gate compaction on IDLE state and delegate execution to CompactionService."""
         if self._sm.state != GeneratorState.IDLE:
             self._pub.publish(self._make_envelope(
                 COMPACTION_RESULT, "compaction",
@@ -344,80 +333,55 @@ class GeneratorAgent(BaseAgent):
             ))
             return
 
-        session_id: str | None = envelope.payload.get("session_id")
-        cfg = get_config("generator") or {}
-        tail_turns: int = cfg.get("compaction_tail_turns", 4)
+        self._do_transition(GeneratorAction.START_COMPACTION)
+        try:
+            self._compaction_service.compact(envelope, self._pub, self._make_envelope)
+        finally:
+            self._do_transition(GeneratorAction.COMPLETE_COMPACTION)
 
-        history = self._conv.get_history(session_id)
-        tokens_before = self._conv.get_token_count(session_id)
+    def _after_transition(self) -> None:
+        self._publish_status()
 
-        if not history:
-            self._pub.publish(self._make_envelope(
-                COMPACTION_RESULT, "compaction",
-                {"error": "no history to compact", "session_id": session_id},
-                envelope.correlation_id or str(uuid.uuid4()), None,
-            ))
-            return
-
-        # Build summarization prompt — only user/assistant pairs, skip tool turns
-        convo_text = []
-        for m in history:
-            role = m.get("role", "")
-            content = m.get("content") or ""
-            if role in ("user", "assistant") and content:
-                convo_text.append(f"{role.upper()}: {content}")
-        summary_input = "\n\n".join(convo_text)
-
-        compaction_system = cfg.get(
-            "compaction_system_prompt",
-            "Summarize this conversation concisely, preserving key facts and decisions.",
-        ).strip()
-
-        resp = ollama.chat(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": compaction_system},
-                {"role": "user", "content": summary_input},
-            ],
-            stream=False,
-            options=self._options,
-        )
-        summary_text = (resp.message.content or "").strip()
-
-        # Keep last tail_turns user+assistant pairs verbatim
-        # Walk history backwards collecting complete pairs
-        tail_messages: list[dict] = []
-        pairs_collected = 0
-        i = len(history) - 1
-        while i >= 1 and pairs_collected < tail_turns:
-            if history[i].get("role") == "assistant" and history[i - 1].get("role") == "user":
-                tail_messages = history[i - 1: i + 1] + tail_messages
-                pairs_collected += 1
-                i -= 2
-            else:
-                i -= 1
-
-        new_messages = [{"role": "assistant", "content": f"[SUMMARY] {summary_text}"}] + tail_messages
-
-        # Estimate post-compaction tokens from character count
-        total_chars = sum(len(m.get("content") or "") for m in new_messages)
-        tokens_estimated_after = total_chars // 4
-
-        self._conv.replace_messages(session_id, new_messages)
-        self._conv.set_token_count(session_id, tokens_estimated_after)
-
-        self._pub.publish(self._make_envelope(
-            COMPACTION_RESULT, "compaction",
-            {"session_id": session_id,
-             "tokens_before": tokens_before,
-             "tokens_after": tokens_estimated_after,
-             "summary": summary_text},
-            envelope.correlation_id or str(uuid.uuid4()), None,
+    def _publish_status(self) -> None:
+        """Publish a full generator state snapshot on generator.status."""
+        tool_names = [
+            s.get("function", {}).get("name", "")
+            for s in self._tool_schemas
+            if s.get("function", {}).get("name")
+        ]
+        self._pub.publish(MessageEnvelope.create(
+            message_type="generator_status",
+            subject=GENERATOR_STATUS,
+            sender_id=self.AGENT_ID,
+            payload={
+                "instance_id":   self._instance_id,
+                "model":         self._model,
+                "temperature":   self._options.get("temperature", 0.0),
+                "num_ctx":       self._options.get("num_ctx", 0),
+                "state":         self._sm.state.value,
+                "token_count":   self._token_count,
+                "tool_names":    tool_names,
+                "system_prompt": self._system_prompt,
+            },
         ))
-        logger.info(
-            "GeneratorAgent: compacted session %s — %d → ~%d tokens",
-            (session_id or "")[:8], tokens_before, tokens_estimated_after,
-        )
+
+    def _request_schemas(self) -> None:
+        self._pub.publish(MessageEnvelope.create(
+            message_type="schema_request",
+            subject=TOOL_SCHEMA_REQUEST,
+            sender_id=self.AGENT_ID,
+            payload={},
+        ))
+
+    def _register_tool_schema(self, schema: dict) -> None:
+        """Add or replace a tool schema in the registry."""
+        name = schema.get("function", {}).get("name", "")
+        if not name:
+            return
+        self._tool_schemas = [s for s in self._tool_schemas if s.get("function", {}).get("name") != name]
+        self._tool_schemas.append(schema)
+        logger.info("GeneratorAgent: registered tool %r (total: %d)", name, len(self._tool_schemas))
+        self._publish_status()
 
     def _normalize_tool_name(self, name: str) -> str:
         """Map hallucinated or variant tool names to registered schema names."""
@@ -476,50 +440,6 @@ class GeneratorAgent(BaseAgent):
         logger.warning("GeneratorAgent: tool %r timed out after %ss", name, self._tool_timeout)
         self._do_transition(GeneratorAction.TOOL_TIMEOUT)
         return f"[tool timeout: {name!r} did not respond within {self._tool_timeout}s]"
-
-    def _after_transition(self) -> None:
-        self._publish_status()
-
-    def _publish_status(self) -> None:
-        """Publish a full generator state snapshot on generator.status."""
-        tool_names = [
-            s.get("function", {}).get("name", "")
-            for s in self._tool_schemas
-            if s.get("function", {}).get("name")
-        ]
-        self._pub.publish(MessageEnvelope.create(
-            message_type="generator_status",
-            subject=GENERATOR_STATUS,
-            sender_id=self.AGENT_ID,
-            payload={
-                "instance_id":   self._instance_id,
-                "model":         self._model,
-                "temperature":   self._options.get("temperature", 0.0),
-                "num_ctx":       self._options.get("num_ctx", 0),
-                "state":         self._sm.state.value,
-                "token_count":   self._token_count,
-                "tool_names":    tool_names,
-                "system_prompt": self._system_prompt,
-            },
-        ))
-
-    def _request_schemas(self) -> None:
-        self._pub.publish(MessageEnvelope.create(
-            message_type="schema_request",
-            subject=TOOL_SCHEMA_REQUEST,
-            sender_id=self.AGENT_ID,
-            payload={},
-        ))
-
-    def _register_tool_schema(self, schema: dict) -> None:
-        """Add or replace a tool schema in the registry."""
-        name = schema.get("function", {}).get("name", "")
-        if not name:
-            return
-        self._tool_schemas = [s for s in self._tool_schemas if s.get("function", {}).get("name") != name]
-        self._tool_schemas.append(schema)
-        logger.info("GeneratorAgent: registered tool %r (total: %d)", name, len(self._tool_schemas))
-        self._publish_status()
 
     @staticmethod
     def _clean_for_history(m: dict) -> dict:

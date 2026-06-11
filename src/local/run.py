@@ -40,9 +40,9 @@ def _late_schema_refresh(delay: float = 2.0) -> None:
     ))
 
 
-def _start_generator(model: str, temperature: float | None = None, conversation_service=None) -> None:
+def _start_generator(model: str, temperature: float | None = None, conversation_service=None, compaction_service=None) -> None:
     from local.agents.generator_agent import GeneratorAgent
-    agent = GeneratorAgent(model=model or None, temperature=temperature, conversation_service=conversation_service)
+    agent = GeneratorAgent(model=model or None, temperature=temperature, conversation_service=conversation_service, compaction_service=compaction_service)
     agent.run()
 
 
@@ -167,6 +167,19 @@ def main() -> None:
     shared_documents = DocumentService()
     shared_conv = ConversationService()
 
+    from local.services.compaction_service import CompactionService
+    from local.config_loader import get_config as _get_config
+    _gen_cfg = _get_config("generator") or {}
+    shared_compaction = CompactionService(
+        conversation_service=shared_conv,
+        model=args.model or _gen_cfg.get("model", "gemma4:e4b"),
+        options={
+            "num_ctx": _gen_cfg.get("num_ctx", 128000),
+            "temperature": _gen_cfg.get("temperature", 0.1),
+        },
+    )
+    threading.Thread(target=shared_compaction.run, daemon=True, name="compaction_service").start()
+
     threading.Thread(target=_start_web_search, daemon=True, name="web_search").start()
     threading.Thread(target=_start_web_fetch, daemon=True, name="web_fetch").start()
     threading.Thread(target=_start_search_memory, args=(shared_memory,), daemon=True, name="search_memory").start()
@@ -179,7 +192,8 @@ def main() -> None:
     # -- Generator (AFTER tools) ---------------------------------------------
     # Tools must be subscribed before generator publishes schema.request at startup.
     gen_thread = threading.Thread(
-        target=_start_generator, args=(args.model,), kwargs={"conversation_service": shared_conv},
+        target=_start_generator, args=(args.model,),
+        kwargs={"conversation_service": shared_conv, "compaction_service": shared_compaction},
         daemon=True, name="generator_a"
     )
     gen_thread.start()

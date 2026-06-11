@@ -10,4 +10,5 @@ class GeneratorState(Enum):
     DISPATCHING_TOOL = "dispatching_tool"   # publishing tool.request.* to bus
     WAITING_FOR_TOOL = "waiting_for_tool"   # blocking on tool.result.* from bus
     PUBLISHING = "publishing"     # publishing response.generation + answer.dialog
+    COMPACTING = "compacting"     # summarizing + replacing session history
     ERROR = "error"

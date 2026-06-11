@@ -48,6 +48,11 @@ All participants connect to a single ZMQ XPUB/XSUB proxy. The proxy is the only 
   │  --panels only) │
   └─────────────────┘
   ┌─────────────────┐
+  │  schema_refresh │──────── schema.request ─────────────┤→ *Tools (2s after web server starts)
+  │  (daemon thread,│  ZMQ slow-joiner fix: connects pub
+  │  web mode only) │  socket before sleeping, so the message
+  └─────────────────┘  is not dropped on the floor
+  ┌─────────────────┐
   │  Qt settings    │──────── config.reload ──────────────┤→ *Tools, GeneratorAgent
   │  (ToolWindow /  │
   │  GeneratorWindow│
@@ -69,4 +74,6 @@ All participants connect to a single ZMQ XPUB/XSUB proxy. The proxy is the only 
 
 ## LAN Distribution
 
-The proxy binds to `0.0.0.0`, so any participant on the LAN can connect by setting `proxy_host` in `config/bus.yaml` to the proxy machine's IP. A remote agent looks identical to a local one — pub/sub routing is transparent to participants.
+The proxy binds to `0.0.0.0`, so any participant on the LAN can connect by setting `proxy_host` in `config/bus.yaml` (or `LOCAL2_PROXY_HOST` env var / `--ipaddress` CLI flag) to the host machine's IP.
+
+**Remote-bus mode** (`local2 --web-only --ipaddress <host-ip>`): starts only the FastAPI web server, no proxy or agents. The web server connects to the remote bus and forwards queries there. This lets any browser on the network (iPad, iPhone, secondary Mac) use the host machine's agents and LLM without installing anything locally.

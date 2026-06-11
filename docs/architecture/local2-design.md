@@ -50,8 +50,8 @@ For message format and subject constants, see [messaging.md](messaging.md).
 ## 3. Query Flow — Happy Path
 
 ```
-User types query
-  → Gateway publishes query.received
+User types query (optionally with file attachments)
+  → Gateway publishes query.received {query, session_id, query_id, attachments?}
   → GeneratorAgent receives, transitions IDLE → RECEIVING → GENERATING
   → Gemma streams: thinking tokens → GENERATION_THINKING
   → If Gemma calls a tool:
@@ -77,6 +77,8 @@ Tools are registered dynamically. On startup, every tool publishes its JSON sche
 
 On reconnect, GeneratorAgent (and the UI) broadcast `schema.request`. All running tools respond by re-announcing their schema. This means a tool that starts after the generator is still picked up without restarting anything.
 
+A second `schema.request` is also broadcast automatically 2 seconds after the web server starts (the `schema_refresh` daemon thread in `run.py`). This catches tools that lose the first request due to the ZMQ slow-joiner problem — a PUB socket drops messages published before its connection has fully settled.
+
 Schema descriptions are the mechanism for "when to call" guidance — they tell Gemma under what conditions to use a tool. This belongs in the tool description, not the system prompt.
 
 ---
@@ -101,7 +103,35 @@ Schema descriptions are the mechanism for "when to call" guidance — they tell 
 
 ---
 
-## 7. Architecture Invariants
+## 7. File Attachments
+
+The web UI supports attaching files to a query. On submit, the frontend uploads each file to `POST /api/attachments`, which processes it server-side and returns an `Attachment` object:
+
+```json
+{ "type": "text" | "image" | "error", "name": "filename.pdf", "data": "..." }
+```
+
+Images are base64-encoded; documents (PDF, TXT, MD, code files) are text-extracted. The processed attachment list is included in the `query.received` payload and flows unchanged through the bus to the generator.
+
+GeneratorAgent builds the user message as:
+- Text attachments → prepended to the user message content (truncated to `max_attachment_chars`)
+- Image attachments → passed in the `images` key of the Ollama message (vision input)
+
+---
+
+## 8. Remote-Bus Mode
+
+The ZMQ proxy binds to `0.0.0.0`, making it reachable from the local network. Participants connect to `127.0.0.1` by default; setting `LOCAL2_PROXY_HOST` (or `--ipaddress`) redirects connections to a remote proxy.
+
+`local2 --web-only --ipaddress <host-ip>` starts only the FastAPI web server — no local proxy, no agents. The web server's `LoCALSession` publishes `query.received` to the remote bus and subscribes to receive the response stream. From the generator's perspective the query is indistinguishable from a local one.
+
+**Use cases:**
+- iPad/iPhone browser → host Mac's `local2` (same WiFi, navigate to `http://<host-ip>:8000`)
+- Secondary Mac → host Mac's agents (run `local2 --web-only --ipaddress <host-ip>` on the secondary)
+
+---
+
+## 9. Architecture Invariants
 
 - The bus is the only coordination mechanism. No direct agent-to-agent function calls.
 - The LLM receives the raw query and full conversation history — no preprocessing or rewriting before the generator sees it.

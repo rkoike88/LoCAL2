@@ -43,12 +43,15 @@ local2 setup
 ## Run
 
 ```bash
-local2                       # web UI, opens browser at http://localhost:8000
-local2 --headless            # web server only, no browser pop
-local2 --panels              # web UI + read-only Qt observer windows
-local2 --desktop             # legacy PySide6 full desktop UI
-local2 --model gemma4:27b    # override the generator model at startup
-local2 --web-port 9000       # use a different port
+local2                          # web UI, opens browser at http://localhost:8000
+local2 --headless               # web server only, no browser pop
+local2 --panels                 # web UI + read-only Qt observer windows
+local2 --desktop                # legacy PySide6 full desktop UI
+local2 --model gemma4:27b       # override the generator model at startup
+local2 --web-port 9000          # use a different port
+
+# Remote-bus mode — run only the web server; agents stay on another machine
+local2 --web-only --ipaddress 192.168.1.10
 ```
 
 ---
@@ -133,6 +136,43 @@ PYTHONPATH=src python scripts/ingest.py --delete "file.pdf"
 ```
 
 Supported formats: PDF, TXT, MD, PY, YAML, JSON, CSV. Files are chunked into 1500-character segments and embedded with `nomic-embed-text`. Re-ingesting the same file is safe — chunks are upserted by deterministic ID.
+
+---
+
+## Remote access
+
+The web UI works from any browser on the same network — no installation needed on the remote device.
+
+**From another Mac, iPad, or iPhone (same WiFi):**
+
+1. Find the host machine's IP: `ipconfig getifaddr en0`
+2. Open a browser to `http://<host-ip>:8000`
+
+macOS firewall must allow port 8000 (System Settings → Network → Firewall).
+
+**Running only the web server on a remote machine:**
+
+```bash
+# On the remote machine — no agents, no proxy, no GPU needed
+local2 --web-only --ipaddress <host-ip>
+```
+
+This starts just the web server, which connects to the host machine's ZMQ bus. The host machine runs `local2` as normal and handles all generation and tool calls.
+
+**Outside the local network:**
+
+Use [Tailscale](https://tailscale.com) or a VPN. Direct port-forwarding on a router works but exposes the server without authentication — not recommended.
+
+---
+
+## File attachments
+
+The web UI supports file attachments. Click the paperclip icon in the input bar to attach:
+
+- **Images** (jpg, png, gif, webp) — sent to the model as vision input
+- **Documents** (pdf, txt, md, py, js, ts, yaml, json, csv) — text is extracted and prepended to the query
+
+Attachments are processed server-side before being included in the generation context.
 
 ---
 

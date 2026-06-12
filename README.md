@@ -11,8 +11,8 @@ LLM-native tool calling with Gemma 4 as the orchestrator. Web search, memory rec
 ## Quick start
 
 ```bash
-brew install ollama          # one-time prerequisite
-pip install local2
+brew install ollama pipx     # one-time prerequisites
+pipx install local2
 local2 setup                 # pulls required models, writes initial config
 local2                       # opens the web UI at http://localhost:8000
 ```
@@ -29,14 +29,19 @@ local2                       # opens the web UI at http://localhost:8000
 ## Install
 
 ```bash
-pip install local2
+brew install pipx
+pipx install local2
 local2 setup
 ```
 
-`local2 setup` does three things:
+`local2 setup` does five things:
 1. Writes default config files to `~/.local2/config/`
-2. Pulls `gemma4:e4b` (generator + memory classifier)
-3. Pulls `nomic-embed-text` (embeddings for memory and RAG library)
+2. Copies `docker-compose.yml` and SearXNG settings to `~/.local2/`
+3. Generates a random `MY_SEARX_SECRET` in `~/.local2/.env`
+4. Pulls `gemma4:e4b` (generator + memory classifier)
+5. Pulls `nomic-embed-text` (embeddings for memory and RAG library)
+
+The critic uses `prometheus-7b:latest` (pulled on first use, or run `ollama pull prometheus-7b:latest` to pre-fetch).
 
 ---
 
@@ -44,7 +49,7 @@ local2 setup
 
 ```bash
 local2                          # web UI, opens browser at http://localhost:8000
-local2 --headless               # web server only, no browser pop
+local2 --headless               # full local stack, no browser pop
 local2 --panels                 # web UI + read-only Qt observer windows
 local2 --desktop                # legacy PySide6 full desktop UI
 local2 --model gemma4:27b       # override the generator model at startup
@@ -58,38 +63,19 @@ local2 --web-only --ipaddress 192.168.1.10
 
 ## Web search
 
-Web search is optional. Two ways to enable it:
-
-### Option A — Brave or Tavily (no Docker required)
-
-Get an API key from [brave.com/search/api](https://brave.com/search/api) or [tavily.com](https://tavily.com), then edit `~/.local2/config/web_search.yaml`:
-
-```yaml
-provider: brave          # or: tavily
-brave_api_key: sk-...    # or tavily_api_key: tvly-...
-```
-
-### Option B — SearXNG (self-hosted, no API key)
-
-Requires Docker Desktop.
+Web search requires SearXNG (self-hosted, no API key). Requires Docker Desktop.
 
 ```bash
-docker compose up -d
+local2 searxng up
 ```
 
-SearXNG runs at `http://localhost:8080`. This is the default provider if you don't change `web_search.yaml`.
-
-You need a secret key in `.env` for SearXNG to start:
-
-```bash
-echo "MY_SEARX_SECRET=$(openssl rand -hex 32)" > .env
-```
+SearXNG runs at `http://localhost:8080` and is the default provider in `web_search.yaml`.
 
 ---
 
 ## Academic search (optional)
 
-`search_papers` uses the Semantic Scholar API. It works without a key at the free rate limit (1 req/sec). For higher limits:
+`search_papers` uses the Semantic Scholar API. It works without a key at public rate limits. For higher limits, set an API key:
 
 ```bash
 echo 'export SEMANTIC_SCHOLAR_API_KEY=<your-key>' >> ~/.zshrc
@@ -107,7 +93,7 @@ User config lives in `~/.local2/config/`. Defaults are written there by `local2 
 | File | Controls |
 |---|---|
 | `generator.yaml` | Model, context size, temperature, tool timeout, system prompt |
-| `web_search.yaml` | Search provider, API keys, max results |
+| `web_search.yaml` | Search provider (`searxng`), SearXNG URL, max results |
 | `web_fetch.yaml` | Max chars extracted, fetch timeout |
 | `critic.yaml` | Critic model, grading rubric, grade timeout |
 | `memory.yaml` | ChromaDB path, episodic memory collection |
@@ -125,14 +111,15 @@ User config lives in `~/.local2/config/`. Defaults are written there by `local2 
 LoCAL2 maintains a persistent local knowledge base you can query with `search_library`. Use the library window in the Qt UI, or the CLI:
 
 ```bash
-# Ingest one or more files
-PYTHONPATH=src python scripts/ingest.py path/to/file.pdf
+# Ingest one or more files into a named collection
+PYTHONPATH=src python scripts/ingest.py --collection mba path/to/file.pdf
 
-# List all ingested sources
+# List all ingested sources (all collections, or one)
 PYTHONPATH=src python scripts/ingest.py --list
+PYTHONPATH=src python scripts/ingest.py --list --collection mba
 
 # Delete a source by filename
-PYTHONPATH=src python scripts/ingest.py --delete "file.pdf"
+PYTHONPATH=src python scripts/ingest.py --delete "file.pdf" --collection mba
 ```
 
 Supported formats: PDF, TXT, MD, PY, YAML, JSON, CSV. Files are chunked into 1500-character segments and embedded with `nomic-embed-text`. Re-ingesting the same file is safe — chunks are upserted by deterministic ID.
@@ -148,7 +135,7 @@ The web UI works from any browser on the same network — no installation needed
 1. Find the host machine's IP: `ipconfig getifaddr en0`
 2. Open a browser to `http://<host-ip>:8000`
 
-macOS firewall must allow port 8000 (System Settings → Network → Firewall).
+macOS firewall must allow inbound connections on port 8000 (System Settings → Network → Firewall).
 
 **Running only the web server on a remote machine:**
 
@@ -158,6 +145,8 @@ local2 --web-only --ipaddress <host-ip>
 ```
 
 This starts just the web server, which connects to the host machine's ZMQ bus. The host machine runs `local2` as normal and handles all generation and tool calls.
+
+The host firewall must allow inbound connections on ports **8000** (HTTP/WebSocket) and **5570/5571** (ZMQ bus).
 
 **Outside the local network:**
 

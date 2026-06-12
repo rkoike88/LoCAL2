@@ -18,10 +18,11 @@ turns:
       - "2026"
     notes: "Verifies get_datetime returns current year, not training data year"
 
-  - query: "Where are you located?"
-    expected_content:
-      - "Cupertino"
-    notes: "Verifies get_location returns city from config/location.yaml"
+  - query: "Where am I located?"
+    response_generation_checks:
+      tool_calls_not_empty: true
+      answer_not_empty: true
+    notes: "Verifies get_location is called; city depends on config/location.yaml or live IP"
 
 expected_bus_events:
   present:

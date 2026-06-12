@@ -7,12 +7,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 import time
+import uuid
 from pathlib import Path
 
-import httpx
+import websockets
 import yaml
 
 
@@ -20,6 +22,34 @@ def _check(label: str, passed: bool, detail: str = "") -> bool:
     mark = "  PASS" if passed else "  FAIL"
     print(f"{mark}  {label}" + (f" — {detail}" if detail else ""))
     return passed
+
+
+async def _ws_query(ws_base: str, session_id: str, query: str, timeout: float = 120.0) -> dict:
+    """Send one query over WebSocket and collect until type=response arrives."""
+    uri = f"{ws_base}/ws/chat/{session_id}"
+    async with websockets.connect(uri) as ws:
+        await ws.send(json.dumps({"query": query}))
+        tool_calls: list[dict] = []
+        deadline = asyncio.get_event_loop().time() + timeout
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                return {"answer": "[timeout]", "thinking": "", "tool_calls": tool_calls, "session_id": session_id}
+            try:
+                raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
+            except asyncio.TimeoutError:
+                return {"answer": "[timeout]", "thinking": "", "tool_calls": tool_calls, "session_id": session_id}
+            msg = json.loads(raw)
+            t = msg.get("type")
+            if t == "tool_result":
+                tool_calls.append({"tool": msg.get("tool", ""), "result": msg.get("result", "")})
+            elif t == "response":
+                return {
+                    "answer": msg.get("answer", ""),
+                    "thinking": msg.get("thinking", ""),
+                    "tool_calls": msg.get("tool_calls") or tool_calls,
+                    "session_id": msg.get("session_id") or session_id,
+                }
 
 
 def run_story(story_path: str, api_base: str) -> bool:
@@ -30,7 +60,8 @@ def run_story(story_path: str, api_base: str) -> bool:
     print(f"Story {story_id}: {title}")
     print(f"{'='*60}")
 
-    session_id: str | None = None
+    ws_base = api_base.replace("http://", "ws://").replace("https://", "wss://")
+    session_id: str = str(uuid.uuid4())[:8]
     all_passed = True
     rg_checks = story.get("response_generation_checks", {})
     inter_turn_delay: float = story.get("inter_turn_delay_secs", 0.0)
@@ -44,26 +75,15 @@ def run_story(story_path: str, api_base: str) -> bool:
             time.sleep(inter_turn_delay)
 
         if turn.get("new_session"):
-            session_id = None
-
-        payload: dict = {"query": query, "timeout": 120.0}
-        if session_id:
-            payload["session_id"] = session_id
+            session_id = str(uuid.uuid4())[:8]
 
         try:
-            resp = httpx.post(f"{api_base}/query", json=payload, timeout=130.0)
+            data = asyncio.run(_ws_query(ws_base, session_id, query))
         except Exception as exc:
-            print(f"  ERROR  HTTP request failed: {exc}")
+            print(f"  ERROR  WebSocket request failed: {exc}")
             return False
 
-        ok = _check("HTTP 200", resp.status_code == 200, f"got {resp.status_code}")
-        all_passed = all_passed and ok
-        if not ok:
-            print(f"  body: {resp.text[:200]}")
-            continue
-
-        data = resp.json()
-        session_id = data.get("session_id")   # carry forward for multi-turn
+        session_id = data.get("session_id") or session_id
 
         answer: str = data.get("answer") or ""
         thinking: str = data.get("thinking") or ""
@@ -73,20 +93,21 @@ def run_story(story_path: str, api_base: str) -> bool:
         print(f"  thinking : {len(thinking)} chars")
         print(f"  tool_calls: {len(tool_calls)}")
 
-        # Per-turn content checks
         for expected in turn.get("expected_content", []):
-            ok = _check(f"answer contains {expected!r}", expected.lower() in answer.lower())
+            # "|" means OR — any alternative must appear in the answer
+            alts = [a.strip() for a in expected.split("|")]
+            matched = any(a.lower() in answer.lower() for a in alts)
+            label = f"answer contains {expected!r}" if len(alts) == 1 else f"answer contains one of {alts}"
+            ok = _check(label, matched)
             all_passed = all_passed and ok
 
         for banned in turn.get("must_not_contain", []):
             ok = _check(f"answer excludes {banned!r}", banned.lower() not in answer.lower())
             all_passed = all_passed and ok
 
-        # Per-turn checks override story-level checks where specified
         turn_rg_checks = {**rg_checks, **turn.get("response_generation_checks", {})}
+        rg_checks = story.get("response_generation_checks", {})
 
-        # response_generation_checks apply to every turn (merged with per-turn)
-        rg_checks = story.get("response_generation_checks", {})  # reset to story-level for next turn
         if turn_rg_checks.get("answer_not_empty"):
             ok = _check("answer not empty", bool(answer.strip()))
             all_passed = all_passed and ok
@@ -119,12 +140,23 @@ def run_story(story_path: str, api_base: str) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("story", help="Path to story YAML file")
+    parser.add_argument("story", nargs="?", help="Path to story YAML (omit to run all)")
     parser.add_argument("--api", default="http://localhost:8000", metavar="URL")
     args = parser.parse_args()
 
-    passed = run_story(args.story, args.api)
-    sys.exit(0 if passed else 1)
+    if args.story:
+        passed = run_story(args.story, args.api)
+        sys.exit(0 if passed else 1)
+    else:
+        stories_dir = Path(__file__).parent / "stories"
+        files = sorted(stories_dir.glob("*.yaml"))
+        results = {}
+        for f in files:
+            results[f.name] = run_story(str(f), args.api)
+        print("\n=== Summary ===")
+        for name, ok in results.items():
+            print(f"  {'PASS' if ok else 'FAIL'}  {name}")
+        sys.exit(0 if all(results.values()) else 1)
 
 
 if __name__ == "__main__":

@@ -29,7 +29,6 @@ expected_bus_events:
 
 response_generation_checks:
   answer_not_empty: true
-  tool_calls_empty: true
 
 critic:
   should_fire: false

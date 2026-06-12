@@ -42,7 +42,9 @@ def _make_agent(model="test-model", system_prompt="", tool_schemas=None) -> Gene
         mock_pub = MagicMock()
         mock_sub = MagicMock()
         mock_bus.return_value = (mock_pub, mock_sub)
-        agent = GeneratorAgent(model=model, conversation_service=ConversationService(persist_path=":memory:"))
+        mock_dispatcher = MagicMock()
+        mock_dispatcher.execute.return_value = ("", False)
+        agent = GeneratorAgent(model=model, conversation_service=ConversationService(persist_path=":memory:"), tool_dispatcher=mock_dispatcher)
         agent._pub = mock_pub
         agent._sub = mock_sub
     return agent
@@ -236,13 +238,8 @@ class TestHandleQuery:
         tc = [{"function": {"name": "web_search", "arguments": {"query": "Jane Austen"}}}]
         tool_resp = _make_ollama_response("", tool_calls=tc)
         final_resp = _make_ollama_response("Jane Austen was born in 1775.")
-        def fake_execute_tool(*_):
-            agent._do_transition(GeneratorAction.AWAIT_RESULT)
-            agent._do_transition(GeneratorAction.TOOL_RESULT)
-            return "result: Jane Austen born 1775"
-
         with patch("ollama.chat", side_effect=[tool_resp, final_resp]):
-            with patch.object(agent, "_execute_tool", side_effect=fake_execute_tool):
+            with patch.object(agent._tool_dispatcher, "execute", return_value=("result: Jane Austen born 1775", False)):
                 agent._handle_query(self._make_query_envelope("When was Jane Austen born?", session_id="s-tool"))
         history = agent._conv.get_history("s-tool")
         roles = [m["role"] for m in history]

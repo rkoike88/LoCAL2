@@ -5,8 +5,7 @@ Calls ollama.chat() directly (not via OllamaBackend) so response["message"]
 is accessible for history appending and tool call inspection.
 
 Tool schemas are populated dynamically as tools announce themselves on tool.schema.
-_execute_tool() opens a short-lived ZmqSubscriber for tool.result.* BEFORE publishing
-the tool.request.*, then polls until correlation_id matches or timeout expires.
+Tool calls are dispatched synchronously via ToolDispatcher, which owns the bus I/O.
 """
 from __future__ import annotations
 
@@ -27,8 +26,8 @@ from local.protocol.subjects import (
     TOOL_SCHEMA, TOOL_SCHEMA_REQUEST,
 )
 from local.services.conversation_service import ConversationService
-from local.transport.bus_config import PROXY_BACKEND_ADDR, make_participant_bus
-from local.transport.zmq_pubsub import ZmqSubscriber
+from local.tools.tool_dispatcher import ToolDispatcher
+from local.transport.bus_config import make_participant_bus
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +47,7 @@ class GeneratorAgent(BaseAgent):
         temperature: float | None = None,
         conversation_service=None,
         compaction_service=None,
+        tool_dispatcher=None,
     ) -> None:
         """Initialize the GeneratorAgent.
 
@@ -58,6 +58,8 @@ class GeneratorAgent(BaseAgent):
             temperature: Sampling temperature (0.0 = deterministic).
             conversation_service: Injected for testing; defaults to a fresh
                 ``ConversationService``.
+            compaction_service: Injected for testing; handles history compaction.
+            tool_dispatcher: Injected for testing; handles synchronous tool I/O.
         """
         cfg = get_config("generator")
         sys_cfg = get_config("system") or {}
@@ -74,6 +76,7 @@ class GeneratorAgent(BaseAgent):
         self._token_count: int = 0
         self._conv = conversation_service or ConversationService()
         self._compaction_service = compaction_service
+        self._tool_dispatcher = tool_dispatcher or ToolDispatcher(self._tool_timeout)
         self._sm = GeneratorStateMachine()
         self._pub, self._sub = make_participant_bus([QUERY_RECEIVED, TOOL_SCHEMA, COMPACTION_REQUEST])
 
@@ -309,7 +312,14 @@ class GeneratorAgent(BaseAgent):
                 name: str = fn.get("name", "")
                 args: dict = fn.get("arguments") or {}
                 self._do_transition(GeneratorAction.DISPATCH_TOOL)
-                result = self._execute_tool(name, args, correlation_id)
+                self._do_transition(GeneratorAction.AWAIT_RESULT)
+                result, timed_out = self._tool_dispatcher.execute(
+                    name, args, correlation_id, self._tool_schemas
+                )
+                if timed_out:
+                    self._do_transition(GeneratorAction.TOOL_TIMEOUT)
+                else:
+                    self._do_transition(GeneratorAction.TOOL_RESULT)
                 tool_call_log.append({"tool": name, "args": args, "result": str(result)})
                 messages.append({"role": "tool", "content": str(result), "name": name})
 
@@ -382,64 +392,6 @@ class GeneratorAgent(BaseAgent):
         self._tool_schemas.append(schema)
         logger.info("GeneratorAgent: registered tool %r (total: %d)", name, len(self._tool_schemas))
         self._publish_status()
-
-    def _normalize_tool_name(self, name: str) -> str:
-        """Map hallucinated or variant tool names to registered schema names."""
-        registered = {s.get("function", {}).get("name") for s in self._tool_schemas}
-        if name in registered:
-            return name
-        name_lower = name.lower()
-        for rname in registered:
-            if rname in name_lower or name_lower in rname:
-                logger.warning("GeneratorAgent: normalizing tool name %r → %r", name, rname)
-                return rname
-        return name
-
-    def _execute_tool(self, name: str, args: dict, correlation_id: str) -> str:
-        """Dispatch a single tool call over the bus and block for the result.
-
-        Opens a short-lived ``ZmqSubscriber`` for ``tool.result.<name>``
-        **before** publishing ``tool.request.<name>`` to avoid a race between
-        publish and subscribe. Polls until ``correlation_id`` matches or
-        ``tool_timeout`` (from config) expires.
-
-        Args:
-            name: Tool function name; normalized via ``_normalize_tool_name``
-                first to handle Gemma hallucinations.
-            args: Tool arguments dict from the model's tool call.
-            correlation_id: Forwarded on the request envelope; used to match
-                the response.
-
-        Returns:
-            Tool result string, or an error string on timeout.
-        """
-        name = self._normalize_tool_name(name)
-        req_subject = f"tool.request.{name}"
-        res_subject = f"tool.result.{name}"
-
-        result_sub = ZmqSubscriber(PROXY_BACKEND_ADDR, subscriptions=[res_subject])
-        self._do_transition(GeneratorAction.AWAIT_RESULT)
-        try:
-            self._pub.publish(self._make_envelope(
-                req_subject, "tool_request",
-                {"tool": name, "args": args},
-                correlation_id, None,
-            ))
-            deadline = time.monotonic() + self._tool_timeout
-            while time.monotonic() < deadline:
-                remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
-                msg = result_sub.receive_with_timeout(remaining_ms)
-                if msg is None:
-                    break
-                if msg.correlation_id == correlation_id:
-                    self._do_transition(GeneratorAction.TOOL_RESULT)
-                    return msg.payload.get("result", "")
-        finally:
-            result_sub.close()
-
-        logger.warning("GeneratorAgent: tool %r timed out after %ss", name, self._tool_timeout)
-        self._do_transition(GeneratorAction.TOOL_TIMEOUT)
-        return f"[tool timeout: {name!r} did not respond within {self._tool_timeout}s]"
 
     @staticmethod
     def _clean_for_history(m: dict) -> dict:

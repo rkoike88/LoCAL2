@@ -40,9 +40,9 @@ def _late_schema_refresh(delay: float = 2.0) -> None:
     ))
 
 
-def _start_generator(model: str, temperature: float | None = None, conversation_service=None, compaction_service=None) -> None:
+def _start_generator(model: str, temperature: float | None = None, conversation_service=None, compaction_service=None, tool_dispatcher=None) -> None:
     from local.agents.generator_agent import GeneratorAgent
-    agent = GeneratorAgent(model=model or None, temperature=temperature, conversation_service=conversation_service, compaction_service=compaction_service)
+    agent = GeneratorAgent(model=model or None, temperature=temperature, conversation_service=conversation_service, compaction_service=compaction_service, tool_dispatcher=tool_dispatcher)
     agent.run()
 
 

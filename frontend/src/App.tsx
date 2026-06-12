@@ -326,7 +326,18 @@ function MessageRow({ msg, sessionId }: { msg: ChatMessage; sessionId: string })
       {msg.thinking && <ThinkingBlock text={msg.thinking} streaming={false} />}
       <ToolChips calls={msg.tool_calls} />
       <div className="prose prose-invert prose-sm max-w-none">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            a: ({ href, children }) => (
+              <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent underline hover:opacity-80">
+                {children}
+              </a>
+            ),
+          }}
+        >
+          {msg.content}
+        </ReactMarkdown>
       </div>
       <CritiqueBar
         score={msg.critique?.score ?? null}

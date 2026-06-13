@@ -26,18 +26,12 @@ def _start_proxy() -> None:
 
 def _late_schema_refresh(delay: float = 2.0) -> None:
     """Re-broadcast TOOL_SCHEMA_REQUEST after a delay to catch any late-starting tools."""
-    from local.protocol.envelope import MessageEnvelope
-    from local.protocol.subjects import TOOL_SCHEMA_REQUEST
+    from local.protocol.messages import ToolSchemaRequest
     from local.transport.bus_config import PROXY_FRONTEND_ADDR
     from local.transport.zmq_pubsub import ZmqPublisher
     pub = ZmqPublisher(PROXY_FRONTEND_ADDR, bind=False)
     time.sleep(delay)  # wait after connecting — ZMQ drops messages sent before the connection settles
-    pub.publish(MessageEnvelope.create(
-        message_type="schema_request",
-        subject=TOOL_SCHEMA_REQUEST,
-        sender_id="run-refresh",
-        payload={},
-    ))
+    pub.publish(ToolSchemaRequest(), sender_id="run-refresh")
 
 
 def _start_generator(model: str, temperature: float | None = None, conversation_service=None, compaction_service=None, tool_dispatcher=None) -> None:

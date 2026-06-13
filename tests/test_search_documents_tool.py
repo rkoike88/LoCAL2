@@ -24,7 +24,7 @@ class TestSearchLibraryTool:
             tool._announce_schema()
         env = tool._pub.publish.call_args.args[0]
         assert env.subject == "tool.schema"
-        assert env.payload["schema"]["function"]["name"] == "search_library"
+        assert env.schema["function"]["name"] == "search_library"
 
     def test_handle_request_publishes_result_and_activity(self):
         tool = _make_tool()
@@ -52,7 +52,7 @@ class TestSearchLibraryTool:
             c.args[0] for c in tool._pub.publish.call_args_list
             if c.args[0].subject == "tool.result.search_library"
         )
-        assert "empty" in result_env.payload["result"].lower()
+        assert "empty" in result_env.result.lower()
 
     def test_empty_query_returns_error_message(self):
         tool = _make_tool()
@@ -65,4 +65,4 @@ class TestSearchLibraryTool:
             c.args[0] for c in tool._pub.publish.call_args_list
             if c.args[0].subject == "tool.result.search_library"
         )
-        assert "required" in result_env.payload["result"].lower()
+        assert "required" in result_env.result.lower()

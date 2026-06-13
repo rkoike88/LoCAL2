@@ -150,7 +150,7 @@ class TestLocationToolBus:
         tool._announce_schema()
         envelope = tool._pub.publish.call_args.args[0]
         assert envelope.subject == "tool.schema"
-        assert envelope.payload["schema"]["function"]["name"] == "get_location"
+        assert envelope.schema["function"]["name"] == "get_location"
 
     def test_handle_request_publishes_result_and_activity(self):
         tool = self._make_tool()

@@ -16,12 +16,12 @@ from PySide6.QtCore import QObject, QThread, QTimer, Signal
 from PySide6.QtWidgets import QApplication
 
 from local.protocol.envelope import MessageEnvelope
+from local.protocol.messages import ToolSchemaRequest
 from local.protocol.subjects import (
     AGENT_TRANSITION,
     CRITIQUE,
     GENERATOR_STATUS,
     TOOL_SCHEMA,
-    TOOL_SCHEMA_REQUEST,
 )
 from local.transport.bus_config import PROXY_BACKEND_ADDR, PROXY_FRONTEND_ADDR
 from local.transport.zmq_pubsub import ZmqPublisher, ZmqSubscriber
@@ -110,12 +110,7 @@ class MonitorApp(QObject):
         self._browser_url: str | None = None
 
     def _request_schemas(self) -> None:
-        self._pub.publish(MessageEnvelope.create(
-            message_type="schema_request",
-            subject=TOOL_SCHEMA_REQUEST,
-            sender_id="monitor",
-            payload={},
-        ))
+        self._pub.publish(ToolSchemaRequest(), sender_id="monitor")
 
     def _on_envelope(self, envelope: MessageEnvelope) -> None:
         subject = envelope.subject

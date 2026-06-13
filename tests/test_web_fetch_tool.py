@@ -24,7 +24,7 @@ def _make_request_envelope(url: str, correlation_id: str = "corr-xyz"):
     from local.protocol.envelope import MessageEnvelope
     return MessageEnvelope.create(
         message_type="tool_request",
-        subject="tool.request.web_fetch",
+        subject="tool.call.web_fetch",
         sender_id="generator",
         payload={"args": {"url": url}, "tool": "web_fetch"},
         correlation_id=correlation_id,
@@ -57,7 +57,7 @@ class TestSchema:
         tool._announce_schema()
         envelope = tool._pub.publish.call_args[0][0]
         assert envelope.subject == TOOL_SCHEMA
-        assert envelope.payload["schema"]["function"]["name"] == "web_fetch"
+        assert envelope.schema["function"]["name"] == "web_fetch"
 
 
 # ---------------------------------------------------------------------------
@@ -139,4 +139,4 @@ class TestHandleRequest:
         with patch("httpx.get", side_effect=Exception("connection timeout")):
             tool._handle_request(_make_request_envelope("https://bad.url"))
         result_env = tool._pub.publish.call_args[0][0]
-        assert "web_fetch error" in result_env.payload["result"]
+        assert "web_fetch error" in result_env.result

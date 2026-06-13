@@ -43,11 +43,11 @@ except ImportError as exc:
     raise RuntimeError("PySide6 is required. Install pyside6 first.") from exc
 
 from local.protocol.envelope import MessageEnvelope
+from local.protocol.messages import CompactionRequest, QueryReceived, ToolSchemaRequest, UserFeedback as UserFeedbackMsg
 from local.config_loader import get_config
 from local.protocol.subjects import (
     AGENT_TRANSITION,
     ANSWER_DIALOG,
-    COMPACTION_REQUEST,
     COMPACTION_RESULT,
     CRITIQUE,
     GENERATION_THINKING,
@@ -61,13 +61,11 @@ from local.protocol.subjects import (
     TOOL_ACTIVITY_SEARCH_PAPERS,
     TOOL_ACTIVITY_WEB_FETCH,
     TOOL_ACTIVITY_WEB_SEARCH,
-    TOOL_REQUEST_WEB_FETCH,
-    TOOL_REQUEST_WEB_SEARCH,
+    TOOL_CALL_WEB_FETCH,
+    TOOL_CALL_WEB_SEARCH,
     TOOL_RESULT_WEB_FETCH,
     TOOL_RESULT_WEB_SEARCH,
     TOOL_SCHEMA,
-    TOOL_SCHEMA_REQUEST,
-    USER_FEEDBACK,
 )
 from local.session.local_session import OBSERVE
 from local.transport.bus_config import PROXY_BACKEND_ADDR
@@ -375,7 +373,7 @@ class BusLogger(QObject):
             })
             return
 
-        elif subject in (TOOL_REQUEST_WEB_SEARCH, TOOL_REQUEST_WEB_FETCH):
+        elif subject in (TOOL_CALL_WEB_SEARCH, TOOL_CALL_WEB_FETCH):
             tool_name = subject.split(".")[-1]
             args = raw.get("args") or {}
             text = f"[{ts}] TOOL REQUEST  {tool_name}\n  args: {args}"
@@ -786,12 +784,7 @@ class MainWindow(QMainWindow):
             win.append_activity(envelope)
 
     def _request_tool_schemas(self) -> None:
-        self._publisher.publish(MessageEnvelope.create(
-            message_type="schema_request",
-            subject=TOOL_SCHEMA_REQUEST,
-            sender_id="ui",
-            payload={},
-        ))
+        self._publisher.publish(ToolSchemaRequest(), sender_id="ui")
 
     def _on_tool_schema(self, tool_name: str) -> None:
         if tool_name not in self._tool_windows:
@@ -877,20 +870,12 @@ class MainWindow(QMainWindow):
         attachments = self._attachment_bar.attachments()
         if attachments:
             self._pending_attachments[query_id] = [a["name"] for a in attachments]
-        envelope = MessageEnvelope.create(
-            message_type="query",
-            subject=QUERY_RECEIVED,
+        self._publisher.publish(
+            QueryReceived(query=query, session_id=self._session_id, query_id=query_id, attachments=attachments),
             sender_id="ui",
-            payload={
-                "query": query,
-                "session_id": self._session_id,
-                "query_id": query_id,
-                "attachments": attachments,
-            },
             correlation_id=query_id,
-            metadata={"session_id": self._session_id},
+            session_id=self._session_id,
         )
-        self._publisher.publish(envelope)
         self._query_input.clear()
         self._attachment_bar.clear()
 
@@ -1008,13 +993,11 @@ class MainWindow(QMainWindow):
     def _compact_session(self) -> None:
         self._context_gauge.set_compacting(True)
         self.append_log("── compacting conversation… ──")
-        self._publisher.publish(MessageEnvelope.create(
-            message_type="compaction_request",
-            subject=COMPACTION_REQUEST,
+        self._publisher.publish(
+            CompactionRequest(session_id=self._session_id),
             sender_id="ui",
-            payload={"session_id": self._session_id},
-            correlation_id=self._session_id,
-        ))
+            session_id=self._session_id,
+        )
 
     def _on_compaction_result(self, data: dict) -> None:
         self._context_gauge.set_compacting(False)
@@ -1032,19 +1015,12 @@ class MainWindow(QMainWindow):
             self._context_gauge.set_tokens(tokens_after)
 
     def _on_user_feedback(self, query_id: str, sentiment: str) -> None:
-        envelope = MessageEnvelope.create(
-            message_type="user_feedback",
-            subject=USER_FEEDBACK,
+        self._publisher.publish(
+            UserFeedbackMsg(query_id=query_id, session_id=self._session_id, sentiment=sentiment),
             sender_id="ui",
-            payload={
-                "query_id": query_id,
-                "session_id": self._session_id,
-                "sentiment": sentiment,
-            },
             correlation_id=query_id,
-            metadata={"session_id": self._session_id},
+            session_id=self._session_id,
         )
-        self._publisher.publish(envelope)
 
     def append_log(self, text: str) -> None:
         label = QLabel(text)

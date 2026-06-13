@@ -18,7 +18,8 @@ from local.agents.critic_states import CriticState
 from local.agents.critic_transitions import CriticStateMachine
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
-from local.protocol.subjects import CRITIQUE, RESPONSE_GENERATION
+from local.protocol.messages import CritiqueResult, ResponseGeneration
+from local.protocol.subjects import RESPONSE_GENERATION
 from local.services.ollama_backend import OllamaBackend
 from local.transport.bus_config import make_participant_bus
 
@@ -71,17 +72,13 @@ class CriticAgent(BaseAgent):
                     self._do_transition(CriticAction.RESET)
 
     def _handle_generation(self, envelope: MessageEnvelope) -> None:
-        payload = envelope.payload
-        query: str = payload.get("query", "").strip()
-        answer: str = payload.get("answer", "").strip()
-        session_id: str = payload.get("session_id") or ""
-        query_id: str = payload.get("query_id") or ""
-        correlation_id: str = envelope.correlation_id or query_id
+        msg = ResponseGeneration.from_envelope(envelope)
+        correlation_id: str = envelope.correlation_id or msg.query_id
 
-        if not query or not answer or payload.get("error"):
+        if not msg.query or not msg.answer or msg.error:
             return
 
-        if payload.get("tool_calls"):
+        if msg.tool_calls:
             logger.debug("CriticAgent: skipping grade — tool calls present")
             return
 
@@ -89,28 +86,21 @@ class CriticAgent(BaseAgent):
         self._do_transition(CriticAction.RECEIVE)
         self._do_transition(CriticAction.START_GRADE)
 
-        score, feedback = self._grade(query, answer)
+        score, feedback = self._grade(msg.query, msg.answer)
 
         if score is None:
             self._do_transition(CriticAction.FAIL)
         else:
             self._do_transition(CriticAction.PUBLISH)
 
-        self._pub.publish(MessageEnvelope.create(
-            message_type="critique",
-            subject=CRITIQUE,
-            sender_id=self.id,
-            payload={
-                "score": score,
-                "feedback": feedback,
-                "query": query,
-                "answer": answer,
-                "session_id": session_id,
-                "query_id": query_id,
-            },
-            correlation_id=correlation_id,
-            metadata={"session_id": session_id},
-        ))
+        self._pub.publish(
+            CritiqueResult(
+                score=score, feedback=feedback,
+                query=msg.query, answer=msg.answer,
+                session_id=msg.session_id, query_id=msg.query_id,
+            ),
+            sender_id=self.id, correlation_id=correlation_id, session_id=msg.session_id,
+        )
 
         self._do_transition(CriticAction.RESET)
 

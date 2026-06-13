@@ -23,7 +23,7 @@ except ImportError as exc:
     raise RuntimeError("PySide6 is required.") from exc
 
 from local.protocol.envelope import MessageEnvelope
-from local.protocol.subjects import CONFIG_RELOAD, TOOL_SCHEMA_REQUEST
+from local.protocol.messages import ConfigReload, ToolSchemaRequest
 
 
 def _repo_root() -> Path:
@@ -171,18 +171,8 @@ class ToolPanel(QWidget):
             return
 
         # Signal tools to reload their schema
-        self._publisher.publish(MessageEnvelope.create(
-            message_type="schema_request",
-            subject=TOOL_SCHEMA_REQUEST,
-            sender_id="ui_settings",
-            payload={"config": self._config_name},
-        ))
-        self._publisher.publish(MessageEnvelope.create(
-            message_type="config_reload",
-            subject=CONFIG_RELOAD,
-            sender_id="ui_settings",
-            payload={"config": self._config_name},
-        ))
+        self._publisher.publish(ToolSchemaRequest(), sender_id="ui_settings")
+        self._publisher.publish(ConfigReload(target=self._config_name), sender_id="ui_settings")
 
         self._status_label.setText("Saved")
         self._status_label.setStyleSheet("color: #55aa55;")

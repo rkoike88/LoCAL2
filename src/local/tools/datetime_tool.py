@@ -10,7 +10,7 @@ from datetime import datetime
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     TOOL_ACTIVITY_GET_DATETIME,
-    TOOL_REQUEST_GET_DATETIME,
+    TOOL_CALL_GET_DATETIME,
     TOOL_RESULT_GET_DATETIME,
 )
 from local.tools.base_tool import BaseTool
@@ -33,7 +33,7 @@ class DateTimeTool(BaseTool):
     RESULT_SUBJECT = TOOL_RESULT_GET_DATETIME
 
     def __init__(self) -> None:
-        super().__init__(TOOL_REQUEST_GET_DATETIME)
+        super().__init__(TOOL_CALL_GET_DATETIME)
 
     def _build_schema(self) -> dict:
         return {

@@ -8,7 +8,7 @@ from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     TOOL_ACTIVITY_SEARCH_MEMORY,
-    TOOL_REQUEST_SEARCH_MEMORY,
+    TOOL_CALL_SEARCH_MEMORY,
     TOOL_RESULT_SEARCH_MEMORY,
 )
 from local.services.memory_service import MemoryService
@@ -27,7 +27,7 @@ class SearchMemoryTool(BaseTool):
 
     def __init__(self, memory_service: MemoryService | None = None) -> None:
         self._memory = memory_service or MemoryService()
-        super().__init__(TOOL_REQUEST_SEARCH_MEMORY)
+        super().__init__(TOOL_CALL_SEARCH_MEMORY)
 
     def _build_schema(self) -> dict:
         cfg = get_config(CONFIG_NAME)

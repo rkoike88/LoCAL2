@@ -2,33 +2,47 @@
 
 from dataclasses import asdict
 import json
-from typing import Optional
+from typing import TYPE_CHECKING, Optional, Union
 import zmq
 
 from local.protocol.envelope import MessageEnvelope
+
+if TYPE_CHECKING:
+    from local.protocol.messages import BusMessage
 
 
 class ZmqPublisher:
     """Publishes MessageEnvelope objects over a ZeroMQ PUB socket."""
 
-    def __init__(self, address: str, bind: bool = True):
+    def __init__(self, address: str, bind: bool = True, sender_id: str = ""):
         """
         Args:
             address: ZeroMQ address string (e.g. ``"tcp://127.0.0.1:5570"``).
             bind: If ``True``, socket binds to the address (server side). Bus
                 participants always connect (``bind=False``); the proxy binds.
+            sender_id: Used when publishing BusMessage objects that need a sender.
         """
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.PUB)
+        self._sender_id = sender_id
         if bind:
             self.socket.bind(address)
         else:
             self.socket.connect(address)
 
-    def publish(self, message: MessageEnvelope) -> None:
+    def publish(self, message: "Union[MessageEnvelope, BusMessage]", *, sender_id: str = "", correlation_id: str = "", session_id: str = "") -> None:
+        from local.protocol.messages import BusMessage
+        if isinstance(message, BusMessage):
+            envelope = message.to_envelope(
+                sender_id=sender_id or self._sender_id,
+                correlation_id=correlation_id,
+                session_id=session_id,
+            )
+        else:
+            envelope = message
         self.socket.send_multipart([
-            message.subject.encode(),
-            json.dumps(asdict(message)).encode(),
+            envelope.subject.encode(),
+            json.dumps(asdict(envelope)).encode(),
         ])
 
     def close(self) -> None:

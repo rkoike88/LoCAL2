@@ -12,7 +12,8 @@ from typing import ClassVar
 from local.config_loader import ConfigManager
 from local.participants.participant import Participant
 from local.protocol.envelope import MessageEnvelope
-from local.protocol.subjects import TOOL_SCHEMA, TOOL_SCHEMA_REQUEST
+from local.protocol.messages import ToolActivity, ToolResult, ToolSchema
+from local.protocol.subjects import TOOL_SCHEMA_REQUEST
 from local.transport.bus_config import make_participant_bus
 
 logger = logging.getLogger(__name__)
@@ -42,8 +43,8 @@ class BaseTool(Participant):
         """Set up pub/sub bus subscriptions.
 
         Args:
-            request_subject: The ``tool.request.*`` subject this tool handles
-                (e.g. ``TOOL_REQUEST_GET_DATETIME``).
+            request_subject: The ``tool.call.*`` subject this tool handles
+                (e.g. ``TOOL_CALL_GET_DATETIME``).
         """
         self._pub, self._sub = make_participant_bus([request_subject, TOOL_SCHEMA_REQUEST])
 
@@ -89,7 +90,6 @@ class BaseTool(Participant):
         self,
         result: str,
         correlation_id: str | None,
-        extra: dict | None = None,
     ) -> None:
         """Publish a tool.result.* envelope to the bus.
 
@@ -98,21 +98,13 @@ class BaseTool(Participant):
             correlation_id: Forwarded from the originating request envelope.
             extra: Optional additional payload fields (rarely needed).
         """
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_result",
-            subject=self.RESULT_SUBJECT,
+        self._pub.publish(
+            ToolResult(tool=self.TOOL_NAME, result=result, correlation_id=correlation_id or ""),
             sender_id=self.id,
-            payload={"result": result, "tool": self.TOOL_NAME, **(extra or {})},
-            correlation_id=correlation_id or "",
-        ))
+        )
 
     def _announce_schema(self) -> None:
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_schema",
-            subject=TOOL_SCHEMA,
-            sender_id=self.id,
-            payload={"schema": self._build_schema()},
-        ))
+        self._pub.publish(ToolSchema(schema=self._build_schema()), sender_id=self.id)
 
     def _publish_activity(self, event_type: str, data: dict, correlation_id: str | None) -> None:
         """Publish a ``tool.activity.*`` event to the bus.
@@ -127,13 +119,11 @@ class BaseTool(Participant):
                 a preview snippet.
             correlation_id: Forwarded from the originating request envelope.
         """
-        self._pub.publish(MessageEnvelope.create(
-            message_type="tool_activity",
-            subject=self.ACTIVITY_SUBJECT,
+        self._pub.publish(
+            ToolActivity(tool=self.TOOL_NAME, event=event_type, data=data),
             sender_id=self.id,
-            payload={"event": event_type, "tool": self.TOOL_NAME, **data},
             correlation_id=correlation_id or "",
-        ))
+        )
 
     def run(self) -> None:
         self._announce_schema()

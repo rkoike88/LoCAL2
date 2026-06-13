@@ -7,7 +7,7 @@ from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     TOOL_ACTIVITY_SEARCH_DOCUMENTS,
-    TOOL_REQUEST_SEARCH_DOCUMENTS,
+    TOOL_CALL_SEARCH_DOCUMENTS,
     TOOL_RESULT_SEARCH_DOCUMENTS,
 )
 from local.services.document_service import DocumentService
@@ -27,7 +27,7 @@ class SearchLibraryTool(BaseTool):
 
     def __init__(self, document_service: DocumentService | None = None) -> None:
         self._docs = document_service or DocumentService()
-        super().__init__(TOOL_REQUEST_SEARCH_DOCUMENTS)
+        super().__init__(TOOL_CALL_SEARCH_DOCUMENTS)
 
     def _build_schema(self) -> dict:
         cfg = get_config(CONFIG_NAME) or {}

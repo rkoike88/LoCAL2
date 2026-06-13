@@ -124,11 +124,11 @@ class TestClassificationFallback:
                else mock_memory.write_episodic.call_args.kwargs.get("metadata", {})
         assert meta == {}
 
-    def test_invalid_intent_value_is_cleared(self):
+    def test_unknown_intent_value_passes_through(self):
         agent, _, mock_llm = _make_agent()
         mock_llm.chat.return_value = ('{"intent": "unknown_garbage", "entities": []}', "")
         result = agent._classify("Q", "A")
-        assert result["intent"] == ""
+        assert result["intent"] == "unknown_garbage"
 
     def test_state_returns_to_idle_after_write_failure(self):
         agent, mock_memory, mock_llm = _make_agent()

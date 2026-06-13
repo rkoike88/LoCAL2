@@ -18,7 +18,7 @@ def _make_tool() -> tuple[SearchMemoryTool, MagicMock, MagicMock, MagicMock]:
 
 def _make_envelope(args: dict, correlation_id: str = "corr-1") -> MagicMock:
     env = MagicMock()
-    env.subject = "tool.request.search_memory"
+    env.subject = "tool.call.search_memory"
     env.payload = {"args": args}
     env.correlation_id = correlation_id
     return env
@@ -40,7 +40,7 @@ class TestSchema:
         mock_pub.publish.assert_called_once()
         published = mock_pub.publish.call_args.args[0]
         assert published.subject == "tool.schema"
-        assert published.payload["schema"]["function"]["name"] == "search_memory"
+        assert published.schema["function"]["name"] == "search_memory"
 
 
 class TestSearchBehaviour:
@@ -57,7 +57,7 @@ class TestSearchBehaviour:
             {"content": "Q2\nA2", "metadata": {}, "score": 0.8},
         ]
         tool._handle_request(_make_envelope({"query": "something"}))
-        result = mock_pub.publish.call_args.args[0].payload["result"]
+        result = mock_pub.publish.call_args.args[0].result
         assert "1." in result and "Q1" in result
         assert "2." in result and "Q2" in result
 
@@ -65,13 +65,13 @@ class TestSearchBehaviour:
         tool, mock_memory, mock_pub, _ = _make_tool()
         mock_memory.search_episodic.return_value = []
         tool._handle_request(_make_envelope({"query": "anything"}))
-        result = mock_pub.publish.call_args.args[0].payload["result"]
+        result = mock_pub.publish.call_args.args[0].result
         assert "no relevant memories" in result
 
     def test_missing_query_returns_error(self):
         tool, mock_memory, mock_pub, _ = _make_tool()
         tool._handle_request(_make_envelope({}))
-        result = mock_pub.publish.call_args.args[0].payload["result"]
+        result = mock_pub.publish.call_args.args[0].result
         assert "query" in result
         mock_memory.search_episodic.assert_not_called()
 
@@ -95,5 +95,5 @@ class TestBusWiring:
         tool, mock_memory, mock_pub, _ = _make_tool()
         mock_memory.search_episodic.side_effect = RuntimeError("db down")
         tool._handle_request(_make_envelope({"query": "something"}))
-        result = mock_pub.publish.call_args.args[0].payload["result"]
+        result = mock_pub.publish.call_args.args[0].result
         assert "search_memory error" in result

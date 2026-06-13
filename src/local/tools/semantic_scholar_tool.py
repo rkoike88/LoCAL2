@@ -17,7 +17,7 @@ from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     TOOL_ACTIVITY_SEARCH_PAPERS,
-    TOOL_REQUEST_SEARCH_PAPERS,
+    TOOL_CALL_SEARCH_PAPERS,
     TOOL_RESULT_SEARCH_PAPERS,
 )
 from local.tools.base_tool import BaseTool
@@ -115,7 +115,7 @@ class SemanticScholarTool(BaseTool):
     RESULT_SUBJECT = TOOL_RESULT_SEARCH_PAPERS
 
     def __init__(self) -> None:
-        super().__init__(TOOL_REQUEST_SEARCH_PAPERS)
+        super().__init__(TOOL_CALL_SEARCH_PAPERS)
 
     def _build_schema(self) -> dict:
         return {

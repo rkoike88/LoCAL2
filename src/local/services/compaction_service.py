@@ -15,9 +15,9 @@ import uuid
 from local.config_loader import get_config
 from local.participants.base_service import BaseService
 from local.protocol.envelope import MessageEnvelope
+from local.protocol.messages import CompactionRequest as CompactionRequestMsg, CompactionResult
 from local.protocol.subjects import (
     COMPACTION_REQUEST,
-    COMPACTION_RESULT,
     RESPONSE_GENERATION,
 )
 from local.services.conversation_service import ConversationService
@@ -61,18 +61,16 @@ class CompactionService(BaseService):
                 "CompactionService: auto-compacting session %s (%d / %d tokens, threshold %.0f%%)",
                 (session_id or "")[:8], prompt_tokens, num_ctx, threshold * 100,
             )
-            self._pub.publish(MessageEnvelope.create(
-                message_type="compaction_request",
-                subject=COMPACTION_REQUEST,
+            self._pub.publish(
+                CompactionRequestMsg(session_id=session_id or "", auto=True),
                 sender_id=self.id,
-                payload={"session_id": session_id, "auto": True},
-            ))
+            )
 
     # ------------------------------------------------------------------
     # Executor — called by GeneratorAgent under its IDLE gate
     # ------------------------------------------------------------------
 
-    def compact(self, envelope: MessageEnvelope, publisher, make_envelope) -> None:
+    def compact(self, envelope: MessageEnvelope) -> None:
         """Summarize a session's history and replace it with a summary + tail turns.
 
         Runs in the generator's thread while the generator is in COMPACTING state.
@@ -81,8 +79,6 @@ class CompactionService(BaseService):
 
         Args:
             envelope: The compaction.request envelope; must contain session_id.
-            publisher: GeneratorAgent's ZmqPublisher for compaction.result.
-            make_envelope: GeneratorAgent._make_envelope bound method.
         """
         import ollama
 
@@ -94,11 +90,11 @@ class CompactionService(BaseService):
         tokens_before = self._conv.get_token_count(session_id)
 
         if not history:
-            publisher.publish(make_envelope(
-                COMPACTION_RESULT, "compaction",
-                {"error": "no history to compact", "session_id": session_id},
-                envelope.correlation_id or str(uuid.uuid4()), None,
-            ))
+            self._pub.publish(
+                CompactionResult(session_id=session_id or "", error="no history to compact"),
+                sender_id=self.id,
+                correlation_id=envelope.correlation_id or str(uuid.uuid4()),
+            )
             return
 
         convo_text = []
@@ -143,14 +139,16 @@ class CompactionService(BaseService):
         self._conv.replace_messages(session_id, new_messages)
         self._conv.set_token_count(session_id, tokens_estimated_after)
 
-        publisher.publish(make_envelope(
-            COMPACTION_RESULT, "compaction",
-            {"session_id": session_id,
-             "tokens_before": tokens_before,
-             "tokens_after": tokens_estimated_after,
-             "summary": summary_text},
-            envelope.correlation_id or str(uuid.uuid4()), None,
-        ))
+        self._pub.publish(
+            CompactionResult(
+                session_id=session_id or "",
+                tokens_before=tokens_before,
+                tokens_after=tokens_estimated_after,
+                summary=summary_text,
+            ),
+            sender_id=self.id,
+            correlation_id=envelope.correlation_id or str(uuid.uuid4()),
+        )
         logger.info(
             "CompactionService: compacted session %s — %d → ~%d tokens",
             (session_id or "")[:8], tokens_before, tokens_estimated_after,

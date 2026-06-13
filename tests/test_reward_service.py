@@ -40,16 +40,16 @@ class TestRewardServiceFeedback:
         svc, _, mock_pub, _ = _make_service()
         svc._handle_feedback(_make_envelope(query_id="qid-42", sentiment="positive"))
         mock_pub.publish.assert_called_once()
-        envelope = mock_pub.publish.call_args.args[0]
-        assert envelope.subject == REWARD_EVENT
-        assert envelope.payload["query_id"] == "qid-42"
-        assert envelope.payload["sentiment"] == "positive"
+        msg = mock_pub.publish.call_args.args[0]
+        assert msg.subject == REWARD_EVENT
+        assert msg.query_id == "qid-42"
+        assert msg.sentiment == "positive"
 
     def test_reward_event_carries_session_id(self):
         svc, _, mock_pub, _ = _make_service()
         svc._handle_feedback(_make_envelope(session_id="sess-99"))
-        envelope = mock_pub.publish.call_args.args[0]
-        assert envelope.payload["session_id"] == "sess-99"
+        msg = mock_pub.publish.call_args.args[0]
+        assert msg.session_id == "sess-99"
 
     def test_skips_invalid_sentiment(self):
         svc, mock_memory, mock_pub, _ = _make_service()

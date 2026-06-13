@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from abc import abstractmethod
 from typing import Any
 
 from local.participants.participant import Participant
 from local.protocol.envelope import MessageEnvelope
-from local.protocol.subjects import AGENT_TRANSITION
+from local.protocol.messages import AgentTransition
 
 logger = logging.getLogger(__name__)
 
@@ -56,18 +55,15 @@ class BaseAgent(Participant):
         from_state = self._sm.state
         to_state = self._sm.transition(action)
         try:
-            self._pub.publish(MessageEnvelope.create(
-                message_type="agent_transition",
-                subject=AGENT_TRANSITION,
+            self._pub.publish(
+                AgentTransition(
+                    agent=self.id,
+                    from_state=from_state.value,
+                    action=action.value,
+                    to=to_state.value,
+                ),
                 sender_id=self.id,
-                payload={
-                    "agent":  self.id,
-                    "from":   from_state.value,
-                    "action": action.value,
-                    "to":     to_state.value,
-                },
-                correlation_id=str(uuid.uuid4()),
-            ))
+            )
         except Exception:
             pass
         self._after_transition()

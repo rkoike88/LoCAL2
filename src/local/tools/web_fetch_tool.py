@@ -7,7 +7,7 @@ from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     TOOL_ACTIVITY_WEB_FETCH,
-    TOOL_REQUEST_WEB_FETCH,
+    TOOL_CALL_WEB_FETCH,
     TOOL_RESULT_WEB_FETCH,
 )
 from local.tools.base_tool import BaseTool
@@ -32,7 +32,7 @@ class WebFetchTool(BaseTool):
         cfg = get_config(CONFIG_NAME)
         self._max_chars: int = cfg.get("max_chars", 3000)
         self._timeout: float = cfg.get("timeout", 15)
-        super().__init__(TOOL_REQUEST_WEB_FETCH)
+        super().__init__(TOOL_CALL_WEB_FETCH)
         logger.info("web_fetch_tool: max_chars=%s  timeout=%s", self._max_chars, self._timeout)
 
     def _build_schema(self) -> dict:

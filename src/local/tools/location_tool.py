@@ -18,7 +18,7 @@ from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     TOOL_ACTIVITY_GET_LOCATION,
-    TOOL_REQUEST_GET_LOCATION,
+    TOOL_CALL_GET_LOCATION,
     TOOL_RESULT_GET_LOCATION,
 )
 from local.tools.base_tool import BaseTool
@@ -105,7 +105,7 @@ class LocationTool(BaseTool):
         cfg = get_config("location") or {}
         self._cache_ttl: float = float(cfg.get("cache_ttl", 300))
         self._cache: tuple[float, str] | None = None  # (monotonic_time, result)
-        super().__init__(TOOL_REQUEST_GET_LOCATION)
+        super().__init__(TOOL_CALL_GET_LOCATION)
 
     def _build_schema(self) -> dict:
         return {

@@ -20,10 +20,12 @@ from local.agents.generator_states import GeneratorState
 from local.agents.generator_transitions import GeneratorStateMachine
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
+from local.protocol.messages import (
+    AnswerDialog, CompactionResult, GenerationThinking,
+    GeneratorStatus, ResponseGeneration, ToolSchemaRequest,
+)
 from local.protocol.subjects import (
-    ANSWER_DIALOG, COMPACTION_REQUEST, COMPACTION_RESULT,
-    GENERATION_THINKING, GENERATOR_STATUS, QUERY_RECEIVED, RESPONSE_GENERATION,
-    TOOL_SCHEMA, TOOL_SCHEMA_REQUEST,
+    COMPACTION_REQUEST, QUERY_RECEIVED, TOOL_SCHEMA,
 )
 from local.services.conversation_service import ConversationService
 from local.tools.tool_dispatcher import ToolDispatcher
@@ -143,13 +145,14 @@ class GeneratorAgent(BaseAgent):
         except Exception as exc:
             logger.error("GeneratorAgent: generation failed: %s", exc, exc_info=True)
             self._do_transition(GeneratorAction.FAIL)
-            self._pub.publish(self._make_envelope(
-                RESPONSE_GENERATION, "response",
-                {"answer": f"[generation error: {exc}]", "thinking": "",
-                 "tool_calls": [], "session_id": session_id, "query_id": query_id,
-                 "error": True},
-                correlation_id, session_id,
-            ))
+            self._pub.publish(
+                ResponseGeneration(
+                    query=query, answer=f"[generation error: {exc}]",
+                    thinking="", tool_calls=[], session_id=session_id or "",
+                    query_id=query_id, error=True,
+                ),
+                sender_id=self.id, correlation_id=correlation_id, session_id=session_id or "",
+            )
             self._do_transition(GeneratorAction.RESET)
             return
 
@@ -159,20 +162,21 @@ class GeneratorAgent(BaseAgent):
         self._token_count = prompt_tokens
         self._do_transition(GeneratorAction.PUBLISH)
 
-        self._pub.publish(self._make_envelope(
-            RESPONSE_GENERATION, "response",
-            {"query": query, "answer": answer, "thinking": thinking,
-             "tool_calls": tool_call_log,
-             "session_id": session_id, "query_id": query_id,
-             "prompt_tokens": prompt_tokens},
-            correlation_id, session_id,
-        ))
-        self._pub.publish(self._make_envelope(
-            ANSWER_DIALOG, "dialog",
-            {"query": query, "answer": answer,
-             "session_id": session_id, "query_id": query_id},
-            correlation_id, session_id,
-        ))
+        self._pub.publish(
+            ResponseGeneration(
+                query=query, answer=answer, thinking=thinking,
+                tool_calls=tool_call_log, session_id=session_id or "",
+                query_id=query_id, prompt_tokens=prompt_tokens,
+            ),
+            sender_id=self.id, correlation_id=correlation_id, session_id=session_id or "",
+        )
+        self._pub.publish(
+            AnswerDialog(
+                query=query, answer=answer,
+                session_id=session_id or "", query_id=query_id,
+            ),
+            sender_id=self.id, correlation_id=correlation_id, session_id=session_id or "",
+        )
 
         self._do_transition(GeneratorAction.RESET)
 
@@ -281,12 +285,13 @@ class GeneratorAgent(BaseAgent):
                 if chunk.message.thinking:
                     iter_thinking += chunk.message.thinking
                     accumulated_thinking += chunk.message.thinking
-                    self._pub.publish(self._make_envelope(
-                        GENERATION_THINKING, "thinking",
-                        {"chunk": chunk.message.thinking,
-                         "session_id": session_id, "query_id": query_id},
-                        correlation_id, session_id,
-                    ))
+                    self._pub.publish(
+                        GenerationThinking(
+                            chunk=chunk.message.thinking,
+                            session_id=session_id or "", query_id=query_id,
+                        ),
+                        sender_id=self.id, correlation_id=correlation_id, session_id=session_id or "",
+                    )
                 if chunk.message.content:
                     iter_content += chunk.message.content
                 if chunk.message.tool_calls:
@@ -335,17 +340,18 @@ class GeneratorAgent(BaseAgent):
     def _handle_compaction(self, envelope: MessageEnvelope) -> None:
         """Gate compaction on IDLE state and delegate execution to CompactionService."""
         if self._sm.state != GeneratorState.IDLE:
-            self._pub.publish(self._make_envelope(
-                COMPACTION_RESULT, "compaction",
-                {"error": "generator busy — try again after current query finishes",
-                 "session_id": envelope.payload.get("session_id")},
-                envelope.correlation_id or str(uuid.uuid4()), None,
-            ))
+            self._pub.publish(
+                CompactionResult(
+                    session_id=envelope.payload.get("session_id") or "",
+                    error="generator busy — try again after current query finishes",
+                ),
+                sender_id=self.id, correlation_id=envelope.correlation_id or str(uuid.uuid4()),
+            )
             return
 
         self._do_transition(GeneratorAction.START_COMPACTION)
         try:
-            self._compaction_service.compact(envelope, self._pub, self._make_envelope)
+            self._compaction_service.compact(envelope)
         finally:
             self._do_transition(GeneratorAction.COMPLETE_COMPACTION)
 
@@ -359,29 +365,22 @@ class GeneratorAgent(BaseAgent):
             for s in self._tool_schemas
             if s.get("function", {}).get("name")
         ]
-        self._pub.publish(MessageEnvelope.create(
-            message_type="generator_status",
-            subject=GENERATOR_STATUS,
+        self._pub.publish(
+            GeneratorStatus(
+                instance_id=self._instance_id,
+                model=self._model,
+                temperature=self._options.get("temperature", 0.0),
+                num_ctx=self._options.get("num_ctx", 0),
+                state=self._sm.state.value,
+                token_count=self._token_count,
+                tool_names=tool_names,
+                system_prompt=self._system_prompt,
+            ),
             sender_id=self.id,
-            payload={
-                "instance_id":   self._instance_id,
-                "model":         self._model,
-                "temperature":   self._options.get("temperature", 0.0),
-                "num_ctx":       self._options.get("num_ctx", 0),
-                "state":         self._sm.state.value,
-                "token_count":   self._token_count,
-                "tool_names":    tool_names,
-                "system_prompt": self._system_prompt,
-            },
-        ))
+        )
 
     def _request_schemas(self) -> None:
-        self._pub.publish(MessageEnvelope.create(
-            message_type="schema_request",
-            subject=TOOL_SCHEMA_REQUEST,
-            sender_id=self.id,
-            payload={},
-        ))
+        self._pub.publish(ToolSchemaRequest(), sender_id=self.id)
 
     def _register_tool_schema(self, schema: dict) -> None:
         """Add or replace a tool schema in the registry."""
@@ -421,23 +420,3 @@ class GeneratorAgent(BaseAgent):
             result["tool_calls"] = serialized
         return result
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _make_envelope(
-        self,
-        subject: str,
-        message_type: str,
-        payload: dict,
-        correlation_id: str,
-        session_id: str | None,
-    ) -> MessageEnvelope:
-        return MessageEnvelope.create(
-            message_type=message_type,
-            subject=subject,
-            sender_id=self.id,
-            payload=payload,
-            correlation_id=correlation_id,
-            metadata={"session_id": session_id or ""},
-        )

@@ -6,35 +6,27 @@ GENERATION_THINKING = "generation.thinking"   # streaming thinking chunks
 RESPONSE_GENERATION = "response.generation"
 ANSWER_DIALOG = "answer.dialog"
 
-# Tool bus — Phase 1b
+# Tool bus — schema
 TOOL_SCHEMA = "tool.schema"              # tools announce JSON schema on startup
-TOOL_REQUEST_WEB_SEARCH = "tool.request.web_search"
+TOOL_SCHEMA_REQUEST = "tool.schema.request"  # generator broadcasts on startup; tools re-announce
+
+# Tool bus — calls (tool_dispatcher → tools) and results (tools → tool_dispatcher)
+TOOL_CALL_WEB_SEARCH = "tool.call.web_search"
 TOOL_RESULT_WEB_SEARCH = "tool.result.web_search"
-TOOL_REQUEST_WEB_FETCH = "tool.request.web_fetch"
+TOOL_CALL_WEB_FETCH = "tool.call.web_fetch"
 TOOL_RESULT_WEB_FETCH = "tool.result.web_fetch"
-
-# Tool schema discovery
-TOOL_SCHEMA_REQUEST = "schema.request"   # generator broadcasts on startup; tools re-announce
-
-# Memory tool bus — Phase 2
-TOOL_REQUEST_SEARCH_MEMORY = "tool.request.search_memory"
+TOOL_CALL_SEARCH_MEMORY = "tool.call.search_memory"
 TOOL_RESULT_SEARCH_MEMORY = "tool.result.search_memory"
-
-# Phase 8 — datetime + location tools
-TOOL_REQUEST_GET_DATETIME = "tool.request.get_datetime"
+TOOL_CALL_GET_DATETIME = "tool.call.get_datetime"
 TOOL_RESULT_GET_DATETIME = "tool.result.get_datetime"
-TOOL_REQUEST_GET_LOCATION = "tool.request.get_location"
+TOOL_CALL_GET_LOCATION = "tool.call.get_location"
 TOOL_RESULT_GET_LOCATION = "tool.result.get_location"
-
-# Phase 9 — Semantic Scholar
-TOOL_REQUEST_SEARCH_PAPERS = "tool.request.search_papers"
+TOOL_CALL_SEARCH_PAPERS = "tool.call.search_papers"
 TOOL_RESULT_SEARCH_PAPERS = "tool.result.search_papers"
-
-# Phase 10 — RAG document library
-TOOL_REQUEST_SEARCH_DOCUMENTS = "tool.request.search_library"
+TOOL_CALL_SEARCH_DOCUMENTS = "tool.call.search_library"
 TOOL_RESULT_SEARCH_DOCUMENTS = "tool.result.search_library"
 
-# Tool activity — published by tools on every request/result cycle
+# Tool activity — published by tools on every call/result cycle
 TOOL_ACTIVITY_SEARCH_MEMORY = "tool.activity.search_memory"
 TOOL_ACTIVITY_WEB_SEARCH = "tool.activity.web_search"
 TOOL_ACTIVITY_WEB_FETCH = "tool.activity.web_fetch"

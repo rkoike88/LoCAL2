@@ -10,7 +10,7 @@ import logging
 import time
 
 from local.participants.participant import Participant
-from local.protocol.envelope import MessageEnvelope
+from local.protocol.messages import ToolCall
 from local.transport.bus_config import PROXY_BACKEND_ADDR, PROXY_FRONTEND_ADDR
 from local.transport.zmq_pubsub import ZmqPublisher, ZmqSubscriber
 
@@ -60,18 +60,15 @@ class ToolDispatcher(Participant):
             timed_out is True if no matching response arrived in time.
         """
         name = self._normalize(name, schemas)
-        req_subject = f"tool.request.{name}"
         res_subject = f"tool.result.{name}"
 
         result_sub = ZmqSubscriber(PROXY_BACKEND_ADDR, subscriptions=[res_subject])
         try:
-            self._pub.publish(MessageEnvelope.create(
-                message_type="tool_request",
-                subject=req_subject,
+            self._pub.publish(
+                ToolCall(tool=name, args=args, correlation_id=correlation_id),
                 sender_id=self.id,
-                payload={"tool": name, "args": args},
                 correlation_id=correlation_id,
-            ))
+            )
             deadline = time.monotonic() + self._tool_timeout
             while time.monotonic() < deadline:
                 remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))

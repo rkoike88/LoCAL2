@@ -57,8 +57,7 @@ class TestDateTimeToolBus:
         call = tool._pub.publish.call_args
         envelope = call.args[0]
         assert envelope.subject == "tool.schema"
-        schema = envelope.payload["schema"]
-        assert schema["function"]["name"] == "get_datetime"
+        assert envelope.schema["function"]["name"] == "get_datetime"
 
     def test_handle_request_publishes_result(self):
         tool = self._make_tool()
@@ -78,5 +77,5 @@ class TestDateTimeToolBus:
             c for c in tool._pub.publish.call_args_list
             if c.args[0].subject == "tool.result.get_datetime"
         )
-        result = result_call.args[0].payload["result"]
+        result = result_call.args[0].result
         assert isinstance(result, str) and len(result) > 0

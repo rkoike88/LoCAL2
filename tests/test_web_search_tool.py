@@ -30,7 +30,7 @@ def _make_request_envelope(query: str, correlation_id: str = "test-corr-123"):
     from local.protocol.envelope import MessageEnvelope
     return MessageEnvelope.create(
         message_type="tool_request",
-        subject="tool.request.web_search",
+        subject="tool.call.web_search",
         sender_id="generator",
         payload={"args": {"query": query}, "tool": "web_search"},
         correlation_id=correlation_id,
@@ -53,10 +53,9 @@ class TestSchema:
     def test_announce_schema_publishes_to_tool_schema_subject(self):
         tool = _make_tool()
         tool._announce_schema()
-        call_args = tool._pub.publish.call_args
-        envelope = call_args[0][0]
+        envelope = tool._pub.publish.call_args[0][0]
         assert envelope.subject == TOOL_SCHEMA
-        assert envelope.payload["schema"]["function"]["name"] == "web_search"
+        assert envelope.schema["function"]["name"] == "web_search"
 
 
 # ---------------------------------------------------------------------------
@@ -159,8 +158,8 @@ class TestHandleRequest:
         envelope = _make_request_envelope("hello")
         tool._handle_request(envelope)
         result_env = tool._pub.publish.call_args[0][0]
-        assert isinstance(result_env.payload["result"], str)
-        assert len(result_env.payload["result"]) > 0
+        assert isinstance(result_env.result, str)
+        assert len(result_env.result) > 0
 
     def test_search_exception_returns_error_string(self):
         tool = _make_tool(provider="searxng")
@@ -168,7 +167,7 @@ class TestHandleRequest:
             envelope = _make_request_envelope("test")
             tool._handle_request(envelope)
         result_env = tool._pub.publish.call_args[0][0]
-        assert "web_search error" in result_env.payload["result"]
+        assert "web_search error" in result_env.result
 
     def test_unknown_provider_raises(self):
         tool = _make_tool()

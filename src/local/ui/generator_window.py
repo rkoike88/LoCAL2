@@ -36,8 +36,7 @@ try:
 except ImportError as exc:
     raise RuntimeError("PySide6 is required.") from exc
 
-from local.protocol.envelope import MessageEnvelope
-from local.protocol.subjects import CONFIG_RELOAD
+from local.protocol.messages import ConfigReload
 
 
 def _repo_root() -> Path:
@@ -255,12 +254,7 @@ class GeneratorWindow(QWidget):
             return
 
         if self._publisher:
-            self._publisher.publish(MessageEnvelope.create(
-                message_type="config_reload",
-                subject=CONFIG_RELOAD,
-                sender_id="ui_settings",
-                payload={"config": "generator"},
-            ))
+            self._publisher.publish(ConfigReload(target="generator"), sender_id="ui_settings")
 
         self._settings_status.setText("Saved ✓")
         self._settings_status.setStyleSheet("color: #55aa55;")

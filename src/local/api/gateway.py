@@ -21,7 +21,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
@@ -34,7 +33,7 @@ from pydantic import BaseModel
 from local.api.settings_api import list_sections, read_section, write_section
 from local.api.ws_bridge import translate
 from local.protocol.envelope import MessageEnvelope
-from local.protocol.subjects import COMPACTION_REQUEST, CONFIG_RELOAD, USER_FEEDBACK
+from local.protocol.messages import CompactionRequest, ConfigReload, UserFeedback
 from local.session.local_session import LoCALSession
 from local.services.conversation_service import ConversationService
 from local.transport.bus_config import PROXY_BACKEND_ADDR, PROXY_FRONTEND_ADDR
@@ -200,14 +199,7 @@ async def delete_session(session_id: str) -> JSONResponse:
 @app.post("/api/sessions/{session_id}/compact")
 async def compact_session(session_id: str) -> JSONResponse:
     publisher: ZmqPublisher = app.state.publisher
-    publisher.publish(MessageEnvelope.create(
-        message_type="compaction_request",
-        subject=COMPACTION_REQUEST,
-        sender_id="gateway",
-        payload={"session_id": session_id},
-        correlation_id=str(uuid.uuid4()),
-        metadata={"session_id": session_id},
-    ))
+    publisher.publish(CompactionRequest(session_id=session_id), sender_id="gateway", session_id=session_id)
     return JSONResponse({"status": "compaction_requested", "session_id": session_id})
 
 
@@ -243,14 +235,7 @@ async def put_settings_section(section: str, body: dict) -> JSONResponse:
         raise HTTPException(status_code=404, detail=str(exc))
     # Notify participants to hot-reload their config.
     publisher: ZmqPublisher = app.state.publisher
-    publisher.publish(MessageEnvelope.create(
-        message_type="config_reload",
-        subject=CONFIG_RELOAD,
-        sender_id="gateway",
-        payload={"section": section},
-        correlation_id=str(uuid.uuid4()),
-        metadata={},
-    ))
+    publisher.publish(ConfigReload(target=section), sender_id="gateway")
     return JSONResponse({"saved": section})
 
 
@@ -269,18 +254,12 @@ async def post_feedback(body: FeedbackRequest) -> JSONResponse:
     if body.sentiment not in ("positive", "negative"):
         raise HTTPException(status_code=422, detail="sentiment must be 'positive' or 'negative'")
     publisher: ZmqPublisher = app.state.publisher
-    publisher.publish(MessageEnvelope.create(
-        message_type="feedback",
-        subject=USER_FEEDBACK,
+    publisher.publish(
+        UserFeedback(query_id=body.query_id, session_id=body.session_id or "", sentiment=body.sentiment),
         sender_id="gateway",
-        payload={
-            "query_id": body.query_id,
-            "session_id": body.session_id or "",
-            "sentiment": body.sentiment,
-        },
         correlation_id=body.query_id,
-        metadata={"session_id": body.session_id or ""},
-    ))
+        session_id=body.session_id or "",
+    )
     return JSONResponse({"status": "ok"})
 
 

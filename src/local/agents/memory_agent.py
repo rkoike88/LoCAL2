@@ -18,7 +18,8 @@ from local.agents.memory_agent_states import MemoryAgentState
 from local.agents.memory_agent_transitions import MemoryAgentStateMachine
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
-from local.protocol.subjects import CRITIQUE, RESPONSE_GENERATION
+from local.protocol.messages import CritiqueResult, ResponseGeneration
+from local.protocol.subjects import CRITIQUE, RESPONSE_GENERATION  # used in make_participant_bus subscription
 from local.services.memory_service import MemoryService
 from local.services.ollama_backend import OllamaBackend
 from local.transport.bus_config import make_participant_bus
@@ -68,16 +69,12 @@ class MemoryAgent(BaseAgent):
             self._handle_critique(envelope)
 
     def _handle_generation(self, envelope) -> None:
-        payload = envelope.payload
-        query: str = payload.get("query", "").strip()
-        answer: str = payload.get("answer", "").strip()
-        query_id: str = payload.get("query_id") or ""
-        session_id: str = payload.get("session_id") or ""
+        msg = ResponseGeneration.from_envelope(envelope)
 
-        if not query or not answer:
+        if not msg.query or not msg.answer or msg.error:
             return
-        if payload.get("error"):
-            return
+
+        query, answer, query_id, session_id = msg.query, msg.answer, msg.query_id, msg.session_id
 
         self._do_transition(MemoryAgentAction.START_INGEST)
         try:
@@ -96,9 +93,9 @@ class MemoryAgent(BaseAgent):
             self._do_transition(MemoryAgentAction.COMPLETE)
 
     def _handle_critique(self, envelope) -> None:
-        payload = envelope.payload
-        query_id: str = payload.get("query_id") or ""
-        score = payload.get("score")
+        msg = CritiqueResult.from_envelope(envelope)
+        query_id: str = msg.query_id
+        score = msg.score
 
         if not query_id or score is None:
             return

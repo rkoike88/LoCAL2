@@ -635,15 +635,9 @@ class DocumentsWindow(QWidget):
     # ------------------------------------------------------------------
 
     def _trigger_schema_reannounce(self) -> None:
-        from local.protocol.subjects import TOOL_SCHEMA_REQUEST
-        from local.protocol.envelope import MessageEnvelope
+        from local.protocol.messages import ToolSchemaRequest
         if self._publisher:
-            self._publisher.publish(MessageEnvelope.create(
-                message_type="config_reload",
-                subject=TOOL_SCHEMA_REQUEST,
-                sender_id="documents_window",
-                payload={},
-            ))
+            self._publisher.publish(ToolSchemaRequest(), sender_id="documents_window")
 
     def _set_status(self, msg: str) -> None:
         self._status.setText(msg)

@@ -6,7 +6,8 @@ import logging
 
 from local.participants.base_service import BaseService
 from local.protocol.envelope import MessageEnvelope
-from local.protocol.subjects import REWARD_EVENT, USER_FEEDBACK
+from local.protocol.messages import RewardEvent, UserFeedback as UserFeedbackMsg
+from local.protocol.subjects import USER_FEEDBACK
 from local.services.memory_service import MemoryService
 from local.transport.bus_config import make_participant_bus
 
@@ -45,27 +46,18 @@ class RewardService(BaseService):
                 ``sentiment`` (``"positive"`` or ``"negative"``). Logs a
                 warning and returns if either field is missing or invalid.
         """
-        payload = envelope.payload
-        query_id: str = payload.get("query_id") or ""
-        session_id: str = payload.get("session_id") or ""
-        sentiment: str = payload.get("sentiment") or ""
+        msg = UserFeedbackMsg.from_envelope(envelope)
 
-        if not query_id or sentiment not in ("positive", "negative"):
-            logger.warning("RewardService: invalid feedback payload: %s", payload)
+        if not msg.query_id or msg.sentiment not in ("positive", "negative"):
+            logger.warning("RewardService: invalid feedback payload: %s", envelope.payload)
             return
 
-        self._memory.update_engram_sentiment(query_id, sentiment)
+        self._memory.update_engram_sentiment(msg.query_id, msg.sentiment)
 
-        self._pub.publish(MessageEnvelope.create(
-            message_type="reward",
-            subject=REWARD_EVENT,
+        self._pub.publish(
+            RewardEvent(query_id=msg.query_id, session_id=msg.session_id, sentiment=msg.sentiment),
             sender_id=self.id,
-            payload={
-                "query_id": query_id,
-                "session_id": session_id,
-                "sentiment": sentiment,
-            },
-            correlation_id=envelope.correlation_id or query_id,
-            metadata={"session_id": session_id},
-        ))
-        logger.debug("RewardService: routed %s feedback for query %s", sentiment, query_id)
+            correlation_id=envelope.correlation_id or msg.query_id,
+            session_id=msg.session_id,
+        )
+        logger.debug("RewardService: routed %s feedback for query %s", msg.sentiment, msg.query_id)

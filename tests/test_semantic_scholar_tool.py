@@ -128,7 +128,7 @@ class TestSemanticScholarToolBus:
         tool._announce_schema()
         envelope = tool._pub.publish.call_args.args[0]
         assert envelope.subject == "tool.schema"
-        assert envelope.payload["schema"]["function"]["name"] == "search_papers"
+        assert envelope.schema["function"]["name"] == "search_papers"
 
     def test_handle_request_publishes_result_and_activity(self):
         tool = self._make_tool()
@@ -152,4 +152,4 @@ class TestSemanticScholarToolBus:
             c.args[0] for c in tool._pub.publish.call_args_list
             if c.args[0].subject == "tool.result.search_papers"
         )
-        assert "Search failed" in result_env.payload["result"]
+        assert "Search failed" in result_env.result

@@ -216,10 +216,10 @@ class TestHandleQuery:
             c for c in agent._pub.publish.call_args_list
             if c.args[0].subject == "response.generation"
         )
-        payload = rg_call.args[0].payload
-        assert payload["answer"] == "4"
-        assert payload["thinking"] == "2+2=4"
-        assert payload["tool_calls"] == []
+        msg = rg_call.args[0]
+        assert msg.answer == "4"
+        assert msg.thinking == "2+2=4"
+        assert msg.tool_calls == []
 
     def test_conversation_history_updated(self):
         agent = _make_agent()
@@ -290,15 +290,15 @@ class TestPublishStatus:
             c for c in agent._pub.publish.call_args_list
             if c.args[0].subject == "generator.status"
         )
-        payload = status_call.args[0].payload
-        assert payload["model"] == "test-model"
-        assert payload["state"] == "idle"
-        assert payload["system_prompt"] == "Be helpful."
-        assert "instance_id" in payload
-        assert "num_ctx" in payload
-        assert "temperature" in payload
-        assert "token_count" in payload
-        assert "tool_names" in payload
+        msg = status_call.args[0]
+        assert msg.model == "test-model"
+        assert msg.state == "idle"
+        assert msg.system_prompt == "Be helpful."
+        assert msg.instance_id
+        assert msg.num_ctx
+        assert msg.temperature is not None
+        assert msg.token_count is not None
+        assert msg.tool_names is not None
 
     def test_tool_names_reflect_registered_schemas(self):
         agent = _make_agent()
@@ -311,7 +311,7 @@ class TestPublishStatus:
             c for c in agent._pub.publish.call_args_list
             if c.args[0].subject == "generator.status"
         )
-        assert set(status_call.args[0].payload["tool_names"]) == {"web_search", "search_memory"}
+        assert set(status_call.args[0].tool_names) == {"web_search", "search_memory"}
 
     def test_instance_id_from_config(self):
         with patch("local.agents.generator_agent.make_participant_bus") as mock_bus, \

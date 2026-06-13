@@ -8,7 +8,7 @@ from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     TOOL_ACTIVITY_WEB_SEARCH,
-    TOOL_REQUEST_WEB_SEARCH,
+    TOOL_CALL_WEB_SEARCH,
     TOOL_RESULT_WEB_SEARCH,
 )
 from local.tools.base_tool import BaseTool
@@ -30,7 +30,7 @@ class WebSearchTool(BaseTool):
         self._searxng_url: str = cfg.get("searxng_url", "http://localhost:8080")
         self._max_results: int = cfg.get("max_results", 5)
         self._timeout: float = cfg.get("timeout", 10)
-        super().__init__(TOOL_REQUEST_WEB_SEARCH)
+        super().__init__(TOOL_CALL_WEB_SEARCH)
         logger.info("web_search_tool: provider=%s  max_results=%s", self._provider, self._max_results)
 
     def _build_schema(self) -> dict:

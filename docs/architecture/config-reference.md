@@ -15,7 +15,7 @@ Controls GeneratorAgent.
 | `temperature` | `0.1` | Sampling temperature — 0.1 required for reliable tool calling |
 | `max_tool_iterations` | `5` | Max tool-call rounds per generation turn before forcing a final answer |
 | `tool_timeout` | `20` | Seconds to wait for a tool result before returning an error string |
-| `max_attachment_chars` | `8000` | Truncation limit per text attachment |
+| `max_attachment_chars` | `32000` | Truncation limit per text attachment |
 | `compaction_tail_turns` | `4` | Verbatim user+assistant pairs kept after compaction summary |
 | `system_prompt` | see file | Injected as `{"role": "system", ...}` at the start of every messages array |
 | `tools` | `[]` | Do not populate; tools register dynamically via `tool.schema` at runtime |
@@ -42,7 +42,7 @@ Controls CriticAgent and Prometheus.
 |---|---|---|
 | `model` | `prometheus-7b:latest` | Prometheus model tag |
 | `temperature` | `0.0` | Deterministic grading |
-| `num_ctx` | `4096` | Prometheus context window |
+| `num_ctx` | `32000` | Prometheus context window |
 | `grade_timeout` | `30` | Seconds to wait for Prometheus response; can be slow on first call |
 | `rubric` | see file | Evaluation rubric injected into every grading prompt |
 

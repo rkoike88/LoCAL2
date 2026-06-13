@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LoCAL2 — Protocol Messages Refactor Plan</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; line-height: 1.6; }
+  h1 { border-bottom: 2px solid #333; padding-bottom: .4rem; }
+  h2 { border-bottom: 1px solid #ccc; padding-bottom: .2rem; margin-top: 2rem; }
+  h3 { margin-top: 1.5rem; color: #333; }
+  code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; font-size: .9em; }
+  pre { background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: .88em; line-height: 1.5; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .75rem; text-align: left; }
+  th { background: #f0f0f0; }
+  .badge { display: inline-block; padding: .1rem .4rem; border-radius: 3px; font-size: .8em; font-weight: bold; }
+  .new { background: #d4edda; color: #155724; }
+  .mod { background: #fff3cd; color: #856404; }
+  .rm  { background: #f8d7da; color: #721c24; }
+  .note { background: #e8f4fd; border-left: 4px solid #2196f3; padding: .75rem 1rem; margin: 1rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Protocol Messages Refactor</h1>
+<p><strong>Status:</strong> Planning — not yet implemented<br>
+<strong>Motivation:</strong> Eliminate implicit payload contracts scattered across participants. Messages become self-describing objects; participants no longer know string key names.</p>
+
+<h2>1. Problem</h2>
+<p>The bus provides transport-level loose coupling, but payload structure is an implicit contract encoded in string literals at every publish and consume site:</p>
+<pre>
+# Publisher (generator_agent.py)
+{"chunk": chunk.message.thinking, "session_id": session_id, "query_id": query_id}
+
+# Consumer (ws_bridge.py — has to know the same keys)
+payload.get("chunk", "")
+payload.get("session_id")
+</pre>
+<p>Rename a key anywhere → silent breakage. Add a field → no way to know all consumers. The <code>message_type</code> string (<code>"thinking"</code>, <code>"response"</code>, <code>"critique"</code>) is also redundant with the subject — set manually at every publish site.</p>
+
+<h2>2. Design</h2>
+
+<h3>2.1 Message class anatomy</h3>
+<pre>
+# src/local/protocol/messages.py
+
+from __future__ import annotations
+from dataclasses import dataclass, field, asdict
+from typing import ClassVar
+from local.protocol.subjects import GENERATION_THINKING
+
+@dataclass
+class GenerationThinking:
+    subject:        ClassVar[str] = GENERATION_THINKING
+    message_type:   ClassVar[str] = "thinking"          # derived from class — no longer passed manually
+
+    chunk:      str
+    session_id: str
+    query_id:   str
+
+    # --- bus boundary ---
+
+    def to_envelope(self, sender_id: str, correlation_id: str) -> MessageEnvelope:
+        return MessageEnvelope.create(
+            message_type=self.message_type,
+            subject=self.subject,
+            sender_id=sender_id,
+            payload=asdict(self),
+            correlation_id=correlation_id,
+            metadata={"session_id": self.session_id},
+        )
+
+    @classmethod
+    def from_envelope(cls, envelope: MessageEnvelope) -> "GenerationThinking":
+        p = envelope.payload
+        return cls(
+            chunk=p.get("chunk", ""),
+            session_id=p.get("session_id", ""),
+            query_id=p.get("query_id", ""),
+        )
+</pre>
+
+<h3>2.2 Publisher change</h3>
+<p><code>ZmqPublisher.publish()</code> gains an overload that accepts a message object directly:</p>
+<pre>
+def publish(self, item: MessageEnvelope | BusMessage, *, sender_id: str = "", correlation_id: str = "") -> None:
+    if isinstance(item, MessageEnvelope):
+        envelope = item
+    else:
+        envelope = item.to_envelope(sender_id=sender_id, correlation_id=correlation_id)
+    # ... existing send logic
+</pre>
+<p>Call sites become:</p>
+<pre>
+# Before
+self._pub.publish(self._make_envelope(
+    GENERATION_THINKING, "thinking",
+    {"chunk": chunk.message.thinking, "session_id": session_id, "query_id": query_id},
+    correlation_id, session_id,
+))
+
+# After
+self._pub.publish(
+    GenerationThinking(chunk=chunk.message.thinking, session_id=session_id, query_id=query_id),
+    sender_id=self.id, correlation_id=correlation_id,
+)
+</pre>
+
+<h3>2.3 Consumer change</h3>
+<pre>
+# Before
+chunk = payload.get("chunk", "")
+session_id = payload.get("session_id", "")
+
+# After
+msg = GenerationThinking.from_envelope(envelope)
+chunk = msg.chunk
+session_id = msg.session_id
+</pre>
+
+<h3>2.4 Base classes</h3>
+<pre>
+# Abstract base — all messages
+class BusMessage:
+    subject:      ClassVar[str]
+    message_type: ClassVar[str]
+
+    def to_envelope(self, sender_id: str, correlation_id: str) -> MessageEnvelope: ...
+
+    @classmethod
+    def from_envelope(cls, envelope: MessageEnvelope) -> "BusMessage": ...
+
+# Tool call/result pairs share correlation_id + tool name
+@dataclass
+class ToolCall(BusMessage):
+    tool:           str           # tool name — determines subject dynamically
+    args:           dict
+    correlation_id: str
+
+    @property
+    def subject(self) -> str:     # override: dynamic per tool name
+        return f"tool.call.{self.tool}"
+
+@dataclass
+class ToolResult(BusMessage):
+    tool:           str
+    result:         str
+    correlation_id: str
+
+    @property
+    def subject(self) -> str:
+        return f"tool.result.{self.tool}"
+</pre>
+<p>For tools with fixed names, subclasses can lock the tool name as a class constant. <code>ToolCall</code> and <code>ToolResult</code> use a dynamic <code>subject</code> property because the subject includes the tool name.</p>
+
+<h3>2.5 <code>message_type</code> elimination</h3>
+<p>With <code>message_type</code> as a <code>ClassVar</code> on every message class, the separate <code>MESSAGE_TYPE</code> lookup dict discussed earlier is no longer needed. The class itself is the source of truth.</p>
+
+<h2>3. Message Catalogue</h2>
+
+<table>
+<tr><th>Class</th><th>Subject constant</th><th>message_type</th><th>Key fields</th><th>Publisher → Consumers</th></tr>
+<tr><td><code>QueryReceived</code></td><td>QUERY_RECEIVED</td><td>query</td><td>query, session_id, query_id, attachments</td><td>UI/gateway → generator</td></tr>
+<tr><td><code>GenerationThinking</code></td><td>GENERATION_THINKING</td><td>thinking</td><td>chunk, session_id, query_id</td><td>generator → ws_bridge</td></tr>
+<tr><td><code>ResponseGeneration</code></td><td>RESPONSE_GENERATION</td><td>response</td><td>query, answer, thinking, tool_calls, session_id, query_id, prompt_tokens, error</td><td>generator → critic, memory, ws_bridge</td></tr>
+<tr><td><code>AnswerDialog</code></td><td>ANSWER_DIALOG</td><td>dialog</td><td>query, answer, session_id, query_id</td><td>generator → memory</td></tr>
+<tr><td><code>ToolSchema</code></td><td>TOOL_SCHEMA</td><td>tool_schema</td><td>schema (dict)</td><td>tools → generator</td></tr>
+<tr><td><code>ToolSchemaRequest</code></td><td>TOOL_SCHEMA_REQUEST</td><td>tool_schema_request</td><td>sender_id</td><td>generator → tools</td></tr>
+<tr><td><code>ToolCall</code></td><td>tool.call.{name}</td><td>tool_call</td><td>tool, args, correlation_id</td><td>tool_dispatcher → tools</td></tr>
+<tr><td><code>ToolResult</code></td><td>tool.result.{name}</td><td>tool_result</td><td>tool, result, correlation_id</td><td>tools → tool_dispatcher / ws_bridge</td></tr>
+<tr><td><code>ToolActivity</code></td><td>tool.activity.{name}</td><td>tool_activity</td><td>tool, event, args, result, elapsed_ms</td><td>tools → tool_window</td></tr>
+<tr><td><code>CritiqueResult</code></td><td>CRITIQUE</td><td>critique</td><td>score, feedback, query_id, session_id, query, answer</td><td>critic → memory, UI</td></tr>
+<tr><td><code>UserFeedback</code></td><td>USER_FEEDBACK</td><td>user_feedback</td><td>query_id, session_id, value (+1/-1)</td><td>UI → reward</td></tr>
+<tr><td><code>RewardEvent</code></td><td>REWARD_EVENT</td><td>reward</td><td>query_id, session_id, score, sender_id</td><td>reward → agents</td></tr>
+<tr><td><code>AgentTransition</code></td><td>AGENT_TRANSITION</td><td>agent_transition</td><td>agent_id, from_state, to_state, action</td><td>agents → UI</td></tr>
+<tr><td><code>CompactionRequest</code></td><td>COMPACTION_REQUEST</td><td>compaction_request</td><td>session_id</td><td>UI/auto → generator</td></tr>
+<tr><td><code>CompactionResult</code></td><td>COMPACTION_RESULT</td><td>compaction_result</td><td>session_id, tokens_before, tokens_after, error</td><td>compaction_service → generator/UI</td></tr>
+<tr><td><code>GeneratorStatus</code></td><td>GENERATOR_STATUS</td><td>generator_status</td><td>instance_id, model, state, token_count, tool_names, system_prompt</td><td>generator → UI</td></tr>
+<tr><td><code>ConfigReload</code></td><td>CONFIG_RELOAD</td><td>config_reload</td><td>target (tool name or *)</td><td>UI → tools</td></tr>
+</table>
+
+<h2>4. Impact Per Participant</h2>
+
+<table>
+<tr><th>File</th><th>Change</th></tr>
+<tr><td><code>src/local/protocol/messages.py</code></td><td><span class="badge new">NEW</span> All message dataclasses + BusMessage base</td></tr>
+<tr><td><code>src/local/transport/zmq_publisher.py</code></td><td><span class="badge mod">MOD</span> publish() accepts BusMessage | MessageEnvelope</td></tr>
+<tr><td><code>src/local/agents/generator_agent.py</code></td><td><span class="badge mod">MOD</span> All publish sites → message objects; _make_envelope removed; from_envelope on receive</td></tr>
+<tr><td><code>src/local/agents/critic_agent.py</code></td><td><span class="badge mod">MOD</span> from_envelope(ResponseGeneration) on consume; publish CritiqueResult object</td></tr>
+<tr><td><code>src/local/agents/memory_agent.py</code></td><td><span class="badge mod">MOD</span> from_envelope on ResponseGeneration + CritiqueResult consume</td></tr>
+<tr><td><code>src/local/agents/base_agent.py</code></td><td><span class="badge mod">MOD</span> publish AgentTransition object</td></tr>
+<tr><td><code>src/local/tools/base_tool.py</code></td><td><span class="badge mod">MOD</span> publish ToolResult + ToolSchema + ToolActivity objects</td></tr>
+<tr><td><code>src/local/tools/tool_dispatcher.py</code></td><td><span class="badge mod">MOD</span> publish ToolCall; from_envelope(ToolResult) on receive</td></tr>
+<tr><td><code>src/local/api/ws_bridge.py</code></td><td><span class="badge mod">MOD</span> from_envelope on GenerationThinking, ResponseGeneration, ToolRequest, ToolResult</td></tr>
+<tr><td><code>src/local/api/gateway.py</code></td><td><span class="badge mod">MOD</span> publish QueryReceived, CompactionRequest, UserFeedback objects</td></tr>
+<tr><td><code>src/local/services/reward_service.py</code></td><td><span class="badge mod">MOD</span> from_envelope(UserFeedback); publish RewardEvent object</td></tr>
+<tr><td><code>src/local/services/compaction_service.py</code></td><td><span class="badge mod">MOD</span> publish CompactionResult; _make_envelope dependency removed</td></tr>
+<tr><td><code>src/local/ui/main_window.py</code></td><td><span class="badge mod">MOD</span> publish QueryReceived, CompactionRequest, UserFeedback objects</td></tr>
+<tr><td><code>src/local/ui/monitor_app.py</code></td><td><span class="badge mod">MOD</span> from_envelope on CritiqueResult, ToolSchema</td></tr>
+<tr><td><code>src/local/ui/tool_window.py / tool_panel.py</code></td><td><span class="badge mod">MOD</span> from_envelope on ToolActivity</td></tr>
+<tr><td><code>src/local/session/local_session.py</code></td><td><span class="badge mod">MOD</span> publish QueryReceived object</td></tr>
+</table>
+
+<h2>5. Design Decisions to Confirm</h2>
+
+<h3>5.1 Validation on from_envelope</h3>
+<p>Two options:</p>
+<ul>
+  <li><strong>Lenient (recommended):</strong> <code>from_envelope</code> uses <code>.get()</code> with defaults — same as today, but centralized. Never raises. Old envelopes from before the refactor still parse.</li>
+  <li><strong>Strict:</strong> raises <code>ValueError</code> on missing required fields. Catches wiring bugs earlier but breaks during incremental migration.</li>
+</ul>
+<p>Recommended: lenient during migration, strict later once all sites are migrated.</p>
+
+<h3>5.2 ToolCall/ToolResult subject: class var vs property</h3>
+<p>Since the subject includes the tool name (<code>tool.call.web_search</code>), it can't be a fixed <code>ClassVar</code>. Options:</p>
+<ul>
+  <li>Dynamic <code>@property</code> on the instance (shown above) — <code>ClassVar[str]</code> convention breaks</li>
+  <li>Per-tool subclasses (<code>WebSearchCall(ToolCall)</code>) with fixed <code>ClassVar</code> — more classes but cleaner typing</li>
+  <li>Keep as a single <code>ToolCall</code> class with a <code>tool</code> field and <code>@property subject</code> — simplest, matches how tool_dispatcher already works</li>
+</ul>
+<p>Recommended: single <code>ToolCall</code> / <code>ToolResult</code> with <code>@property subject</code>.</p>
+
+<h3>5.3 _make_envelope in generator</h3>
+<p>Once all generator publish sites use message objects, <code>_make_envelope</code> can be removed. <code>CompactionService</code> currently receives it as a bound method parameter — that dependency is eliminated when CompactionService publishes a <code>CompactionResult</code> object directly via its own publisher.</p>
+
+<h3>5.4 Backward compatibility</h3>
+<p>The wire format (JSON payload) does not change — <code>to_envelope</code> calls <code>asdict(self)</code> which produces the same dict as today. Migration can be incremental, one participant at a time. If the wire format needs to change for any message, don't preserve backward compatibility — just update all sites together.</p>
+
+<h2>6. Migration Strategy</h2>
+<p>Because the wire format is unchanged, the refactor can be done incrementally:</p>
+<ol>
+  <li>Create <code>src/local/protocol/messages.py</code> with all dataclasses — no behavior changes yet</li>
+  <li>Update <code>ZmqPublisher.publish()</code> to accept BusMessage objects</li>
+  <li>Migrate publish sites one participant at a time (generator first — highest volume)</li>
+  <li>Migrate consume sites to use <code>from_envelope()</code></li>
+  <li>Remove <code>_make_envelope</code> from GeneratorAgent once all its publish sites are migrated</li>
+  <li>Run full test suite + stories after each participant migration</li>
+</ol>
+
+<h2>7. Files to Create / Modify</h2>
+<ul>
+  <li><code>src/local/protocol/messages.py</code> <span class="badge new">NEW</span></li>
+  <li><code>src/local/transport/zmq_publisher.py</code> <span class="badge mod">MOD</span></li>
+  <li>All participants listed in §4 above</li>
+</ul>
+
+<div class="note">
+<strong>Note:</strong> This refactor does not change the bus wire format, does not change ZMQ topology, and does not change any YAML config. It is purely a Python-layer change. Existing tests continue to pass throughout the migration.
+</div>
+
+</body>
+</html>

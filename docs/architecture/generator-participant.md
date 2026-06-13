@@ -149,6 +149,6 @@ All settings in `config/generator.yaml`.
 | `temperature` | `0.1` | Required for reliable tool calling |
 | `max_tool_iterations` | `5` | Max tool call rounds per generation turn |
 | `tool_timeout` | `20` | Seconds to wait for a tool result |
-| `max_attachment_chars` | `8000` | Truncation limit per text attachment |
+| `max_attachment_chars` | `32000` | Truncation limit per text attachment |
 | `compaction_tail_turns` | `4` | Verbatim turn pairs kept after compaction |
 | `system_prompt` | see config | Injected as `{"role": "system", ...}` at message array start |

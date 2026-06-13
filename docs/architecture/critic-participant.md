@@ -68,6 +68,6 @@ All settings in `config/critic.yaml`.
 |---|---|---|
 | `model` | `prometheus-7b:latest` | Prometheus model tag |
 | `temperature` | `0.0` | Deterministic grading |
-| `num_ctx` | `4096` | Context window for Prometheus |
+| `num_ctx` | `32000` | Context window for Prometheus |
 | `grade_timeout` | `30` | Seconds; Prometheus can be slow on first call |
 | `rubric` | see config | Injected into every grading prompt |

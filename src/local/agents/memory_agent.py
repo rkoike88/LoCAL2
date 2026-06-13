@@ -116,9 +116,8 @@ class MemoryAgent(BaseAgent):
         """Classify intent and extract named entities via the small LLM.
 
         Expects the LLM to return a JSON object with ``intent`` and
-        ``entities`` keys. Valid intent values: ``"fact"``,
-        ``"explanation"``, ``"comparison"``, ``"procedure"``. Any other
-        value is discarded.
+        ``entities`` keys. The intent value is taken as-is from the LLM;
+        valid values are defined by the ``classify_prompt`` in config.
 
         Args:
             query: The user's question.
@@ -138,8 +137,6 @@ class MemoryAgent(BaseAgent):
         try:
             data = json.loads(m.group())
             intent = str(data.get("intent", "")).lower()
-            if intent not in ("fact", "explanation", "comparison", "procedure"):
-                intent = ""
             entities = [str(e) for e in data.get("entities", []) if e]
             return {"intent": intent, "entities": entities}
         except Exception:

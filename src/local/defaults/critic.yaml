@@ -1,7 +1,7 @@
 id: critic
 model: "prometheus-7b:latest"
 temperature: 0.0
-num_ctx: 4096
+num_ctx: 32000
 grade_timeout: 30          # seconds; Prometheus can be slow on first call
 
 rubric: |

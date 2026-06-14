@@ -1,17 +1,10 @@
-compaction_system_prompt: |
-  You are a conversation summarizer.
-  Produce a concise factual summary of the conversation below.
-  Capture: the user's goals, key facts established, decisions made,
-  open questions, and any user preferences or constraints stated.
-  Be terse. Omit pleasantries and filler.
-  Output only the summary — no preamble, no 'Here is a summary:'.
-compaction_tail_turns: 4
-compaction_threshold: 0.8
 id: generator
-max_attachment_chars: 32000
-max_tool_iterations: 5
 model: gemma4:26b
+temperature: 0.1
 num_ctx: 128000
+max_tool_iterations: 5
+tool_timeout: 20
+max_attachment_chars: 32000
 system_prompt: |
   You are a helpful assistant with access to memory from past conversations and web search tools.
 
@@ -30,6 +23,4 @@ system_prompt: |
   - If a tool returns an error (a message in brackets like [error: ...]), report it to the user.
 
   Do not call tools for questions you can already answer from your training or the current conversation.
-temperature: 0.1
-tool_timeout: 20
 tools: []

@@ -30,6 +30,7 @@ _BlockDumper.add_representer(str, _str_representer)
 
 _ALLOWED_SECTIONS = frozenset({
     "generator",
+    "compaction",
     "critic",
     "memory",
     "web_search",

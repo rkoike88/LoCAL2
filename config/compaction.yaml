@@ -1,1 +1,11 @@
 id: compaction_service
+threshold: 0.8        # fraction of num_ctx at which auto-compaction triggers (0 = disabled)
+tail_turns: 4         # verbatim turn pairs kept after the summary
+summary_prefix: "[SUMMARY]"
+system_prompt: |
+  You are a conversation summarizer.
+  Produce a concise factual summary of the conversation below.
+  Capture: the user's goals, key facts established, decisions made,
+  open questions, and any user preferences or constraints stated.
+  Be terse. Omit pleasantries and filler.
+  Output only the summary — no preamble, no 'Here is a summary:'.

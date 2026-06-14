@@ -58,12 +58,13 @@ class ModelService(BaseService):
     # ------------------------------------------------------------------
 
     def _maybe_request_compaction(self, envelope: MessageEnvelope) -> None:
-        cfg = get_config("generator") or {}
-        threshold = cfg.get("compaction_threshold", 0.8)
+        cfg = get_config("compaction") or {}
+        threshold = cfg["threshold"]
         if not threshold:
             return
 
-        num_ctx = cfg.get("num_ctx", 32000)
+        gen_cfg = get_config("generator") or {}
+        num_ctx = gen_cfg["num_ctx"]
         prompt_tokens: int = envelope.payload.get("prompt_tokens", 0)
         session_id: str | None = envelope.payload.get("session_id")
 
@@ -90,13 +91,14 @@ class ModelService(BaseService):
         session_id: str | None = envelope.payload.get("session_id")
         corr_id = envelope.correlation_id or str(uuid.uuid4())
 
-        cfg = get_config("generator") or {}
-        model: str = cfg["model"]
+        gen_cfg = get_config("generator") or {}
+        model: str = gen_cfg["model"]
         options = {
-            "num_ctx": cfg["num_ctx"],
-            "temperature": cfg["temperature"],
+            "num_ctx": gen_cfg["num_ctx"],
+            "temperature": gen_cfg["temperature"],
         }
-        tail_turns: int = cfg.get("compaction_tail_turns", 4)
+        cmp_cfg = get_config("compaction") or {}
+        tail_turns: int = cmp_cfg["tail_turns"]
 
         history = self._conv.get_history(session_id)
         tokens_before = self._conv.get_token_count(session_id)
@@ -117,8 +119,7 @@ class ModelService(BaseService):
                 convo_text.append(f"{role.upper()}: {content}")
         summary_input = "\n\n".join(convo_text)
 
-        compaction_system = (cfg.get("compaction_system_prompt") or
-                             "Summarize this conversation concisely, preserving key facts and decisions.").strip()
+        compaction_system = cmp_cfg["system_prompt"].strip()
 
         resp = ollama.chat(
             model=model,
@@ -142,7 +143,8 @@ class ModelService(BaseService):
             else:
                 i -= 1
 
-        new_messages = [{"role": "assistant", "content": f"[SUMMARY] {summary_text}"}] + tail_messages
+        summary_prefix = cmp_cfg["summary_prefix"]
+        new_messages = [{"role": "assistant", "content": f"{summary_prefix} {summary_text}"}] + tail_messages
         total_chars = sum(len(m.get("content") or "") for m in new_messages)
         tokens_estimated_after = total_chars // 4
 

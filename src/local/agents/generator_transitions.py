@@ -18,9 +18,6 @@ GENERATOR_TRANSITIONS: dict[tuple[GeneratorState, GeneratorAction], GeneratorSta
     (S.WAITING_FOR_TOOL,  A.TOOL_RESULT):     S.GENERATING,
     (S.WAITING_FOR_TOOL,  A.TOOL_TIMEOUT):    S.GENERATING,
     (S.PUBLISHING,        A.RESET):           S.IDLE,
-    (S.IDLE,              A.START_COMPACTION):   S.COMPACTING,
-    (S.COMPACTING,        A.COMPLETE_COMPACTION):S.IDLE,
-
     # Error recovery — every non-IDLE state can fail
     (S.ERROR,             A.RESET):           S.IDLE,
 }

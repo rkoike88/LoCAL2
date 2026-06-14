@@ -162,6 +162,34 @@ export default function App() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  const [models, setModels] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>("");
+
+  useEffect(() => {
+    fetch("/api/models")
+      .then((r) => r.json())
+      .then((d) => setModels(d.models ?? []))
+      .catch(() => {});
+    fetch("/api/settings/generator")
+      .then((r) => r.json())
+      .then((d) => { if (d.model) setSelectedModel(d.model); })
+      .catch(() => {});
+  }, []);
+
+  async function handleModelChange(model: string) {
+    setSelectedModel(model);
+    try {
+      const current = await fetch("/api/settings/generator").then((r) => r.json());
+      await fetch("/api/settings/generator", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...current, model }),
+      });
+    } catch {
+      // Non-fatal — model selection is best-effort
+    }
+  }
+
   // Auto-scroll to bottom as messages / streaming content change.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -301,9 +329,24 @@ export default function App() {
               />
             </div>
           </div>
-          <p className="text-xs text-gray-700 mt-2 max-w-3xl text-center">
-            Enter to send · Shift+Enter for newline
-          </p>
+          <div className="flex items-center justify-between mt-2 max-w-3xl">
+            <p className="text-xs text-gray-700">
+              Enter to send · Shift+Enter for newline
+            </p>
+            {models.length > 0 && (
+              <select
+                value={selectedModel}
+                onChange={(e) => handleModelChange(e.target.value)}
+                className="text-xs bg-transparent text-gray-600 border-none outline-none cursor-pointer hover:text-gray-400 transition-colors"
+              >
+                {models.map((m) => (
+                  <option key={m} value={m} className="bg-surface-1 text-gray-300">
+                    {m}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
         </div>
       </div>
     </div>

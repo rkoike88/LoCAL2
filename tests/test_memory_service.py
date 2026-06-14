@@ -151,7 +151,8 @@ class TestWriteEpisodic:
 # ------------------------------------------------------------------
 
 def _make_query_result(docs, metas, distances):
-    return {"documents": [docs], "metadatas": [metas], "distances": [distances]}
+    ids = [f"id-{i}" for i in range(len(docs))]
+    return {"ids": [ids], "documents": [docs], "metadatas": [metas], "distances": [distances]}
 
 
 class TestSearchEpisodic:

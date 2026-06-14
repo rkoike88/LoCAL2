@@ -34,9 +34,9 @@ def _late_schema_refresh(delay: float = 2.0) -> None:
     pub.publish(ToolSchemaRequest(), sender_id="run-refresh")
 
 
-def _start_generator(model: str, temperature: float | None = None, conversation_service=None, compaction_service=None, tool_dispatcher=None) -> None:
+def _start_generator(model: str, temperature: float | None = None, conversation_service=None, tool_dispatcher=None) -> None:
     from local.agents.generator_agent import GeneratorAgent
-    agent = GeneratorAgent(model=model or None, temperature=temperature, conversation_service=conversation_service, compaction_service=compaction_service, tool_dispatcher=tool_dispatcher)
+    agent = GeneratorAgent(model=model or None, temperature=temperature, conversation_service=conversation_service, tool_dispatcher=tool_dispatcher)
     agent.run()
 
 
@@ -161,18 +161,9 @@ def main() -> None:
     shared_documents = DocumentService()
     shared_conv = ConversationService()
 
-    from local.services.compaction_service import CompactionService
-    from local.config_loader import get_config as _get_config
-    _gen_cfg = _get_config("generator") or {}
-    shared_compaction = CompactionService(
-        conversation_service=shared_conv,
-        model=args.model or _gen_cfg.get("model", "gemma4:e4b"),
-        options={
-            "num_ctx": _gen_cfg.get("num_ctx", 128000),
-            "temperature": _gen_cfg.get("temperature", 0.1),
-        },
-    )
-    threading.Thread(target=shared_compaction.run, daemon=True, name="compaction_service").start()
+    from local.services.model_service import ModelService
+    shared_model_service = ModelService(conversation_service=shared_conv)
+    threading.Thread(target=shared_model_service.run, daemon=True, name="model_service").start()
 
     threading.Thread(target=_start_web_search, daemon=True, name="web_search").start()
     threading.Thread(target=_start_web_fetch, daemon=True, name="web_fetch").start()
@@ -187,7 +178,7 @@ def main() -> None:
     # Tools must be subscribed before generator publishes schema.request at startup.
     gen_thread = threading.Thread(
         target=_start_generator, args=(args.model,),
-        kwargs={"conversation_service": shared_conv, "compaction_service": shared_compaction},
+        kwargs={"conversation_service": shared_conv},
         daemon=True, name="generator_a"
     )
     gen_thread.start()
@@ -248,6 +239,7 @@ def main() -> None:
             _monitor = MonitorApp(
                 memory_service=shared_memory,
                 conversation_service=shared_conv,
+                document_service=shared_documents,
             )
             if not args.headless:
                 _wait_for_port(args.web_port)

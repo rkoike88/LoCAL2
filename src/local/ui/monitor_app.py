@@ -1,13 +1,15 @@
 """MonitorApp — read-only Qt observer panels for the hybrid web+desktop mode.
 
-Spawns the four pure-observer windows (GeneratorWindow, CriticWindow,
-MemoryWindow, and per-tool ToolWindows) alongside the web UI. No publisher
-is passed to the windows — settings-save is disabled by design so this side
-of the app is strictly view-only.
+Layout (5 equal columns, browser occupies the left 2):
 
-A single ZmqPublisher is created only to broadcast TOOL_SCHEMA_REQUEST at
-startup so tools re-announce their schemas and ToolWindows can be spawned.
-After that one write the publisher is idle.
+  [  browser (2/5)  ] [ gen+critic (1/5) ] [ web tools (1/5) ] [ lib tools (1/5) ]
+
+  Col 2: GeneratorWindow (top 60%) / CriticWindow (bottom 40%)
+  Col 3: web_search / web_fetch / search_memory — 3 equal slots
+  Col 4: search_library / search_papers / get_location / get_datetime — 4 equal slots
+
+MemoryWindow is hidden by default; opened on demand via the ⊞ button on
+the search_memory ToolWindow.
 """
 
 from __future__ import annotations
@@ -37,7 +39,6 @@ _OBSERVE = [
     GENERATOR_STATUS,
     AGENT_TRANSITION,
     CRITIQUE,
-    # Subscribe to all tool activity via ZMQ prefix match.
     _TOOL_ACTIVITY_PREFIX,
 ]
 
@@ -63,39 +64,41 @@ class _BusWorker(QObject):
 
 
 class MonitorApp(QObject):
-    """Manages the observer window set for hybrid web+desktop mode.
+    """Manages the observer window set for hybrid web+desktop mode."""
 
-    Creates GeneratorWindow, CriticWindow, MemoryWindow, and ToolWindows.
-    All windows receive ``publisher=None`` — they are read-only views.
-    """
+    # Fixed slot order for tool columns.
+    _COL3 = ["web_search", "web_fetch", "search_memory"]
+    _COL4 = ["search_library", "search_papers", "get_location", "get_datetime"]
 
     def __init__(
         self,
         memory_service,
         conversation_service,
+        document_service=None,
     ) -> None:
         super().__init__()
 
-        # Publisher used only for the one-time TOOL_SCHEMA_REQUEST broadcast.
         self._pub = ZmqPublisher(PROXY_FRONTEND_ADDR, bind=False)
+        self._document_service = document_service
         self._tool_windows: dict[str, ToolWindow] = {}
 
+        # Agent windows — always created, generator+critic auto-shown.
         self._generator_window = GeneratorWindow()
         self._generator_window.show()
 
-        # publisher=None → settings-save button disabled; view-only.
         self._critic_window = CriticWindow(publisher=None)
         self._critic_window.show()
 
-        # session_id_getter=None → MemoryWindow shows all engrams unfiltered.
+        # MemoryWindow is hidden by default; raised on demand via ⊞ on search_memory.
         self._memory_window = MemoryWindow(
             memory_service=memory_service,
             conversation_service=conversation_service,
             session_id_getter=lambda: None,
         )
-        self._memory_window.show()
 
-        # Initial tile — tool windows arrive later and re-tile individually.
+        # DocumentsWindow is created lazily on first ⊞ click on search_library.
+        self._docs_window = None
+
         self._tile_windows()
 
         self._worker = _BusWorker(_OBSERVE)
@@ -105,9 +108,7 @@ class MonitorApp(QObject):
         self._thread.started.connect(self._worker.run)
         self._thread.start()
 
-        # Ask tools to re-announce schemas so ToolWindows can be spawned.
         QTimer.singleShot(600, self._request_schemas)
-        self._browser_url: str | None = None
 
     def _request_schemas(self) -> None:
         self._pub.publish(ToolSchemaRequest(), sender_id="monitor")
@@ -122,7 +123,8 @@ class MonitorApp(QObject):
         elif subject == AGENT_TRANSITION:
             self._generator_window.append_transition(payload)
             self._critic_window.append_transition(payload)
-            self._memory_window.append_transition(payload)
+            if self._memory_window.isVisible():
+                self._memory_window.append_transition(payload)
 
         elif subject == CRITIQUE:
             self._critic_window.append_critique({
@@ -141,6 +143,20 @@ class MonitorApp(QObject):
             if win:
                 win.append_activity(envelope)
 
+    def _open_docs_window(self) -> None:
+        if self._docs_window is None:
+            from local.ui.documents_window import DocumentsWindow
+            self._docs_window = DocumentsWindow(
+                document_service=self._document_service,
+                publisher=self._pub,
+            )
+        self._docs_window.show()
+        self._docs_window.raise_()
+
+    def _raise_memory_window(self) -> None:
+        self._memory_window.show()
+        self._memory_window.raise_()
+
     def _on_tool_schema(self, envelope: MessageEnvelope) -> None:
         name = (
             (envelope.payload.get("schema") or {})
@@ -148,22 +164,28 @@ class MonitorApp(QObject):
             .get("name", "")
         )
         if name and name not in self._tool_windows:
-            win = ToolWindow(tool_name=name, publisher=None)
+            on_lib_click = None
+            lib_tooltip = "Open"
+            pub = None
+            if name == "search_library" and self._document_service:
+                on_lib_click = self._open_docs_window
+                lib_tooltip = "Manage library"
+                pub = self._pub
+            elif name == "search_memory":
+                on_lib_click = self._raise_memory_window
+                lib_tooltip = "Browse memories"
+            win = ToolWindow(tool_name=name, publisher=pub, on_lib_click=on_lib_click, lib_tooltip=lib_tooltip)
             win.show()
             self._tool_windows[name] = win
             self._tile_windows()
 
-    # Fixed slot order for each tool column.
-    _COL5 = ["web_search", "web_fetch", "search_memory"]
-    _COL6 = ["search_library", "search_papers", "get_location", "get_datetime"]
-
     def _tile_windows(self) -> None:
-        """Position all windows according to the 1/3 + 1/3 + 1/6 + 1/6 layout.
+        """Position all windows in the 2/5 + 1/5 + 1/5 + 1/5 layout.
 
-        The left 1/3 is reserved for the browser — Qt panels occupy the right
-        2/3. Title bar height is measured from a live window and subtracted
-        from each slot so windows don't overlap. Tool windows occupy fixed
-        slots so positions are stable as they arrive one by one.
+        Browser occupies the left 2/5. Qt panels occupy the right 3/5:
+          Col 2 (1/5): GeneratorWindow top 60% / CriticWindow bottom 40%
+          Col 3 (1/5): web_search / web_fetch / search_memory — 3 equal slots
+          Col 4 (1/5): search_library / search_papers / get_location / get_datetime — 4 slots
         """
         screen = QApplication.primaryScreen()
         if screen is None:
@@ -172,50 +194,40 @@ class MonitorApp(QObject):
         W, H = sg.width(), sg.height()
         x0, y0 = sg.x(), sg.y()
 
-        # Measure actual title bar height from a shown window.
         fg = self._critic_window.frameGeometry()
         g  = self._critic_window.geometry()
         tb = fg.height() - g.height()
         if tb <= 0:
-            tb = 28  # macOS default fallback
+            tb = 28
 
-        unit = W // 6          # 1/6 of screen width
-        mid_x = x0 + 2 * unit  # middle 1/3 starts after the browser 1/3
-        top_h = int(H * 0.58)  # row boundary for critic+generator / memory split
-        bot_h = H - top_h
+        unit = W // 5          # 1/5 of screen width
+        col2_x = x0 + 2 * unit
 
-        # Critic — top-left of middle 1/3.
-        self._critic_window.setGeometry(mid_x, y0 + tb, unit, top_h - tb)
+        gen_h  = int(H * 0.6)
+        crit_h = H - gen_h
 
-        # Generator — top-right of middle 1/3.
-        self._generator_window.setGeometry(mid_x + unit, y0 + tb, unit, top_h - tb)
+        # Col 2: generator top, critic bottom.
+        self._generator_window.setGeometry(col2_x, y0 + tb, unit, gen_h - tb)
+        self._critic_window.setGeometry(col2_x, y0 + gen_h + tb, unit, crit_h - tb)
 
-        # Memory — full width of middle 1/3, below critic+generator.
-        self._memory_window.setGeometry(mid_x, y0 + top_h + tb, 2 * unit, bot_h - tb)
-
-        # Col 5: web_search / web_fetch / search_memory — 3 equal slots.
-        col5_x = x0 + 4 * unit
-        slot_h5 = H // len(self._COL5)
-        for i, name in enumerate(self._COL5):
+        # Col 3: web_search / web_fetch / search_memory — 3 equal slots.
+        col3_x = x0 + 3 * unit
+        slot_h3 = H // len(self._COL3)
+        for i, name in enumerate(self._COL3):
             win = self._tool_windows.get(name)
             if win:
-                win.setGeometry(col5_x, y0 + i * slot_h5 + tb, unit, slot_h5 - tb)
+                win.setGeometry(col3_x, y0 + i * slot_h3 + tb, unit, slot_h3 - tb)
 
-        # Col 6: search_library / search_papers / get_location / get_datetime — 4 slots.
-        col6_x = x0 + 5 * unit
-        slot_h6 = H // len(self._COL6)
-        for i, name in enumerate(self._COL6):
+        # Col 4: search_library / search_papers / get_location / get_datetime — 4 slots.
+        col4_x = x0 + 4 * unit
+        slot_h4 = H // len(self._COL4)
+        for i, name in enumerate(self._COL4):
             win = self._tool_windows.get(name)
             if win:
-                win.setGeometry(col6_x, y0 + i * slot_h6 + tb, unit, slot_h6 - tb)
+                win.setGeometry(col4_x, y0 + i * slot_h4 + tb, unit, slot_h4 - tb)
 
     def open_browser(self, url: str) -> None:
-        """Open the browser positioned to the left 1/3 of the screen.
-
-        Called via QTimer so screen geometry is available and Qt panels are
-        already tiled. Uses literal pixel values in the AppleScript so there
-        are no cross-tell-block variable scoping issues.
-        """
+        """Open the browser positioned to the left 2/5 of the screen."""
         import subprocess
         import sys
         import webbrowser
@@ -223,14 +235,14 @@ class MonitorApp(QObject):
         screen = QApplication.primaryScreen()
         if screen is not None and sys.platform == "darwin":
             sg = screen.availableGeometry()
-            third = sg.x() + sg.width() // 3
+            two_fifths = sg.x() + sg.width() * 2 // 5
             bottom = sg.y() + sg.height()
             script = (
                 f'tell application "Safari"\n'
                 f'    activate\n'
                 f'    open location "{url}"\n'
                 f'    delay 0.8\n'
-                f'    set bounds of front window to {{0, 0, {third}, {bottom}}}\n'
+                f'    set bounds of front window to {{0, 0, {two_fifths}, {bottom}}}\n'
                 f'end tell\n'
             )
             try:
@@ -252,11 +264,6 @@ class MonitorApp(QObject):
 
 
 def run_monitor(memory_service, conversation_service) -> None:
-    """Entry point called from run_local.py in a thread.
-
-    Creates a QApplication, instantiates MonitorApp, and runs the Qt event
-    loop. Blocks until the last window is closed.
-    """
     import sys
     app = QApplication.instance() or QApplication(sys.argv)
     monitor = MonitorApp(

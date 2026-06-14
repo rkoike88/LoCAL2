@@ -18,15 +18,15 @@ from local.agents.base_agent import BaseAgent
 from local.agents.generator_actions import GeneratorAction
 from local.agents.generator_states import GeneratorState
 from local.agents.generator_transitions import GeneratorStateMachine
-from local.agents.ollama_types import OllamaToolCall
+from local.agents.ollama_types import OllamaToolCall, clean_for_history, make_assistant_msg, make_tool_result_msg
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.messages import (
-    AnswerDialog, CompactionRequest, CompactionResult, GenerationThinking,
+    AnswerDialog, GenerationThinking,
     GeneratorStatus, QueryReceived, ResponseGeneration, ToolSchemaRequest,
 )
 from local.protocol.subjects import (
-    COMPACTION_REQUEST, QUERY_RECEIVED, TOOL_SCHEMA,
+    CONFIG_RELOAD, QUERY_RECEIVED, TOOL_SCHEMA,
 )
 from local.protocol.types import Attachment
 from local.services.conversation_service import ConversationService
@@ -50,7 +50,6 @@ class GeneratorAgent(BaseAgent):
         model: str | None = None,
         temperature: float | None = None,
         conversation_service=None,
-        compaction_service=None,
         tool_dispatcher=None,
     ) -> None:
         """Initialize the GeneratorAgent.
@@ -62,7 +61,6 @@ class GeneratorAgent(BaseAgent):
             temperature: Sampling temperature (0.0 = deterministic).
             conversation_service: Injected for testing; defaults to a fresh
                 ``ConversationService``.
-            compaction_service: Injected for testing; handles history compaction.
             tool_dispatcher: Injected for testing; handles synchronous tool I/O.
         """
         cfg = get_config("generator")
@@ -79,10 +77,9 @@ class GeneratorAgent(BaseAgent):
         self._instance_id: str = sys_cfg.get("instance_id") or socket.gethostname()
         self._token_count: int = 0
         self._conv = conversation_service or ConversationService()
-        self._compaction_service = compaction_service
         self._tool_dispatcher = tool_dispatcher or ToolDispatcher(self._tool_timeout)
         self._sm = GeneratorStateMachine()
-        self._pub, self._sub = make_participant_bus([QUERY_RECEIVED, TOOL_SCHEMA, COMPACTION_REQUEST])
+        self._pub, self._sub = make_participant_bus([QUERY_RECEIVED, TOOL_SCHEMA, CONFIG_RELOAD])
 
     # ------------------------------------------------------------------
     # Main loop
@@ -114,11 +111,8 @@ class GeneratorAgent(BaseAgent):
                     self._sm.reset()
         elif envelope.subject == TOOL_SCHEMA:
             self._register_tool_schema(envelope.payload.get("schema", {}))
-        elif envelope.subject == COMPACTION_REQUEST:
-            try:
-                self._handle_compaction(envelope)
-            except Exception as exc:
-                logger.error("GeneratorAgent: compaction error: %s", exc, exc_info=True)
+        elif envelope.subject == CONFIG_RELOAD:
+            self._handle_config_reload()
 
     # ------------------------------------------------------------------
     # Query handling
@@ -158,7 +152,7 @@ class GeneratorAgent(BaseAgent):
             self._do_transition(GeneratorAction.RESET)
             return
 
-        new_messages = [self._clean_for_history(m) for m in messages[initial_len - 1:]]
+        new_messages = [clean_for_history(m) for m in messages[initial_len - 1:]]
         self._conv.append_messages(session_id, new_messages)
         self._conv.set_token_count(session_id, prompt_tokens)
         self._token_count = prompt_tokens
@@ -302,12 +296,7 @@ class GeneratorAgent(BaseAgent):
             if last_chunk is not None:
                 prompt_tokens = getattr(last_chunk, "prompt_eval_count", 0) or 0
 
-            raw_msg = {
-                "role": "assistant",
-                "content": iter_content,
-                "thinking": iter_thinking or None,
-                "tool_calls": iter_tool_calls,
-            }
+            raw_msg = make_assistant_msg(iter_content, iter_thinking or None, iter_tool_calls)
             messages.append(raw_msg)
 
             tool_calls: list = iter_tool_calls or []
@@ -326,7 +315,7 @@ class GeneratorAgent(BaseAgent):
                 else:
                     self._do_transition(GeneratorAction.TOOL_RESULT)
                 tool_call_log.append({"tool": call.name, "args": call.arguments, "result": str(result)})
-                messages.append({"role": "tool", "content": str(result), "name": call.name})
+                messages.append(make_tool_result_msg(call.name, str(result)))
 
         answer = (raw_msg.get("content") or "").strip()
         thinking = accumulated_thinking.strip()
@@ -337,24 +326,15 @@ class GeneratorAgent(BaseAgent):
             )
         return answer, thinking, tool_call_log, prompt_tokens
 
-    def _handle_compaction(self, envelope: MessageEnvelope) -> None:
-        """Gate compaction on IDLE state and delegate execution to CompactionService."""
-        if self._sm.state != GeneratorState.IDLE:
-            session_id = CompactionRequest.from_envelope(envelope).session_id
-            self._pub.publish(
-                CompactionResult(
-                    session_id=session_id,
-                    error="generator busy — try again after current query finishes",
-                ),
-                sender_id=self.id, correlation_id=envelope.correlation_id or str(uuid.uuid4()),
-            )
-            return
-
-        self._do_transition(GeneratorAction.START_COMPACTION)
-        try:
-            self._compaction_service.compact(envelope)
-        finally:
-            self._do_transition(GeneratorAction.COMPLETE_COMPACTION)
+    def _handle_config_reload(self) -> None:
+        """Re-read model and params from config — takes effect on the next generation."""
+        cfg = get_config("generator")
+        self._model = cfg["model"]
+        self._options["num_ctx"] = cfg["num_ctx"]
+        self._options["temperature"] = cfg["temperature"]
+        self._system_prompt = cfg.get("system_prompt") or ""
+        logger.info("GeneratorAgent: config reloaded — model=%s", self._model)
+        self._publish_status()
 
     def _after_transition(self) -> None:
         self._publish_status()
@@ -393,18 +373,4 @@ class GeneratorAgent(BaseAgent):
         logger.info("GeneratorAgent: registered tool %r (total: %d)", name, len(self._tool_schemas))
         self._publish_status()
 
-    @staticmethod
-    def _clean_for_history(m: dict) -> dict:
-        """Strip thinking and empty tool_calls from a message dict before saving to history.
-
-        Converts Ollama ToolCall SDK objects to plain dicts so the history is
-        JSON-serializable (required by MemoryWindow and any future persistence).
-        """
-        result = {k: v for k, v in m.items() if k != "thinking"}
-        tool_calls = result.get("tool_calls")
-        if not tool_calls:
-            result.pop("tool_calls", None)
-        else:
-            result["tool_calls"] = [OllamaToolCall.from_any(tc).to_dict() for tc in tool_calls]
-        return result
 

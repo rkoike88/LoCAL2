@@ -9,6 +9,7 @@ Endpoints:
   POST /api/sessions/{id}/compact     — trigger context compaction
   GET  /api/settings/{section}        — read a config YAML section
   PUT  /api/settings/{section}        — write a config YAML section
+  GET  /api/models                    — list Ollama models
   POST /api/feedback                  — submit thumbs up/down
   GET  /health                        — liveness check
   GET  /                              — serves frontend/dist/index.html
@@ -237,6 +238,23 @@ async def put_settings_section(section: str, body: dict) -> JSONResponse:
     publisher: ZmqPublisher = app.state.publisher
     publisher.publish(ConfigReload(target=section), sender_id="gateway")
     return JSONResponse({"saved": section})
+
+
+# ---------------------------------------------------------------------------
+# Models
+# ---------------------------------------------------------------------------
+
+@app.get("/api/models")
+async def list_models() -> JSONResponse:
+    """Return names of locally available Ollama models."""
+    try:
+        import ollama
+        resp = ollama.list()
+        names = sorted(m.model for m in resp.models if m.model)
+        return JSONResponse({"models": names})
+    except Exception as exc:
+        logger.warning("list_models: ollama.list() failed: %s", exc)
+        return JSONResponse({"models": []})
 
 
 # ---------------------------------------------------------------------------

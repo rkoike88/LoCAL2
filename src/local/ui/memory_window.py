@@ -20,7 +20,6 @@ try:
         QLabel,
         QLineEdit,
         QPushButton,
-        QSizePolicy,
         QSplitter,
         QTableWidget,
         QTableWidgetItem,
@@ -72,7 +71,7 @@ _ROLE_STYLE: dict[str, tuple[str, str]] = {
 
 
 class MemoryWindow(QWidget):
-    _EPISODIC_COLS = ["Age", "Resp", "Score", "Senti", "Winner", "Query"]
+    _EPISODIC_COLS = ["Age", "Resp", "Score", "Senti", "Winner", "Query", ""]
     _CONTEXT_COLS  = ["#", "Role", "Preview"]
 
     def __init__(self, memory_service=None, conversation_service=None, session_id_getter=None) -> None:
@@ -191,13 +190,13 @@ class MemoryWindow(QWidget):
         self._detail.setObjectName("memDetail")
         self._detail.setReadOnly(True)
         self._detail.setPlaceholderText("Click a row to see full content…")
-        self._detail.setMaximumHeight(160)
 
         splitter = QSplitter(Qt.Vertical)
         splitter.addWidget(self._table)
         splitter.addWidget(self._detail)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 1)
+        splitter.setSizes([360, 120])
         return splitter
 
     # ------------------------------------------------------------------
@@ -246,9 +245,18 @@ class MemoryWindow(QWidget):
         self._table.setColumnCount(len(cols))
         self._table.setHorizontalHeaderLabels(cols)
         hdr = self._table.horizontalHeader()
-        for i in range(len(cols) - 1):
-            hdr.setSectionResizeMode(i, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(len(cols) - 1, QHeaderView.Stretch)
+        # If the last column is the delete-button column (empty header),
+        # stretch the second-to-last and fix the last.
+        if cols and cols[-1] == "":
+            for i in range(len(cols) - 2):
+                hdr.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+            hdr.setSectionResizeMode(len(cols) - 2, QHeaderView.Stretch)
+            hdr.setSectionResizeMode(len(cols) - 1, QHeaderView.Fixed)
+            self._table.setColumnWidth(len(cols) - 1, 30)
+        else:
+            for i in range(len(cols) - 1):
+                hdr.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+            hdr.setSectionResizeMode(len(cols) - 1, QHeaderView.Stretch)
 
     # ------------------------------------------------------------------
     # Data loading
@@ -379,8 +387,9 @@ class MemoryWindow(QWidget):
         self._table.setRowCount(0)
         self._detail.clear()
         for row_data in rows:
-            meta    = row_data.get("metadata") or {}
-            content = row_data.get("content") or ""
+            meta       = row_data.get("metadata") or {}
+            content    = row_data.get("content") or ""
+            engram_id  = row_data.get("id", "")
 
             age        = self._format_age(meta.get("timestamp"))
             resp       = meta.get("respondent_id", "A")
@@ -400,6 +409,23 @@ class MemoryWindow(QWidget):
                 self._table.setItem(r, col, item)
             self._table.item(r, 0).setData(Qt.UserRole, content)
             self._table.item(r, 0).setData(Qt.UserRole + 1, meta.get("session_id", ""))
+
+            if engram_id and self._memory:
+                del_btn = QPushButton("✕")
+                del_btn.setObjectName("memDelBtn")
+                del_btn.setFixedSize(22, 22)
+                del_btn.setToolTip("Delete this memory")
+                del_btn.clicked.connect(
+                    lambda _=False, eid=engram_id: self._delete_engram(eid)
+                )
+                self._table.setCellWidget(r, 6, del_btn)
+            self._table.setRowHeight(r, 26)
+
+    def _delete_engram(self, engram_id: str) -> None:
+        if not self._memory:
+            return
+        self._memory.delete_episodic(engram_id)
+        self._refresh()
 
     def _on_row_selected(self) -> None:
         rows = self._table.selectedItems()
@@ -511,6 +537,11 @@ class MemoryWindow(QWidget):
                 border: none;
             }
             QTableWidget#memTable::item:selected { background: #1a2a3a; }
+            QPushButton#memDelBtn {
+                background: transparent; color: #555; border: none;
+                font-size: 11px; padding: 0;
+            }
+            QPushButton#memDelBtn:hover { color: #e06c75; }
             QHeaderView::section {
                 background: #1a1a1a; color: #888; border: none;
                 border-bottom: 1px solid #2a2a2a; padding: 4px 8px; font-size: 11px;
@@ -525,4 +556,10 @@ class MemoryWindow(QWidget):
                 font-family: 'Menlo','Monaco','Courier New'; font-size: 11px;
                 padding: 4px 8px;
             }
+            QScrollBar:vertical { background: #111; width: 4px; }
+            QScrollBar::handle:vertical { background: #333; border-radius: 2px; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+            QScrollBar:horizontal { background: #111; height: 4px; }
+            QScrollBar::handle:horizontal { background: #333; border-radius: 2px; }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }
         """)

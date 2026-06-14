@@ -1,16 +1,19 @@
-"""CompactionService — auto-compaction decision and execution.
+"""ModelService — meta-model operations: auto-compaction decision + execution.
 
-Bus listener: subscribes to response.generation, publishes compaction.request
-when prompt_tokens crosses the configured threshold.
+Subscribes to:
+  response.generation  — watches prompt_tokens; auto-triggers compaction.request
+                         when threshold is crossed
+  compaction.request   — executes compaction: summarises history and replaces it
 
-Executor: compact() is called synchronously by GeneratorAgent._handle_compaction()
-while the generator is in COMPACTING state. Runs in the generator's thread,
-serialized with _handle_query().
+Reads model/params fresh from config/generator.yaml on each compaction so that
+model changes (via config.reload) take effect without a restart.
 """
 from __future__ import annotations
 
 import logging
 import uuid
+
+import ollama
 
 from local.config_loader import get_config
 from local.participants.base_service import BaseService
@@ -26,27 +29,35 @@ from local.transport.bus_config import make_participant_bus
 logger = logging.getLogger(__name__)
 
 
-class CompactionService(BaseService):
-    """Auto-compaction decision and execution for GeneratorAgent."""
+class ModelService(BaseService):
+    """Standalone bus participant for meta-model operations.
+
+    Handles the auto-compaction decision (from response.generation token counts)
+    and compaction execution (from compaction.request). Both operations read
+    config fresh so model/parameter changes take effect on the next call.
+    """
 
     CONFIG_NAME = "compaction"
 
-    def __init__(
-        self,
-        conversation_service: ConversationService,
-        model: str,
-        options: dict,
-    ) -> None:
+    def __init__(self, conversation_service: ConversationService) -> None:
         self._conv = conversation_service
-        self._model = model
-        self._options = options
-        self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION])
+        self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION, COMPACTION_REQUEST])
 
     # ------------------------------------------------------------------
-    # Bus listener — decision
+    # Dispatch
     # ------------------------------------------------------------------
 
     def _handle(self, envelope: MessageEnvelope) -> None:
+        if envelope.subject == RESPONSE_GENERATION:
+            self._maybe_request_compaction(envelope)
+        elif envelope.subject == COMPACTION_REQUEST:
+            self._compact(envelope)
+
+    # ------------------------------------------------------------------
+    # Auto-compaction decision
+    # ------------------------------------------------------------------
+
+    def _maybe_request_compaction(self, envelope: MessageEnvelope) -> None:
         cfg = get_config("generator") or {}
         threshold = cfg.get("compaction_threshold", 0.8)
         if not threshold:
@@ -58,7 +69,7 @@ class CompactionService(BaseService):
 
         if prompt_tokens >= threshold * num_ctx:
             logger.info(
-                "CompactionService: auto-compacting session %s (%d / %d tokens, threshold %.0f%%)",
+                "ModelService: auto-compacting session %s (%d / %d tokens, threshold %.0f%%)",
                 (session_id or "")[:8], prompt_tokens, num_ctx, threshold * 100,
             )
             self._pub.publish(
@@ -67,23 +78,24 @@ class CompactionService(BaseService):
             )
 
     # ------------------------------------------------------------------
-    # Executor — called by GeneratorAgent under its IDLE gate
+    # Compaction execution
     # ------------------------------------------------------------------
 
-    def compact(self, envelope: MessageEnvelope) -> None:
-        """Summarize a session's history and replace it with a summary + tail turns.
+    def _compact(self, envelope: MessageEnvelope) -> None:
+        """Summarise a session's history and replace it with summary + tail turns.
 
-        Runs in the generator's thread while the generator is in COMPACTING state.
-        Reads config fresh on each call so threshold/prompt changes take effect
-        without restart.
-
-        Args:
-            envelope: The compaction.request envelope; must contain session_id.
+        Reads model and options fresh from config so that a model switch
+        (via PUT /api/settings/generator) takes effect on the next compaction.
         """
-        import ollama
-
         session_id: str | None = envelope.payload.get("session_id")
+        corr_id = envelope.correlation_id or str(uuid.uuid4())
+
         cfg = get_config("generator") or {}
+        model: str = cfg["model"]
+        options = {
+            "num_ctx": cfg["num_ctx"],
+            "temperature": cfg["temperature"],
+        }
         tail_turns: int = cfg.get("compaction_tail_turns", 4)
 
         history = self._conv.get_history(session_id)
@@ -93,7 +105,7 @@ class CompactionService(BaseService):
             self._pub.publish(
                 CompactionResult(session_id=session_id or "", error="no history to compact"),
                 sender_id=self.id,
-                correlation_id=envelope.correlation_id or str(uuid.uuid4()),
+                correlation_id=corr_id,
             )
             return
 
@@ -105,19 +117,17 @@ class CompactionService(BaseService):
                 convo_text.append(f"{role.upper()}: {content}")
         summary_input = "\n\n".join(convo_text)
 
-        compaction_system = cfg.get(
-            "compaction_system_prompt",
-            "Summarize this conversation concisely, preserving key facts and decisions.",
-        ).strip()
+        compaction_system = (cfg.get("compaction_system_prompt") or
+                             "Summarize this conversation concisely, preserving key facts and decisions.").strip()
 
         resp = ollama.chat(
-            model=self._model,
+            model=model,
             messages=[
                 {"role": "system", "content": compaction_system},
                 {"role": "user", "content": summary_input},
             ],
             stream=False,
-            options=self._options,
+            options=options,
         )
         summary_text = (resp.message.content or "").strip()
 
@@ -147,9 +157,9 @@ class CompactionService(BaseService):
                 summary=summary_text,
             ),
             sender_id=self.id,
-            correlation_id=envelope.correlation_id or str(uuid.uuid4()),
+            correlation_id=corr_id,
         )
         logger.info(
-            "CompactionService: compacted session %s — %d → ~%d tokens",
+            "ModelService: compacted session %s — %d → ~%d tokens",
             (session_id or "")[:8], tokens_before, tokens_estimated_after,
         )

@@ -112,12 +112,18 @@ class BaseObservabilityWindow(QWidget):
         row.setSpacing(6)
         row.addWidget(self._back_btn)
         row.addWidget(title_label, 1)
+        for widget in self._build_extra_header_buttons():
+            row.addWidget(widget)
         row.addWidget(self._gear_btn)
 
         header = QWidget()
         header.setObjectName("winHeader")
         header.setLayout(row)
         return header
+
+    def _build_extra_header_buttons(self) -> list:
+        """Override in subclasses to inject additional buttons into the header."""
+        return []
 
     def _show_activity(self) -> None:
         self._stack.setCurrentIndex(self._ACTIVITY_PAGE)
@@ -272,7 +278,10 @@ class BaseObservabilityWindow(QWidget):
             QPushButton#winBackBtn, QPushButton#winGearBtn {
                 color: #7ec8a4; font-size: 15px; background: transparent; border: none;
             }
-            QPushButton#winBackBtn:hover, QPushButton#winGearBtn:hover { color: #a8e8c4; }
+            QPushButton#winBackBtn:hover, QPushButton#winGearBtn:hover, QPushButton#winLibBtn:hover { color: #a8e8c4; }
+            QPushButton#winLibBtn {
+                color: #7ec8a4; font-size: 15px; background: transparent; border: none;
+            }
             QScrollArea#activityScroll { border: none; background: #111111; }
             QWidget#activityWidget { background: #111111; }
             QPlainTextEdit#yamlEditor {
@@ -308,7 +317,9 @@ class ToolWindow(BaseObservabilityWindow):
         "search_library": "documents",
     }
 
-    def __init__(self, tool_name: str, publisher=None) -> None:
+    def __init__(self, tool_name: str, publisher=None, on_lib_click=None, lib_tooltip: str = "Open") -> None:
+        self._on_lib_click = on_lib_click
+        self._lib_tooltip = lib_tooltip
         config_key = self._CONFIG_NAME.get(tool_name, tool_name)
         config_exists = (_repo_root() / "config" / f"{config_key}.yaml").exists()
         super().__init__(
@@ -316,6 +327,17 @@ class ToolWindow(BaseObservabilityWindow):
             publisher=publisher,
             config_name=config_key if config_exists else None,
         )
+
+    def _build_extra_header_buttons(self) -> list:
+        if self._on_lib_click is None:
+            return []
+        btn = QPushButton("⊞")
+        btn.setObjectName("winLibBtn")
+        btn.setFixedSize(28, 28)
+        btn.setFlat(True)
+        btn.setToolTip(self._lib_tooltip)
+        btn.clicked.connect(self._on_lib_click)
+        return [btn]
 
     def append_activity(self, envelope: MessageEnvelope) -> None:
         payload = envelope.payload or {}

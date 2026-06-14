@@ -180,8 +180,9 @@ class MemoryService:
             logger.warning("MemoryService: search_episodic failed: %s", exc)
             return []
 
-        docs = (result.get("documents") or [[]])[0]
-        metas = (result.get("metadatas") or [[]])[0]
+        ids       = (result.get("ids") or [[]])[0]
+        docs      = (result.get("documents") or [[]])[0]
+        metas     = (result.get("metadatas") or [[]])[0]
         distances = (result.get("distances") or [[]])[0]
 
         sm_cfg = get_config("search_memory")
@@ -189,7 +190,7 @@ class MemoryService:
 
         candidates = []
         query_lower = query.lower()
-        for doc, meta, dist in zip(docs, metas, distances):
+        for id_, doc, meta, dist in zip(ids, docs, metas, distances):
             score = 1.0 - dist
             raw_entities = meta.get("entities", "")
             if raw_entities:
@@ -202,7 +203,7 @@ class MemoryService:
             critic_score = meta.get("critic_score")
             if critic_score is not None:
                 score += (int(critic_score) - 3) * critic_weight
-            candidates.append({"content": doc, "metadata": meta, "score": score})
+            candidates.append({"id": id_, "content": doc, "metadata": meta, "score": score})
 
         candidates.sort(key=lambda c: c["score"], reverse=True)
         return candidates[:n]
@@ -225,6 +226,11 @@ class MemoryService:
             {"id": id_, "content": doc, "metadata": meta}
             for id_, doc, meta in items[:n]
         ]
+
+    def delete_episodic(self, engram_id: str) -> None:
+        """Delete a single episodic engram by its ChromaDB document ID."""
+        self._collection.delete(ids=[engram_id])
+        logger.debug("MemoryService: deleted engram %s", engram_id)
 
     def update_engram_score(self, query_id: str, score: int) -> None:
         """Merge ``critic_score`` into an existing engram's metadata.

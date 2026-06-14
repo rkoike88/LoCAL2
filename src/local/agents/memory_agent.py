@@ -55,8 +55,8 @@ class MemoryAgent(BaseAgent):
                 built from config.
         """
         cfg = get_config("memory")
-        model = cfg.get("model", "gemma4:e4b")
-        self._classify_prompt: str = cfg.get("classify_prompt", "").strip()
+        model = cfg["model"]
+        self._classify_prompt: str = (cfg.get("classify_prompt") or "").strip()
         self._memory = memory_service or MemoryService()
         self._llm = llm or OllamaBackend(model=model, agent_name=self.id)
         self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION, CRITIQUE])

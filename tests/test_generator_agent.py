@@ -36,6 +36,8 @@ def _make_agent(model="test-model", system_prompt="", tool_schemas=None) -> Gene
             "num_ctx": 8192,
             "temperature": 0.7,
             "max_tool_iterations": 5,
+            "tool_timeout": 20,
+            "max_attachment_chars": 32000,
             "system_prompt": system_prompt,
             "tools": tool_schemas or [],
         }
@@ -320,7 +322,8 @@ class TestPublishStatus:
                 if name == "system":
                     return {"instance_id": "my-test-instance"}
                 return {"model": "m", "num_ctx": 8192, "temperature": 0.1,
-                        "max_tool_iterations": 5, "system_prompt": "", "tools": []}
+                        "max_tool_iterations": 5, "tool_timeout": 20,
+                        "max_attachment_chars": 32000, "system_prompt": "", "tools": []}
             mock_cfg.side_effect = _cfg
             mock_pub = MagicMock()
             mock_bus.return_value = (mock_pub, MagicMock())
@@ -336,7 +339,8 @@ class TestPublishStatus:
                 if name == "system":
                     return {}   # no instance_id key
                 return {"model": "m", "num_ctx": 8192, "temperature": 0.1,
-                        "max_tool_iterations": 5, "system_prompt": "", "tools": []}
+                        "max_tool_iterations": 5, "tool_timeout": 20,
+                        "max_attachment_chars": 32000, "system_prompt": "", "tools": []}
             mock_cfg.side_effect = _cfg
             mock_pub = MagicMock()
             mock_bus.return_value = (mock_pub, MagicMock())

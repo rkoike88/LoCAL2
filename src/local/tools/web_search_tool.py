@@ -26,17 +26,17 @@ class WebSearchTool(BaseTool):
 
     def __init__(self) -> None:
         cfg = get_config(CONFIG_NAME)
-        self._provider: str = cfg.get("provider", "searxng")
-        self._searxng_url: str = cfg.get("searxng_url", "http://localhost:8080")
-        self._max_results: int = cfg.get("max_results", 5)
-        self._timeout: float = cfg.get("timeout", 10)
+        self._provider: str = cfg["provider"]
+        self._searxng_url: str = cfg["searxng_url"]
+        self._max_results: int = cfg["max_results"]
+        self._timeout: float = cfg["timeout"]
         super().__init__(TOOL_CALL_WEB_SEARCH)
         logger.info("web_search_tool: provider=%s  max_results=%s", self._provider, self._max_results)
 
     def _build_schema(self) -> dict:
         cfg = get_config(CONFIG_NAME)
-        description = cfg.get("description", "Search the web for current information.").strip()
-        param_query = cfg.get("param_query", "The search query string.").strip()
+        description = (cfg.get("description") or "").strip()
+        param_query = (cfg.get("param_query") or "").strip()
         return {
             "type": "function",
             "function": {

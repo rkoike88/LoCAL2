@@ -49,14 +49,14 @@ class CriticAgent(BaseAgent):
                 from config.
         """
         cfg = get_config("critic")
-        model: str = cfg.get("model", "prometheus:7b")
-        self._rubric: str = cfg.get("rubric", "")
-        self._grade_prompt: str = cfg.get("grade_prompt", "").strip()
+        model: str = cfg["model"]
+        self._rubric: str = cfg.get("rubric") or ""
+        self._grade_prompt: str = (cfg.get("grade_prompt") or "").strip()
         self._options: dict = {
-            "num_ctx": cfg.get("num_ctx", 4096),
-            "temperature": cfg.get("temperature", 0.0),
+            "num_ctx": cfg["num_ctx"],
+            "temperature": cfg["temperature"],
         }
-        timeout: int = cfg.get("grade_timeout", 30)
+        timeout: int = cfg["grade_timeout"]
         self._llm = llm or OllamaBackend(model=model, agent_name=self.id, timeout=timeout)
         self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION])
         self._sm = CriticStateMachine()

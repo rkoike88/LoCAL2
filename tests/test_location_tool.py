@@ -87,7 +87,7 @@ class TestGetLocation:
     def _make_tool(self):
         with patch("local.tools.base_tool.make_participant_bus",
                    return_value=(MagicMock(), MagicMock())):
-            with patch("local.tools.location_tool.get_config", return_value={}):
+            with patch("local.tools.location_tool.get_config", return_value={"cache_ttl": 300}):
                 return LocationTool()
 
     def test_config_takes_precedence_over_live(self):

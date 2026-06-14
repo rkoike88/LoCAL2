@@ -103,7 +103,7 @@ class LocationTool(BaseTool):
 
     def __init__(self) -> None:
         cfg = get_config("location") or {}
-        self._cache_ttl: float = float(cfg.get("cache_ttl", 300))
+        self._cache_ttl: float = float(cfg["cache_ttl"])
         self._cache: tuple[float, str] | None = None  # (monotonic_time, result)
         super().__init__(TOOL_CALL_GET_LOCATION)
 

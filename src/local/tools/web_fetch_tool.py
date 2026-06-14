@@ -30,15 +30,15 @@ class WebFetchTool(BaseTool):
 
     def __init__(self) -> None:
         cfg = get_config(CONFIG_NAME)
-        self._max_chars: int = cfg.get("max_chars", 3000)
-        self._timeout: float = cfg.get("timeout", 15)
+        self._max_chars: int = cfg["max_chars"]
+        self._timeout: float = cfg["timeout"]
         super().__init__(TOOL_CALL_WEB_FETCH)
         logger.info("web_fetch_tool: max_chars=%s  timeout=%s", self._max_chars, self._timeout)
 
     def _build_schema(self) -> dict:
         cfg = get_config(CONFIG_NAME)
-        description = cfg.get("description", "Fetch the full text content of a specific URL.").strip()
-        param_url = cfg.get("param_url", "The full URL to fetch.").strip()
+        description = (cfg.get("description") or "").strip()
+        param_url = (cfg.get("param_url") or "").strip()
         return {
             "type": "function",
             "function": {

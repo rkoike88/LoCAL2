@@ -48,7 +48,8 @@ class TestSearchPapers:
 
     def _patch_cfg(self):
         return patch("local.tools.semantic_scholar_tool.get_config", return_value={
-            "max_results": 5, "timeout": 15, "fields": "title,authors,year,abstract,citationCount,url"
+            "max_results": 5, "timeout": 15, "abstract_max_chars": 300, "min_request_gap": 1.2,
+            "fields": "title,authors,year,abstract,citationCount,url",
         })
 
     def test_returns_formatted_paper(self):

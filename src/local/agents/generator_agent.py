@@ -18,15 +18,17 @@ from local.agents.base_agent import BaseAgent
 from local.agents.generator_actions import GeneratorAction
 from local.agents.generator_states import GeneratorState
 from local.agents.generator_transitions import GeneratorStateMachine
+from local.agents.ollama_types import OllamaToolCall
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.messages import (
-    AnswerDialog, CompactionResult, GenerationThinking,
-    GeneratorStatus, ResponseGeneration, ToolSchemaRequest,
+    AnswerDialog, CompactionRequest, CompactionResult, GenerationThinking,
+    GeneratorStatus, QueryReceived, ResponseGeneration, ToolSchemaRequest,
 )
 from local.protocol.subjects import (
     COMPACTION_REQUEST, QUERY_RECEIVED, TOOL_SCHEMA,
 )
+from local.protocol.types import Attachment
 from local.services.conversation_service import ConversationService
 from local.tools.tool_dispatcher import ToolDispatcher
 from local.transport.bus_config import make_participant_bus
@@ -65,15 +67,15 @@ class GeneratorAgent(BaseAgent):
         """
         cfg = get_config("generator")
         sys_cfg = get_config("system") or {}
-        self._model: str = model or cfg.get("model", "gemma4:e2b")
+        self._model: str = model or cfg["model"]
         self._options: dict = {
-            "num_ctx": cfg.get("num_ctx", 32000),
-            "temperature": temperature if temperature is not None else cfg.get("temperature", 0.7),
+            "num_ctx": cfg["num_ctx"],
+            "temperature": temperature if temperature is not None else cfg["temperature"],
         }
-        self._system_prompt: str = cfg.get("system_prompt", "") or ""
-        self._max_tool_iters: int = cfg.get("max_tool_iterations", 5)
-        self._tool_timeout: float = cfg.get("tool_timeout", 20)
-        self._tool_schemas: list = cfg.get("tools", [])
+        self._system_prompt: str = cfg.get("system_prompt") or ""
+        self._max_tool_iters: int = cfg["max_tool_iterations"]
+        self._tool_timeout: float = cfg["tool_timeout"]
+        self._tool_schemas: list = cfg.get("tools") or []
         self._instance_id: str = sys_cfg.get("instance_id") or socket.gethostname()
         self._token_count: int = 0
         self._conv = conversation_service or ConversationService()
@@ -123,11 +125,11 @@ class GeneratorAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     def _handle_query(self, envelope: MessageEnvelope) -> None:
-        payload = envelope.payload
-        query: str = payload.get("query", "")
-        session_id: str | None = payload.get("session_id")
-        original_query_id: str = payload.get("query_id") or str(uuid.uuid4())
-        attachments: list = payload.get("attachments") or []
+        msg = QueryReceived.from_envelope(envelope)
+        query: str = msg.query
+        session_id: str | None = msg.session_id or None
+        original_query_id: str = msg.query_id or str(uuid.uuid4())
+        attachments: list = msg.attachments
 
         query_id = original_query_id
         correlation_id = envelope.correlation_id or query_id
@@ -209,15 +211,15 @@ class GeneratorAgent(BaseAgent):
             messages.append({"role": "system", "content": self._system_prompt})
         messages.extend(history)
 
-        max_chars: int = get_config("generator").get("max_attachment_chars", 8000)
+        max_chars: int = get_config("generator")["max_attachment_chars"]
         content_parts: list[str] = []
         image_b64s: list[str] = []
         for att in (attachments or []):
-            if att.get("type") == "text":
-                text = (att.get("data") or "")[:max_chars]
-                content_parts.append(f'[Attached: {att["name"]}]\n{text}')
-            elif att.get("type") == "image":
-                image_b64s.append(att.get("data", ""))
+            a = Attachment.from_dict(att) if isinstance(att, dict) else att
+            if a.type == "text":
+                content_parts.append(f'[Attached: {a.name}]\n{a.data[:max_chars]}')
+            elif a.type == "image":
+                image_b64s.append(a.data)
         content_parts.append(query)
 
         user_msg: dict = {"role": "user", "content": "\n\n".join(content_parts)}
@@ -313,20 +315,18 @@ class GeneratorAgent(BaseAgent):
                 break
 
             for tc in tool_calls:
-                fn = tc.get("function") or {}
-                name: str = fn.get("name", "")
-                args: dict = fn.get("arguments") or {}
+                call = OllamaToolCall.from_any(tc)
                 self._do_transition(GeneratorAction.DISPATCH_TOOL)
                 self._do_transition(GeneratorAction.AWAIT_RESULT)
                 result, timed_out = self._tool_dispatcher.execute(
-                    name, args, correlation_id, self._tool_schemas
+                    call.name, call.arguments, correlation_id, self._tool_schemas
                 )
                 if timed_out:
                     self._do_transition(GeneratorAction.TOOL_TIMEOUT)
                 else:
                     self._do_transition(GeneratorAction.TOOL_RESULT)
-                tool_call_log.append({"tool": name, "args": args, "result": str(result)})
-                messages.append({"role": "tool", "content": str(result), "name": name})
+                tool_call_log.append({"tool": call.name, "args": call.arguments, "result": str(result)})
+                messages.append({"role": "tool", "content": str(result), "name": call.name})
 
         answer = (raw_msg.get("content") or "").strip()
         thinking = accumulated_thinking.strip()
@@ -340,9 +340,10 @@ class GeneratorAgent(BaseAgent):
     def _handle_compaction(self, envelope: MessageEnvelope) -> None:
         """Gate compaction on IDLE state and delegate execution to CompactionService."""
         if self._sm.state != GeneratorState.IDLE:
+            session_id = CompactionRequest.from_envelope(envelope).session_id
             self._pub.publish(
                 CompactionResult(
-                    session_id=envelope.payload.get("session_id") or "",
+                    session_id=session_id,
                     error="generator busy — try again after current query finishes",
                 ),
                 sender_id=self.id, correlation_id=envelope.correlation_id or str(uuid.uuid4()),
@@ -404,19 +405,6 @@ class GeneratorAgent(BaseAgent):
         if not tool_calls:
             result.pop("tool_calls", None)
         else:
-            serialized = []
-            for tc in tool_calls:
-                if isinstance(tc, dict):
-                    serialized.append(tc)
-                else:
-                    # Ollama SDK ToolCall object
-                    fn = getattr(tc, "function", None) or {}
-                    serialized.append({
-                        "function": {
-                            "name": getattr(fn, "name", "") if not isinstance(fn, dict) else fn.get("name", ""),
-                            "arguments": getattr(fn, "arguments", {}) if not isinstance(fn, dict) else fn.get("arguments", {}),
-                        }
-                    })
-            result["tool_calls"] = serialized
+            result["tool_calls"] = [OllamaToolCall.from_any(tc).to_dict() for tc in tool_calls]
         return result
 

@@ -53,11 +53,11 @@ def _throttled_get(params: dict, headers: dict, timeout: float, min_gap: float) 
 
 def _search_papers(query: str, limit: int) -> str:
     cfg = get_config("semantic_scholar") or {}
-    max_results = cfg.get("max_results", 5)
-    timeout = cfg.get("timeout", 15)
-    fields = cfg.get("fields", _DEFAULT_FIELDS)
-    abstract_max = cfg.get("abstract_max_chars", 300)
-    min_gap = cfg.get("min_request_gap", 1.2)
+    max_results = cfg["max_results"]
+    timeout = cfg["timeout"]
+    fields = cfg.get("fields") or _DEFAULT_FIELDS
+    abstract_max = cfg["abstract_max_chars"]
+    min_gap = cfg["min_request_gap"]
 
     limit = max(1, min(limit, max_results))
 

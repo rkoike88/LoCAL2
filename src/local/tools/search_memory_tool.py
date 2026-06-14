@@ -31,8 +31,8 @@ class SearchMemoryTool(BaseTool):
 
     def _build_schema(self) -> dict:
         cfg = get_config(CONFIG_NAME)
-        description = cfg.get("description", "Search episodic memory from past sessions by meaning.").strip()
-        param_query = cfg.get("param_query", "Natural language description of what you are looking for.").strip()
+        description = (cfg.get("description") or "").strip()
+        param_query = (cfg.get("param_query") or "").strip()
         return {
             "type": "function",
             "function": {

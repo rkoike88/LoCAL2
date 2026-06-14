@@ -15,6 +15,19 @@ import yaml
 # Resolve config/ relative to this file's location in src/local/api/.
 _CONFIG_DIR = Path(__file__).resolve().parent.parent.parent.parent / "config"
 
+
+class _BlockDumper(yaml.Dumper):
+    """YAML dumper that uses literal block scalar (|) for multiline strings."""
+
+
+def _str_representer(dumper: yaml.Dumper, data: str) -> yaml.ScalarNode:
+    if "\n" in data:
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+
+_BlockDumper.add_representer(str, _str_representer)
+
 _ALLOWED_SECTIONS = frozenset({
     "generator",
     "critic",
@@ -67,7 +80,8 @@ def write_section(name: str, data: dict[str, Any]) -> None:
     path = _CONFIG_DIR / f"{name}.yaml"
     tmp = str(path) + ".tmp"
     with open(tmp, "w") as f:
-        yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+        yaml.dump(data, f, Dumper=_BlockDumper, default_flow_style=False,
+                  allow_unicode=True, sort_keys=True)
     os.replace(tmp, path)
 
 

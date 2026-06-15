@@ -87,7 +87,7 @@ Schema descriptions are the mechanism for "when to call" guidance — they tell 
 
 **Episodic store (ChromaDB):** Every Q&A turn is ingested as an engram by MemoryAgent. The engram includes: query text, answer text, intent classification, named entities, session ID, and metadata fields populated by later events.
 
-**Score annotation:** When `critique.result` arrives, MemoryAgent patches the matching engram with `critic_score` (1–5).
+**Score annotation:** When `critique.result` arrives, MemoryAgent patches the matching engram with `critic_score` (1–5) and `critic_feedback` (the full Prometheus narrative). Together these form an auditable XAI trail per engram: rubric → feedback → score.
 
 **Sentiment annotation:** When `user.feedback` arrives (`+1`/`-1`), RewardService patches the engram with `user_sentiment`.
 
@@ -133,6 +133,8 @@ Server → client (streaming, multiple messages per query):
 ```
 
 The gateway translates ZMQ bus events into this WebSocket stream. The `ws_bridge.py` module manages the ZMQ subscriptions per connected session and fans out to the WebSocket.
+
+**Stream lifetime:** after `response` is received, the stream stays open to capture the `critique` event. For knowledge turns (no tool calls), the trail window is 90 seconds — long enough for Prometheus to finish grading. For tool-use turns, CriticAgent skips grading, so the trail closes after 2 seconds. The stream closes early as soon as `critique` arrives.
 
 ### Run modes
 

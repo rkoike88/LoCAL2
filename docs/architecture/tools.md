@@ -30,11 +30,17 @@ Config hot-reload: when the UI saves a tool's YAML settings, it publishes `confi
 Semantic search over the episodic store (ChromaDB `local_memory` collection).
 
 **Input:** `query` (string)
-**Output:** ranked list of past Q+A pairs with similarity scores, formatted as text.
+**Output:** ranked list of past Q+A pairs, each annotated with quality score and Prometheus critique feedback when available.
 
-Uses `MemoryService.search_episodic()` with `n_results` from `config/search_memory.yaml`. Results are weighted by critic score (see [memory-participant.md](memory-participant.md)).
+Result format per entry:
+```
+1. [quality: 4/5] <Q+A text>
+   [critique: The response was mostly correct but omitted X...]
+```
 
-Gemma is instructed to call this when the user asks about prior preferences, habits, or anything they may have told the system before. This is enforced via the system prompt rule and the schema description.
+Uses `MemoryService.search_episodic()` with `n_results` from `config/search_memory.yaml`. Results are weighted by critic score (see [memory-participant.md](memory-participant.md)). The critique text gives the generator the reasoning behind a past score — enough context to improve on a low-rated answer the next time the same question arises.
+
+Gemma is instructed to call this when the user asks about prior preferences, habits, or anything they may have told the system before.
 
 ---
 

@@ -24,12 +24,14 @@ Classification is best-effort. If the LLM call fails or produces unparseable JSO
 
 Intent classes: `fact | explanation | comparison | procedure`
 
-### critique.result → score annotation
+### critique.result → score + feedback annotation
 
 When `critique.result` arrives with a non-null `score` and a `query_id`:
 1. Transition: `IDLE → UPDATING_SCORE`.
-2. Call `MemoryService.update_engram_score(query_id, score)` — patches the matching engram with `critic_score`.
+2. Call `MemoryService.update_engram_score(query_id, score, feedback)` — patches the matching engram with `critic_score` and `critic_feedback`.
 3. Transition: `UPDATING_SCORE → IDLE`.
+
+`critic_feedback` stores the full Prometheus narrative (the "why" behind the score). This creates an auditable XAI trail: rubric → feedback → score, all attached to the engram.
 
 ---
 
@@ -45,7 +47,7 @@ Wraps a ChromaDB collection (`local_memory` by default). Uses `nomic-embed-text`
 |---|---|
 | `write_episodic(query, answer, metadata, query_id)` | Embed and store a Q+A pair |
 | `search_episodic(query, n_results)` | Semantic similarity search with score bias |
-| `update_engram_score(query_id, score)` | Patch `critic_score` on an existing engram |
+| `update_engram_score(query_id, score, feedback)` | Patch `critic_score` and `critic_feedback` on an existing engram |
 | `list_episodic(n)` | Return the N most recent engrams (for MemoryWindow browse) |
 
 ### Retrieval weighting

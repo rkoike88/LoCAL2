@@ -10,8 +10,10 @@ For state machine diagram, see [../diagrams/critic-state-machine.md](../diagrams
 
 ## Role
 
-- **Absolute grading:** assigns a quality score (1–5) to every generator answer using the Prometheus rubric.
+- **Absolute grading:** assigns a quality score (1–5) and natural language feedback to every generator answer using the Prometheus rubric.
+- **Skips tool-use turns:** if `tool_calls` are present in `response.generation`, grading is skipped. Prometheus cannot verify the accuracy of web-grounded or library-grounded answers.
 - **Never blocks:** on Prometheus failure or score parse failure, publishes `critique.result` with `score=None`. Downstream consumers (MemoryAgent, FastAPI Gateway) treat null as "not graded" and continue normally.
+- **XAI engine:** Prometheus generates a rubric-driven narrative per response — not just a score. This feedback is surfaced in CriticWindow (full text) and stored as `critic_feedback` on the engram for audit trail.
 
 ---
 
@@ -52,9 +54,11 @@ The rubric is loaded from `config/critic.yaml`. Default:
 Score 1: The response is incorrect, harmful, or completely unhelpful.
 Score 2: The response is mostly wrong or missing important information.
 Score 3: The response is partially correct but incomplete or unclear.
-Score 4: The response is mostly correct with minor gaps.
-Score 5: The response is accurate, complete, and clearly explained.
+Score 4: The response is mostly correct but has minor gaps or omissions a careful reader would notice.
+Score 5: The response is accurate, complete, and clearly explained with no notable omissions or missing context.
 ```
+
+The 4/5 boundary is intentionally strict: "mostly correct with minor gaps" earns a 4, not a 5. A 5 requires that a careful reader would find nothing left out.
 
 Prometheus is instructed to output: `Feedback: (text) [RESULT] (1-5)`. The critic parses `[RESULT] N` with a regex; if parsing fails, `score=None` is published.
 

@@ -9,8 +9,8 @@ rubric: |
   Score 1: The response is incorrect, harmful, or completely unhelpful.
   Score 2: The response is mostly wrong or missing important information.
   Score 3: The response is partially correct but incomplete or unclear.
-  Score 4: The response is mostly correct with minor gaps.
-  Score 5: The response is accurate, complete, and clearly explained.
+  Score 4: The response is mostly correct but has minor gaps or omissions a careful reader would notice.
+  Score 5: The response is accurate, complete, and clearly explained with no notable omissions or missing context.
 
 grade_prompt: |
   ###Task Description:

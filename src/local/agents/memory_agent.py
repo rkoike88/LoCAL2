@@ -96,13 +96,14 @@ class MemoryAgent(BaseAgent):
         msg = CritiqueResult.from_envelope(envelope)
         query_id: str = msg.query_id
         score = msg.score
+        feedback: str = msg.feedback or ""
 
         if not query_id or score is None:
             return
 
         self._do_transition(MemoryAgentAction.UPDATE_SCORE)
         try:
-            self._memory.update_engram_score(query_id, score)
+            self._memory.update_engram_score(query_id, score, feedback)
             logger.info("MemoryAgent: scored engram %s → %d", query_id, score)
         except Exception as exc:
             logger.error("MemoryAgent: update_engram_score failed: %s", exc)

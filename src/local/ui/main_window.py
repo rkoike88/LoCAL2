@@ -175,10 +175,13 @@ class StreamingResponseWidget(QWidget):
         bottom_row = QHBoxLayout()
         bottom_row.setContentsMargins(0, 0, 0, 0)
 
-        self._score_label = QLabel()
-        self._score_label.setObjectName("scoreLabel")
-        self._score_label.setVisible(False)
-        bottom_row.addWidget(self._score_label)
+        self._score_btn = QPushButton()
+        self._score_btn.setObjectName("scoreToggle")
+        self._score_btn.setFlat(True)
+        self._score_btn.setCursor(Qt.PointingHandCursor)
+        self._score_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._score_btn.setVisible(False)
+        bottom_row.addWidget(self._score_btn)
         bottom_row.addStretch()
 
         self._thumb_up = QPushButton("👍")
@@ -205,8 +208,19 @@ class StreamingResponseWidget(QWidget):
         bottom_row.addWidget(self._thumb_down)
         layout.addLayout(bottom_row)
 
+        self._feedback_box = QTextEdit()
+        self._feedback_box.setObjectName("feedbackBox")
+        self._feedback_box.setReadOnly(True)
+        self._feedback_box.setMaximumHeight(120)
+        self._feedback_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._feedback_box.setVisible(False)
+        layout.addWidget(self._feedback_box)
+
         self._thinking_visible = True
+        self._feedback_visible = False
+        self._has_feedback = False
         self._toggle_btn.clicked.connect(self._toggle)
+        self._score_btn.clicked.connect(self._toggle_feedback)
         self._thumb_up.clicked.connect(lambda: self._emit_feedback("positive"))
         self._thumb_down.clicked.connect(lambda: self._emit_feedback("negative"))
 
@@ -220,10 +234,18 @@ class StreamingResponseWidget(QWidget):
             return
         colors = {5: "#22c55e", 4: "#22c55e", 3: "#f59e0b", 2: "#ef4444", 1: "#ef4444"}
         color = colors.get(score, "#666666")
-        self._score_label.setText(f"● {score}/5")
-        self._score_label.setStyleSheet(f"color: {color}; font-family: 'Menlo','Monaco','Courier New'; font-size: 12px;")
-        self._score_label.setToolTip(feedback or "")
-        self._score_label.setVisible(True)
+        has_text = bool(feedback)
+        arrow = "  ▶" if has_text else ""
+        self._score_btn.setText(f"● {score}/5  ◈ feedback{arrow}")
+        self._score_btn.setStyleSheet(
+            f"color: {color}; background: transparent; border: none; "
+            "font-family: 'Menlo','Monaco','Courier New'; font-size: 12px; "
+            "padding: 2px 0px; text-align: left;"
+        )
+        if has_text:
+            self._feedback_box.setPlainText(feedback)
+            self._has_feedback = True
+        self._score_btn.setVisible(True)
 
     def append_thinking_chunk(self, chunk: str) -> None:
         if not self._toggle_btn.isVisible():
@@ -247,6 +269,14 @@ class StreamingResponseWidget(QWidget):
             self._toggle_btn.setText("◈ thinking  ▶")
         self._answer_browser.setHtml(_to_html(answer or "(empty)"))
         self._answer_browser.setVisible(True)
+        if tool_calls:
+            self._score_btn.setText("⊙ grounded")
+            self._score_btn.setStyleSheet(
+                "color: #555; background: transparent; border: none; "
+                "font-family: 'Menlo','Monaco','Courier New'; font-size: 12px; "
+                "padding: 2px 0px; text-align: left;"
+            )
+            self._score_btn.setVisible(True)
         if query_id:
             self._thumb_up.setVisible(True)
             self._thumb_down.setVisible(True)
@@ -266,6 +296,14 @@ class StreamingResponseWidget(QWidget):
         self._toggle_btn.setText(
             "◈ thinking  ▼" if self._thinking_visible else "◈ thinking  ▶"
         )
+
+    def _toggle_feedback(self) -> None:
+        if not self._has_feedback:
+            return
+        self._feedback_visible = not self._feedback_visible
+        self._feedback_box.setVisible(self._feedback_visible)
+        t = self._score_btn.text()
+        self._score_btn.setText(t[:-1] + ("▼" if self._feedback_visible else "▶"))
 
 
 # ---------------------------------------------------------------------------
@@ -1143,6 +1181,26 @@ class MainWindow(QMainWindow):
             QTextEdit#thinkingBox {
                 background: #0a0a0a;
                 color: #555555;
+                border: 1px solid #1e1e1e;
+                border-radius: 4px;
+                font-family: "Menlo", "Monaco", "Courier New";
+                font-size: 12px;
+                padding: 8px;
+            }
+            QPushButton#scoreToggle {
+                background: transparent;
+                border: none;
+                font-family: "Menlo", "Monaco", "Courier New";
+                font-size: 12px;
+                padding: 2px 0px;
+                text-align: left;
+            }
+            QPushButton#scoreToggle:hover {
+                opacity: 0.8;
+            }
+            QTextEdit#feedbackBox {
+                background: #0a0a0a;
+                color: #888888;
                 border: 1px solid #1e1e1e;
                 border-radius: 4px;
                 font-family: "Menlo", "Monaco", "Courier New";

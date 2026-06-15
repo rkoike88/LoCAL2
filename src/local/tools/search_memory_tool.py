@@ -74,6 +74,10 @@ class SearchMemoryTool(BaseTool):
         lines = []
         for i, c in enumerate(candidates, 1):
             critic_score = c["metadata"].get("critic_score")
+            critic_feedback = c["metadata"].get("critic_feedback", "")
             suffix = f" [quality: {critic_score}/5]" if critic_score is not None else ""
-            lines.append(f"{i}.{suffix} {c['content']}")
+            entry = f"{i}.{suffix} {c['content']}"
+            if critic_feedback:
+                entry += f"\n   [critique: {critic_feedback}]"
+            lines.append(entry)
         return "\n\n".join(lines)

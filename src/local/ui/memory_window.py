@@ -407,7 +407,17 @@ class MemoryWindow(QWidget):
                 item = QTableWidgetItem(val)
                 item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
                 self._table.setItem(r, col, item)
-            self._table.item(r, 0).setData(Qt.UserRole, content)
+            detail = content
+            critique_feedback = meta.get("critic_feedback", "")
+            critique_score = meta.get("critic_score")
+            if critique_score is not None or critique_feedback:
+                parts = [f"─── Critique ───"]
+                if critique_score is not None:
+                    parts.append(f"Score: {critique_score}/5")
+                if critique_feedback:
+                    parts.append(critique_feedback)
+                detail = content + "\n\n" + "\n".join(parts)
+            self._table.item(r, 0).setData(Qt.UserRole, detail)
             self._table.item(r, 0).setData(Qt.UserRole + 1, meta.get("session_id", ""))
 
             if engram_id and self._memory:

@@ -84,12 +84,10 @@ function Spinner() {
 
 function CritiqueBar({
   score,
-  feedback,
   queryId,
   sessionId,
 }: {
   score: number | null;
-  feedback: string;
   queryId: string;
   sessionId: string;
 }) {
@@ -105,41 +103,37 @@ function CritiqueBar({
   }
 
   const scoreColor: Record<number, string> = {
-    1: "bg-red-500",
-    2: "bg-orange-500",
-    3: "bg-yellow-500",
-    4: "bg-green-400",
-    5: "bg-emerald-400",
+    1: "text-red-500",
+    2: "text-orange-500",
+    3: "text-yellow-500",
+    4: "text-green-400",
+    5: "text-emerald-400",
   };
 
   return (
-    <div className="flex items-center gap-3 pt-1">
-      {score != null && (
-        <div className="group relative flex items-center gap-1.5 cursor-default">
-          <span className={`inline-block w-2 h-2 rounded-full ${scoreColor[score] ?? "bg-gray-500"}`} />
-          <span className="text-xs text-gray-600">{score}/5</span>
-          {feedback && (
-            <div className="pointer-events-none absolute bottom-full left-0 mb-1.5 w-64 bg-surface-1 border border-surface-3 rounded-lg p-2 text-xs text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity shadow-xl z-10">
-              {feedback}
-            </div>
-          )}
+    <div className="pt-1">
+      <div className="flex items-center gap-3">
+        {score != null ? (
+          <span className={`text-xs ${scoreColor[score] ?? "text-gray-500"}`}>
+            ● {score}/5
+          </span>
+        ) : null}
+        <div className="flex gap-1 ml-auto">
+          <button
+            onClick={() => sendFeedback("positive")}
+            title="Good response"
+            className={`text-sm transition-colors ${sentiment === "positive" ? "text-green-400" : "text-gray-700 hover:text-gray-400"}`}
+          >
+            ↑
+          </button>
+          <button
+            onClick={() => sendFeedback("negative")}
+            title="Poor response"
+            className={`text-sm transition-colors ${sentiment === "negative" ? "text-red-400" : "text-gray-700 hover:text-gray-400"}`}
+          >
+            ↓
+          </button>
         </div>
-      )}
-      <div className="flex gap-1 ml-auto">
-        <button
-          onClick={() => sendFeedback("positive")}
-          title="Good response"
-          className={`text-sm transition-colors ${sentiment === "positive" ? "text-green-400" : "text-gray-700 hover:text-gray-400"}`}
-        >
-          ↑
-        </button>
-        <button
-          onClick={() => sendFeedback("negative")}
-          title="Poor response"
-          className={`text-sm transition-colors ${sentiment === "negative" ? "text-red-400" : "text-gray-700 hover:text-gray-400"}`}
-        >
-          ↓
-        </button>
       </div>
     </div>
   );
@@ -384,7 +378,6 @@ function MessageRow({ msg, sessionId }: { msg: ChatMessage; sessionId: string })
       </div>
       <CritiqueBar
         score={msg.critique?.score ?? null}
-        feedback={msg.critique?.feedback ?? ""}
         queryId={msg.id}
         sessionId={sessionId}
       />

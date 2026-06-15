@@ -27,7 +27,7 @@ class CriticWindow(BaseObservabilityWindow):
         ts = self._ts()
         score = data.get("score")
         query = (data.get("query") or "")[:60].replace("\n", " ")
-        feedback = (data.get("feedback") or "")[:100].replace("\n", " ")
+        feedback = (data.get("feedback") or "").strip()
 
         score_str = f"● {score}/5" if score is not None else "● —"
         color = _SCORE_COLORS.get(score, "#888888")
@@ -36,7 +36,8 @@ class CriticWindow(BaseObservabilityWindow):
         if query:
             lines.append(f"   Q: {query}")
         if feedback:
-            lines.append(f"   {feedback}")
+            for line in feedback.splitlines():
+                lines.append(f"   {line}")
         self.append_entry("\n".join(lines), color=color)
 
     def append_transition(self, data: dict) -> None:

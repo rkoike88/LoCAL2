@@ -114,7 +114,7 @@ def translate(envelope: MessageEnvelope) -> dict | None:
             "type": "critique",
             "score": payload.get("score"),
             "feedback": payload.get("feedback", ""),
-            "query_id": query_id,
+            "query_id": payload.get("query_id") or query_id,
         }
 
     return None

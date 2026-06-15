@@ -64,9 +64,10 @@ OBSERVE = [
     CRITIQUE,
 ]
 
-# Window after RESPONSE_GENERATION before the stream closes — captures
-# ANSWER_DIALOG and any late-arriving events (critique, etc.).
+# Short trail for tool-use responses (no critique expected).
 _TRAIL_SECONDS = 2.0
+# Extended trail for knowledge responses — waits for Prometheus to finish grading.
+_CRITIQUE_TRAIL_SECONDS = 90.0
 
 
 class LoCALSession:
@@ -126,11 +127,15 @@ class LoCALSession:
                     continue
                 yield msg
                 if msg.subject == RESPONSE_GENERATION:
-                    trail_deadline = time.time() + _TRAIL_SECONDS
+                    used_tools = bool(msg.payload.get("tool_calls"))
+                    trail_secs = _TRAIL_SECONDS if used_tools else _CRITIQUE_TRAIL_SECONDS
+                    trail_deadline = time.time() + trail_secs
                     while time.time() < trail_deadline:
                         trail = sub.receive_with_timeout(200)
                         if trail is not None and trail.correlation_id == query_id:
                             yield trail
+                            if trail.subject == CRITIQUE:
+                                return
                     return
         finally:
             sub.close()

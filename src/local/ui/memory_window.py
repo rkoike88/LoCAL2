@@ -71,7 +71,8 @@ _ROLE_STYLE: dict[str, tuple[str, str]] = {
 
 
 class MemoryWindow(QWidget):
-    _EPISODIC_COLS = ["Age", "Resp", "Score", "Senti", "Winner", "Query", ""]
+    _EPISODIC_COLS = ["Query", "Critic\nScore", "User\nScore", "Age", "Resp", "Winner", ""]
+    _SEARCH_COLS   = ["Query", "Sim", "Critic\nScore", "User\nScore", "Age", "Resp", "Winner", ""]
     _CONTEXT_COLS  = ["#", "Role", "Preview"]
 
     def __init__(self, memory_service=None, conversation_service=None, session_id_getter=None) -> None:
@@ -181,6 +182,8 @@ class MemoryWindow(QWidget):
         self._table.setHorizontalHeaderLabels(self._EPISODIC_COLS)
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self._table.horizontalHeader().setStretchLastSection(True)
+        self._table.horizontalHeader().setDefaultAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        self._table.horizontalHeader().setFixedHeight(36)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.setEditTriggers(QTableWidget.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
@@ -223,7 +226,7 @@ class MemoryWindow(QWidget):
         self._set_mode_buttons(_MODE_SEARCH)
         self._search_bar.setVisible(True)
         self._context_btn.setText("Context")
-        self._set_table_columns(self._EPISODIC_COLS)
+        self._set_table_columns(self._SEARCH_COLS)
         self._search_input.setFocus()
 
     def _activate_context(self) -> None:
@@ -245,6 +248,9 @@ class MemoryWindow(QWidget):
         self._table.setColumnCount(len(cols))
         self._table.setHorizontalHeaderLabels(cols)
         hdr = self._table.horizontalHeader()
+        hdr.setDefaultAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        hdr.setMinimumSectionSize(30)
+        self._table.verticalHeader().setDefaultSectionSize(26)
         # If the last column is the delete-button column (empty header),
         # stretch the second-to-last and fix the last.
         if cols and cols[-1] == "":
@@ -386,6 +392,14 @@ class MemoryWindow(QWidget):
     def _populate_episodic(self, rows: list) -> None:
         self._table.setRowCount(0)
         self._detail.clear()
+
+        # Normalize raw composite scores to 0–1 for display in search mode.
+        in_search = self._mode == _MODE_SEARCH
+        if in_search and rows:
+            raw_scores = [r.get("score") for r in rows if r.get("score") is not None]
+            s_min, s_max = (min(raw_scores), max(raw_scores)) if raw_scores else (0, 1)
+            s_range = s_max - s_min or 1.0
+
         for row_data in rows:
             meta       = row_data.get("metadata") or {}
             content    = row_data.get("content") or ""
@@ -403,20 +417,33 @@ class MemoryWindow(QWidget):
 
             r = self._table.rowCount()
             self._table.insertRow(r)
-            for col, val in enumerate([age, resp, score_str, senti_str, winner_str, query_text]):
+
+            if in_search:
+                raw = row_data.get("score")
+                sim_str = f"{(raw - s_min) / s_range:.2f}" if raw is not None else "—"
+                # new order: Query, Sim, Critic Score, User Score, Age, Resp, Winner
+                row_vals = [query_text, sim_str, score_str, senti_str, age, resp, winner_str]
+            else:
+                # browse order: Query, Critic Score, User Score, Age, Resp, Winner
+                row_vals = [query_text, score_str, senti_str, age, resp, winner_str]
+
+            for col, val in enumerate(row_vals):
                 item = QTableWidgetItem(val)
                 item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
                 self._table.setItem(r, col, item)
+
             detail = content
             critique_feedback = meta.get("critic_feedback", "")
             critique_score = meta.get("critic_score")
             if critique_score is not None or critique_feedback:
-                parts = [f"─── Critique ───"]
+                parts = ["─── Critique ───"]
                 if critique_score is not None:
                     parts.append(f"Score: {critique_score}/5")
                 if critique_feedback:
                     parts.append(critique_feedback)
                 detail = content + "\n\n" + "\n".join(parts)
+
+            # Query is always col 0; attach detail and session_id there.
             self._table.item(r, 0).setData(Qt.UserRole, detail)
             self._table.item(r, 0).setData(Qt.UserRole + 1, meta.get("session_id", ""))
 
@@ -428,7 +455,8 @@ class MemoryWindow(QWidget):
                 del_btn.clicked.connect(
                     lambda _=False, eid=engram_id: self._delete_engram(eid)
                 )
-                self._table.setCellWidget(r, 6, del_btn)
+                del_col = len(row_vals)
+                self._table.setCellWidget(r, del_col, del_btn)
             self._table.setRowHeight(r, 26)
 
     def _delete_engram(self, engram_id: str) -> None:

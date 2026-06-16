@@ -420,8 +420,14 @@ class DocumentService:
 
     def _embed_document(self, text: str) -> list[float]:
         resp = ollama.embed(model=self._embed_model, input=f"search_document: {text}")
-        return resp["embeddings"][0]
+        return self._normalize(resp["embeddings"][0])
 
     def _embed_query(self, text: str) -> list[float]:
         resp = ollama.embed(model=self._embed_model, input=f"search_query: {text}")
-        return resp["embeddings"][0]
+        return self._normalize(resp["embeddings"][0])
+
+    @staticmethod
+    def _normalize(vec: list[float]) -> list[float]:
+        import math
+        norm = math.sqrt(sum(x * x for x in vec))
+        return [x / norm for x in vec] if norm > 0 else vec

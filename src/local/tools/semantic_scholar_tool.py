@@ -41,12 +41,16 @@ def _throttled_get(params: dict, headers: dict, timeout: float, min_gap: float) 
             time.sleep(min_gap - elapsed)
         resp = httpx.get(_API_BASE, params=params, headers=headers, timeout=timeout)
         _last_request_at = time.monotonic()
-    # Retry once on 429 after a brief pause (e.g. dual-respondent back-to-back calls)
+    # Retry once on 429 with a longer backoff before giving up gracefully.
     if resp.status_code == 429:
-        time.sleep(2.0)
+        time.sleep(12.0)
         with _rate_lock:
             resp = httpx.get(_API_BASE, params=params, headers=headers, timeout=timeout)
             _last_request_at = time.monotonic()
+        if resp.status_code == 429:
+            raise RuntimeError(
+                "Semantic Scholar API rate limit exceeded. Please try again in a minute."
+            )
     resp.raise_for_status()
     return resp
 

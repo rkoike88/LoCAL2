@@ -9,7 +9,7 @@ import pytest
 
 from local.services.memory_service import MemoryService
 
-FAKE_EMBEDDING = [0.1, 0.2, 0.3]
+FAKE_EMBEDDING = [0.0, 0.6, 0.8]  # already unit-length: sqrt(0+0.36+0.64)=1
 
 
 def _make_service(collection: MagicMock) -> MemoryService:

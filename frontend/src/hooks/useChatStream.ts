@@ -4,6 +4,7 @@ import type {
   Attachment,
   ChatMessage,
   GatewayEvent,
+  RetrievalSource,
   StreamingTurn,
   ToolCall,
 } from "../types/events";
@@ -46,6 +47,7 @@ export function useChatStream(
   const [streaming, setStreaming] = useState<StreamingTurn | null>(null);
   const [tokenCount, setTokenCount] = useState(0);
   const pendingToolCallsRef = useRef<ToolCall[]>([]);
+  const pendingSourcesRef = useRef<Record<string, RetrievalSource[]>>({});
   const pendingQueryIdRef = useRef<string>("");
   const onResponseRef = useRef(onResponse);
   onResponseRef.current = onResponse;
@@ -85,6 +87,14 @@ export function useChatStream(
             ...pendingToolCallsRef.current,
             { tool: ev.tool, args: {}, result: ev.result },
           ];
+          // Accumulate retrieval sources keyed by query_id.
+          if (ev.sources?.length) {
+            const qid = ev.query_id;
+            pendingSourcesRef.current[qid] = [
+              ...(pendingSourcesRef.current[qid] ?? []),
+              ...ev.sources,
+            ];
+          }
           setStreaming((prev) =>
             prev ? { ...prev, active_tool: null } : null
           );
@@ -92,6 +102,16 @@ export function useChatStream(
         }
 
         case "response": {
+          const _WEB = new Set(["web_search", "web_fetch"]);
+          const _GROUNDED = new Set(["search_memory", "search_library", "search_papers"]);
+          const toolNames = new Set(ev.tool_calls.map((tc) => tc.tool));
+          const groundedness: ChatMessage["groundedness"] = toolNames.size === 0
+            ? "knowledge"
+            : [...toolNames].some((n) => _WEB.has(n)) ? "web"
+            : [...toolNames].some((n) => _GROUNDED.has(n)) ? "grounded"
+            : "knowledge";
+          const sources = pendingSourcesRef.current[ev.query_id] ?? [];
+          delete pendingSourcesRef.current[ev.query_id];
           const msg: ChatMessage = {
             id: ev.query_id,
             role: "assistant",
@@ -99,6 +119,8 @@ export function useChatStream(
             thinking: ev.thinking || undefined,
             tool_calls:
               ev.tool_calls.length > 0 ? ev.tool_calls : undefined,
+            groundedness,
+            sources: sources.length > 0 ? sources : undefined,
             prompt_tokens: ev.prompt_tokens,
           };
           if (ev.prompt_tokens) setTokenCount(ev.prompt_tokens);

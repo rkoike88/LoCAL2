@@ -49,18 +49,25 @@ _FRONTEND_DIST = _PACKAGE_STATIC if (_PACKAGE_STATIC / "index.html").exists() el
 
 # Injected by configure() before uvicorn starts.
 _conversation_service: ConversationService | None = None
+_memory_service = None
+
+_WEB_TOOLS      = {"web_search", "web_fetch"}
+_GROUNDED_TOOLS = {"search_memory", "search_library", "search_papers"}
 
 
-def configure(*, conversation_service: ConversationService) -> None:
-    """Inject shared services before the server starts.
+def _derive_groundedness(tool_names: set) -> str:
+    if tool_names & _WEB_TOOLS:
+        return "web"
+    if tool_names & _GROUNDED_TOOLS:
+        return "grounded"
+    return "knowledge"
 
-    Args:
-        conversation_service: The shared ConversationService instance created
-            in run_local.py — passed here so REST endpoints can read/write
-            session history.
-    """
-    global _conversation_service
+
+def configure(*, conversation_service: ConversationService, memory_service=None) -> None:
+    """Inject shared services before the server starts."""
+    global _conversation_service, _memory_service
     _conversation_service = conversation_service
+    _memory_service = memory_service
 
 
 def _get_conv() -> ConversationService:
@@ -188,7 +195,54 @@ async def get_session(session_id: str) -> JSONResponse:
     history = _get_conv().get_history(session_id)
     if history is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    return JSONResponse({"session_id": session_id, "messages": history})
+
+    engrams = _memory_service.get_session_engrams(session_id) if _memory_service else []
+    engram_idx = 0
+    enriched: list[dict] = []
+    i = 0
+    while i < len(history):
+        msg = history[i]
+        role = msg.get("role", "")
+        if role == "user":
+            enriched.append({"role": "user", "content": msg.get("content") or ""})
+            i += 1
+        elif role == "assistant":
+            # Accumulate all tool names across this exchange (may span multiple turns)
+            tool_names: set[str] = set()
+            final_content = (msg.get("content") or "").strip()
+            for tc in (msg.get("tool_calls") or []):
+                name = (tc.get("function") or {}).get("name", "")
+                if name:
+                    tool_names.add(name)
+            j = i + 1
+            while j < len(history) and history[j].get("role") in ("tool", "assistant"):
+                if history[j].get("role") == "assistant":
+                    c = (history[j].get("content") or "").strip()
+                    if c:
+                        final_content = c
+                    for tc in (history[j].get("tool_calls") or []):
+                        name = (tc.get("function") or {}).get("name", "")
+                        if name:
+                            tool_names.add(name)
+                j += 1
+            score, feedback = None, ""
+            if engram_idx < len(engrams):
+                meta = engrams[engram_idx].get("metadata") or {}
+                score = meta.get("critic_score")
+                feedback = meta.get("critic_feedback") or ""
+                engram_idx += 1
+            enriched.append({
+                "role": "assistant",
+                "content": final_content,
+                "groundedness": _derive_groundedness(tool_names),
+                "critic_score": score,
+                "critic_feedback": feedback,
+            })
+            i = j
+        else:
+            i += 1
+
+    return JSONResponse({"session_id": session_id, "messages": enriched})
 
 
 @app.delete("/api/sessions/{session_id}")

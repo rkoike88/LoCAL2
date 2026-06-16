@@ -37,14 +37,26 @@ export function useSessions(): UseSessionsResult {
     try {
       const res = await fetch(`/api/sessions/${id}`);
       if (!res.ok) return [];
-      const data: { messages: Array<{ role: string; content: string }> } =
-        await res.json();
+      const data: {
+        messages: Array<{
+          role: string;
+          content: string;
+          groundedness?: string;
+          critic_score?: number | null;
+          critic_feedback?: string;
+        }>;
+      } = await res.json();
       return (data.messages ?? [])
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({
           id: randomUUID(),
           role: m.role as "user" | "assistant",
           content: m.content,
+          groundedness: m.groundedness as ChatMessage["groundedness"],
+          critique:
+            m.critic_score != null
+              ? { score: m.critic_score, feedback: m.critic_feedback ?? "" }
+              : undefined,
         }));
     } catch {
       return [];

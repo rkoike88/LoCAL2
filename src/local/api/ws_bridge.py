@@ -95,6 +95,7 @@ def translate(envelope: MessageEnvelope) -> dict | None:
             "type": "tool_result",
             "tool": tool_name,
             "result": payload.get("result", ""),
+            "sources": payload.get("sources", []),
             "query_id": query_id,
         }
 

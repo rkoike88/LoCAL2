@@ -6,7 +6,7 @@ import { SessionSidebar } from "./components/SessionSidebar";
 import { TokenGauge } from "./components/TokenGauge";
 import { useChatStream } from "./hooks/useChatStream";
 import { useSessions } from "./hooks/useSessions";
-import type { Attachment, ChatMessage, ToolCall } from "./types/events";
+import type { Attachment, ChatMessage, RetrievalSource, ToolCall } from "./types/events";
 import { randomUUID } from "./utils/uuid";
 
 // ---------------------------------------------------------------------------
@@ -82,16 +82,67 @@ function Spinner() {
   );
 }
 
+function SourcesStrip({ sources }: { sources: RetrievalSource[] }) {
+  const [open, setOpen] = useState(false);
+  if (!sources.length) return null;
+
+  return (
+    <div className="text-xs text-gray-500 font-mono">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="hover:text-gray-400 transition-colors bg-transparent border-none p-0 cursor-pointer"
+      >
+        {open ? "▼" : "▶"} {sources.length} source{sources.length !== 1 ? "s" : ""}
+      </button>
+      {open && (
+        <div className="mt-1 space-y-1 pl-3 border-l border-surface-3">
+          {sources.map((s, i) => {
+            const prefix = i === 0 ? "┌" : i === sources.length - 1 ? "└" : "├";
+            if (s.type === "memory") {
+              const scoreStr = s.score != null ? ` · ${s.score.toFixed(2)}` : "";
+              const queryStr = s.query ? `"${s.query.slice(0, 50)}${s.query.length > 50 ? "…" : ""}"` : s.id ?? "";
+              return (
+                <div key={i} className="text-gray-500" title={s.snippet}>
+                  {prefix} memory: {queryStr}{scoreStr}
+                </div>
+              );
+            } else {
+              const pageStr = s.page != null ? ` p.${s.page}` : "";
+              const chunkStr = s.chunk_index != null ? ` chunk ${s.chunk_index}` : "";
+              return (
+                <div key={i} className="text-gray-500" title={s.snippet}>
+                  {prefix} {s.source_file}{pageStr}{chunkStr}
+                </div>
+              );
+            }
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const GROUND_CONFIG: Record<string, { label: string; className: string; title: string }> = {
+  grounded:  { label: "⊙ grounded",  className: "text-teal-400",  title: "Answer drew on retrieved memory or library sources" },
+  web:       { label: "◉ web",        className: "text-blue-400",  title: "Answer drew on live web search or fetched page content" },
+  knowledge: { label: "○ knowledge",  className: "text-gray-600",  title: "Answer came from the model's training knowledge — no retrieval tools used" },
+};
+
 function CritiqueBar({
   score,
+  feedback,
+  groundedness,
   queryId,
   sessionId,
 }: {
   score: number | null;
+  feedback?: string;
+  groundedness?: string;
   queryId: string;
   sessionId: string;
 }) {
   const [sentiment, setSentiment] = useState<"positive" | "negative" | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   async function sendFeedback(s: "positive" | "negative") {
     setSentiment(s);
@@ -110,13 +161,25 @@ function CritiqueBar({
     5: "text-emerald-400",
   };
 
+  const ground = groundedness ? GROUND_CONFIG[groundedness] : null;
+  const hasFeedback = Boolean(feedback);
+
   return (
     <div className="pt-1">
       <div className="flex items-center gap-3">
-        {score != null ? (
-          <span className={`text-xs ${scoreColor[score] ?? "text-gray-500"}`}>
-            ● {score}/5
+        {ground && (
+          <span className={`text-xs ${ground.className}`} title={ground.title}>
+            {ground.label}
           </span>
+        )}
+        {score != null ? (
+          <button
+            className={`text-xs ${scoreColor[score] ?? "text-gray-500"} ${hasFeedback ? "hover:opacity-70 cursor-pointer" : "cursor-default"} bg-transparent border-none p-0`}
+            onClick={() => hasFeedback && setFeedbackOpen((v) => !v)}
+            title={hasFeedback ? "Toggle Prometheus feedback" : undefined}
+          >
+            ● {score}/5{hasFeedback ? (feedbackOpen ? "  ◈ feedback ▼" : "  ◈ feedback ▶") : ""}
+          </button>
         ) : null}
         <div className="flex gap-1 ml-auto">
           <button
@@ -135,6 +198,11 @@ function CritiqueBar({
           </button>
         </div>
       </div>
+      {feedbackOpen && feedback && (
+        <div className="mt-2 text-xs text-gray-400 font-mono whitespace-pre-wrap border-l-2 border-surface-3 pl-3">
+          {feedback}
+        </div>
+      )}
     </div>
   );
 }
@@ -362,6 +430,7 @@ function MessageRow({ msg, sessionId }: { msg: ChatMessage; sessionId: string })
     <div className="space-y-2 max-w-2xl">
       {msg.thinking && <ThinkingBlock text={msg.thinking} streaming={false} />}
       <ToolChips calls={msg.tool_calls} />
+      {msg.sources && <SourcesStrip sources={msg.sources} />}
       <div className="prose prose-invert prose-sm max-w-none">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
@@ -378,6 +447,8 @@ function MessageRow({ msg, sessionId }: { msg: ChatMessage; sessionId: string })
       </div>
       <CritiqueBar
         score={msg.critique?.score ?? null}
+        feedback={msg.critique?.feedback}
+        groundedness={msg.groundedness}
         queryId={msg.id}
         sessionId={sessionId}
       />

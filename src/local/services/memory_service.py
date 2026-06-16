@@ -227,6 +227,26 @@ class MemoryService:
             for id_, doc, meta in items[:n]
         ]
 
+    def get_session_engrams(self, session_id: str) -> list[dict[str, Any]]:
+        """Return all episodic engrams for session_id, sorted oldest-first."""
+        if not session_id:
+            return []
+        try:
+            result = self._collection.get(
+                where={"$and": [{"type": {"$eq": "episodic"}}, {"session_id": {"$eq": session_id}}]},
+                include=["metadatas", "documents"],
+            )
+        except Exception:
+            return []
+        ids   = result.get("ids") or []
+        docs  = result.get("documents") or []
+        metas = result.get("metadatas") or []
+        items = sorted(
+            zip(ids, docs, metas),
+            key=lambda x: x[2].get("timestamp", 0),
+        )
+        return [{"id": id_, "content": doc, "metadata": meta} for id_, doc, meta in items]
+
     def delete_episodic(self, engram_id: str) -> None:
         """Delete a single episodic engram by its ChromaDB document ID."""
         self._collection.delete(ids=[engram_id])

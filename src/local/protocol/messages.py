@@ -236,6 +236,7 @@ class ToolResult(BusMessage):
     tool:           str
     result:         str
     correlation_id: str = ""
+    sources:        list = field(default_factory=list)
 
     @property  # type: ignore[override]
     def subject(self) -> str:  # type: ignore[override]
@@ -247,7 +248,7 @@ class ToolResult(BusMessage):
             message_type=self.message_type,
             subject=self.subject,
             sender_id=sender_id,
-            payload={"tool": self.tool, "result": self.result},
+            payload={"tool": self.tool, "result": self.result, "sources": self.sources},
             correlation_id=cid,
         )
 

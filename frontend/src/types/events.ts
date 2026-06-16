@@ -13,10 +13,24 @@ export interface ToolStartEvent {
   query_id: string;
 }
 
+export interface RetrievalSource {
+  type: "memory" | "library";
+  // memory fields
+  id?: string;
+  score?: number;
+  snippet?: string;
+  query?: string;
+  // library fields
+  source_file?: string;
+  chunk_index?: number;
+  page?: number;
+}
+
 export interface ToolResultEvent {
   type: "tool_result";
   tool: string;
   result: string;
+  sources: RetrievalSource[];
   query_id: string;
 }
 
@@ -66,6 +80,8 @@ export interface ChatMessage {
   thinking?: string;
   tool_calls?: ToolCall[];
   critique?: { score: number | null; feedback: string };
+  groundedness?: "grounded" | "web" | "knowledge";
+  sources?: RetrievalSource[];
   prompt_tokens?: number;
   attachments?: Attachment[];
 }

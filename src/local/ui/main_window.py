@@ -88,6 +88,17 @@ _TOOL_ACTIVITY_SUBJECTS = [
     TOOL_ACTIVITY_SEARCH_DOCUMENTS,
 ]
 
+_WEB_TOOLS      = {"web_search", "web_fetch"}
+_GROUNDED_TOOLS = {"search_memory", "search_library", "search_papers"}
+
+
+def _derive_groundedness(tool_names: set) -> str:
+    if tool_names & _WEB_TOOLS:
+        return "web"
+    if tool_names & _GROUNDED_TOOLS:
+        return "grounded"
+    return "knowledge"
+
 # col, row within the 5×2 panel grid (right 5/7 of screen).
 # 2-tuple = full height; 3-tuple (col, row, half) = half height (half 0=top, 1=bottom).
 _TOOL_PANEL_SLOTS: dict[str, tuple] = {
@@ -120,7 +131,18 @@ class StreamingResponseWidget(QWidget):
 
         self._header = QLabel(f"[{ts}] RESPONSE  ⟳")
         self._header.setObjectName("logHeader")
-        layout.addWidget(self._header)
+
+        self._ground_label = QLabel()
+        self._ground_label.setObjectName("groundLabel")
+        self._ground_label.setVisible(False)
+
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(10)
+        header_row.addWidget(self._header)
+        header_row.addWidget(self._ground_label)
+        header_row.addStretch()
+        layout.addLayout(header_row)
 
         self._attach_label = QLabel()
         self._attach_label.setObjectName("attachSummary")
@@ -228,6 +250,20 @@ class StreamingResponseWidget(QWidget):
         if names:
             self._attach_label.setText("[attached: " + ", ".join(names) + "]")
             self._attach_label.setVisible(True)
+
+    def set_groundedness(self, level: str) -> None:
+        _LEVELS = {
+            "grounded":  ("⊙ grounded",  "#7ec8a4", "Answer drew on retrieved memory or library sources"),
+            "web":       ("◉ web",        "#9dbde8", "Answer drew on live web search or fetched page content"),
+            "knowledge": ("○ knowledge",  "#555555", "Answer came from the model's training knowledge — no retrieval tools used"),
+        }
+        text, color, tooltip = _LEVELS.get(level, _LEVELS["knowledge"])
+        self._ground_label.setText(text)
+        self._ground_label.setToolTip(tooltip)
+        self._ground_label.setStyleSheet(
+            f"color: {color}; font-family: 'Menlo','Monaco','Courier New'; font-size: 11px;"
+        )
+        self._ground_label.setVisible(True)
 
     def set_score(self, score: int | None, feedback: str) -> None:
         if score is None:
@@ -600,7 +636,9 @@ class MainWindow(QMainWindow):
         self._publisher = publisher
         self._conv = conversation_service
         self._session_id = str(uuid.uuid4())
+        self._memory_service = memory_service
         self._pending: dict[str, StreamingResponseWidget] = {}
+        self._pending_ground: dict[str, set[str]] = {}
         self._response_widgets: dict[str, StreamingResponseWidget] = {}
         self._pending_attachments: dict[str, list[str]] = {}
         title = "LoCAL2"
@@ -820,6 +858,9 @@ class MainWindow(QMainWindow):
         win = self._tool_windows.get(tool_name)
         if win:
             win.append_activity(envelope)
+        payload = envelope.payload or {}
+        if payload.get("event") == "request" and envelope.correlation_id:
+            self._pending_ground.setdefault(envelope.correlation_id, set()).add(tool_name)
 
     def _request_tool_schemas(self) -> None:
         self._publisher.publish(ToolSchemaRequest(), sender_id="ui")
@@ -943,6 +984,12 @@ class MainWindow(QMainWindow):
         self._clear_log()
 
         messages = self._conv.get_history(session_id) if self._conv else []
+        engrams = (
+            self._memory_service.get_session_engrams(session_id)
+            if self._memory_service else []
+        )
+        engram_idx = 0
+
         i = 0
         while i < len(messages):
             msg = messages[i]
@@ -970,6 +1017,21 @@ class MainWindow(QMainWindow):
                     j += 1
                 widget = StreamingResponseWidget("─")
                 widget.finalize("─", final_content, final_tool_calls)
+
+                # Groundedness from stored tool calls
+                from local.agents.ollama_types import OllamaToolCall
+                tool_names = {OllamaToolCall.from_any(tc).name for tc in final_tool_calls}
+                widget.set_groundedness(_derive_groundedness(tool_names))
+
+                # Score + feedback from matching engram
+                if engram_idx < len(engrams):
+                    meta = engrams[engram_idx].get("metadata") or {}
+                    score = meta.get("critic_score")
+                    feedback = meta.get("critic_feedback") or ""
+                    if score is not None:
+                        widget.set_score(score, feedback)
+                    engram_idx += 1
+
                 self._insert_log_widget(widget)
                 i = j
             else:
@@ -1017,6 +1079,10 @@ class MainWindow(QMainWindow):
             self._insert_log_widget(widget)
         widget.finalize(data["ts"], data["answer"], data["tool_calls"], query_id=query_id)
         widget.feedback.connect(self._on_user_feedback)
+
+        tools_used = self._pending_ground.pop(query_id, set())
+        widget.set_groundedness(_derive_groundedness(tools_used))
+
         if query_id:
             self._response_widgets[query_id] = widget
         self._scroll_to_bottom()

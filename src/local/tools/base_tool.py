@@ -90,16 +90,22 @@ class BaseTool(Participant):
         self,
         result: str,
         correlation_id: str | None,
+        sources: list | None = None,
     ) -> None:
         """Publish a tool.result.* envelope to the bus.
 
         Args:
             result: The tool's string output, forwarded to GeneratorAgent.
             correlation_id: Forwarded from the originating request envelope.
-            extra: Optional additional payload fields (rarely needed).
+            sources: Optional list of retrieval source dicts for UI attribution.
         """
         self._pub.publish(
-            ToolResult(tool=self.TOOL_NAME, result=result, correlation_id=correlation_id or ""),
+            ToolResult(
+                tool=self.TOOL_NAME,
+                result=result,
+                correlation_id=correlation_id or "",
+                sources=sources or [],
+            ),
             sender_id=self.id,
         )
 

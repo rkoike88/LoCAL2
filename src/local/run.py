@@ -128,7 +128,7 @@ def main() -> None:
         from local.services.conversation_service import ConversationService
         shared_conv = ConversationService()
         from local.api.gateway import configure
-        configure(conversation_service=shared_conv)
+        configure(conversation_service=shared_conv, memory_service=None)
         web_thread = threading.Thread(
             target=_start_web, args=(args.web_port,), daemon=True, name="web"
         )
@@ -215,7 +215,7 @@ def main() -> None:
         sys.exit(app_qt.exec())
     else:
         from local.api.gateway import configure
-        configure(conversation_service=shared_conv)
+        configure(conversation_service=shared_conv, memory_service=shared_memory)
 
         web_thread = threading.Thread(
             target=_start_web, args=(args.web_port,), daemon=True, name="web"

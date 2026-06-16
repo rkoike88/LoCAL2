@@ -56,21 +56,34 @@ class SearchMemoryTool(BaseTool):
         self._publish_activity("request", {"query": query}, correlation_id)
 
         try:
-            result = self._search(query)
+            result, sources = self._search_with_sources(query)
         except Exception as exc:
             logger.error("SearchMemoryTool: search failed: %s", exc)
-            result = f"[search_memory error: {exc}]"
+            result, sources = f"[search_memory error: {exc}]", []
 
-        self._publish_activity("result", {"result": result}, correlation_id)
-
-        self._publish_result(result, correlation_id)
+        self._publish_activity("result", {"result": result, "sources": sources}, correlation_id)
+        self._publish_result(result, correlation_id, sources=sources)
 
     def _search(self, query: str) -> str:
+        result, _ = self._search_with_sources(query)
+        return result
+
+    def _search_with_sources(self, query: str) -> tuple[str, list[dict]]:
         if not query:
-            return "[search_memory: query is required]"
+            return "[search_memory: query is required]", []
         candidates = self._memory.search_episodic(query)
         if not candidates:
-            return "[no relevant memories found]"
+            return "[no relevant memories found]", []
+        sources = [
+            {
+                "type": "memory",
+                "id": c.get("id", ""),
+                "score": round(float(c.get("score") or 0), 3),
+                "snippet": (c["content"] or "")[:80],
+                "query": (c["metadata"].get("query") or ""),
+            }
+            for c in candidates
+        ]
         lines = []
         for i, c in enumerate(candidates, 1):
             critic_score = c["metadata"].get("critic_score")
@@ -80,4 +93,4 @@ class SearchMemoryTool(BaseTool):
             if critic_feedback:
                 entry += f"\n   [critique: {critic_feedback}]"
             lines.append(entry)
-        return "\n\n".join(lines)
+        return "\n\n".join(lines), sources

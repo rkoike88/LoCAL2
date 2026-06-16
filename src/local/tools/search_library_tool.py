@@ -110,23 +110,27 @@ class SearchLibraryTool(BaseTool):
         self._publish_activity("request", {"query": query, "collection": collection}, correlation_id)
 
         try:
-            result = self._search(query, collection)
+            result, sources = self._search_with_sources(query, collection)
         except Exception as exc:
             logger.error("SearchLibraryTool: search failed: %s", exc)
-            result = f"[search_library error: {exc}]"
+            result, sources = f"[search_library error: {exc}]", []
 
-        self._publish_activity("result", {"result": result}, correlation_id)
-        self._publish_result(result, correlation_id)
+        self._publish_activity("result", {"result": result, "sources": sources}, correlation_id)
+        self._publish_result(result, correlation_id, sources=sources)
 
     def _search(self, query: str, collection: str | None = None) -> str:
+        result, _ = self._search_with_sources(query, collection)
+        return result
+
+    def _search_with_sources(self, query: str, collection: str | None = None) -> tuple[str, list[dict]]:
         if not query:
-            return "[search_library: query is required]"
+            return "[search_library: query is required]", []
         if self._docs.count() == 0:
-            return "[Library is empty — add documents via the library window]"
+            return "[Library is empty — add documents via the library window]", []
 
         hits = self._docs.search(query, collection=collection)
         if not hits:
-            return "[No relevant passages found in the library]"
+            return "[No relevant passages found in the library]", []
 
         cfg = get_config(CONFIG_NAME) or {}
         collections_cfg = cfg.get("collections") or []
@@ -136,6 +140,17 @@ class SearchLibraryTool(BaseTool):
                 col_display = col.get("display_name", collection)
                 break
 
+        sources = [
+            {
+                "type": "library",
+                "source_file": h["source_file"],
+                "chunk_index": h.get("chunk_index"),
+                "page": h.get("page"),
+                "snippet": (h["content"] or "").strip()[:80],
+            }
+            for h in hits
+        ]
+
         lines = [f'[{col_display} — results for "{query}"]\n']
         for i, hit in enumerate(hits, 1):
             source = hit["source_file"]
@@ -143,4 +158,4 @@ class SearchLibraryTool(BaseTool):
             lines.append(f"{i}. {source} ({page}chunk {hit['chunk_index']})")
             lines.append(f"   {hit['content'].strip()}")
             lines.append("")
-        return "\n".join(lines).rstrip()
+        return "\n".join(lines).rstrip(), sources

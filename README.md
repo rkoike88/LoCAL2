@@ -8,7 +8,7 @@ LLM-native tool calling with Gemma 4 as the orchestrator. Web search, memory rec
 
 ---
 
-## Quick start
+## Quick start (macOS)
 
 ```bash
 brew install ollama pipx     # one-time prerequisites
@@ -19,14 +19,188 @@ local2                       # opens the web UI at http://localhost:8000
 
 ---
 
-## Prerequisites
+## Windows Installation Guide
+
+This guide walks through installation step by step. No prior experience with Python, Docker, or the command line is assumed.
+
+**What you'll install:**
+
+| Software | Purpose | Size |
+|---|---|---|
+| Python | Runs LoCAL2 | ~25 MB |
+| Ollama | Runs the AI models locally — nothing is sent to the cloud | ~50 MB |
+| AI models | The brains (downloaded once, stored on your machine) | ~11 GB |
+| Docker Desktop | Runs private web search (optional) | ~500 MB |
+| LoCAL2 | The AI assistant | ~50 MB |
+
+**Estimated time:** 20–30 minutes, plus download time for the AI models.
+
+**Minimum hardware:** 16 GB RAM, Windows 10 version 2004 or newer (or Windows 11). 8 GB RAM will work but will be slower.
+
+---
+
+### Step 1 — Install Python
+
+1. Open your web browser and go to **https://www.python.org/downloads/**
+2. Click the large yellow **"Download Python 3.x.x"** button (any version 3.11 or newer is fine).
+3. Open the downloaded file (it will be named something like `python-3.x.x-amd64.exe`).
+4. **Before clicking anything else:** at the bottom of the first screen, check the box that says **"Add Python to PATH"**. This step is easy to miss and causes problems if skipped.
+5. Click **"Install Now"** and wait for it to finish.
+6. Click **Close**.
+
+**Verify it worked:** Press the Windows key, type `cmd`, press Enter. A black window opens — this is the Command Prompt. Type the following and press Enter:
+
+```
+python --version
+```
+
+You should see something like `Python 3.12.4`. If you see an error instead, go back and reinstall Python, making sure to check "Add Python to PATH."
+
+---
+
+### Step 2 — Install Ollama
+
+Ollama runs the AI models on your computer. No data leaves your machine.
+
+1. Go to **https://ollama.com**
+2. Click **"Download"** at the top of the page, then click **"Download for Windows"**.
+3. Open the downloaded file (`OllamaSetup.exe`) and follow the prompts.
+4. When installation finishes, a small llama icon will appear in the system tray — the row of small icons in the bottom-right corner of your screen, near the clock. This means Ollama is running.
+
+**Verify it worked:** In Command Prompt, type:
+
+```
+ollama --version
+```
+
+You should see a version number like `ollama version 0.x.x`.
+
+---
+
+### Step 3 — Download the AI models
+
+LoCAL2 uses three AI models. You download them once — they are stored permanently on your machine.
+
+Open Command Prompt (Windows key → type `cmd` → Enter) and run each of these commands, pressing Enter after each one and waiting for it to finish before running the next:
+
+**Main conversational model (~10 GB — this one takes the longest):**
+```
+ollama pull gemma4:e4b
+```
+
+**Memory indexing model (~274 MB — downloads quickly):**
+```
+ollama pull nomic-embed-text
+```
+
+**Response quality evaluator (~4.1 GB — optional but recommended):**
+```
+ollama pull prometheus-7b:latest
+```
+
+Each command shows a progress bar. Wait for it to say `success` before moving on. If your internet connection drops partway through, just run the same command again — it will resume where it left off.
+
+> You can skip `prometheus-7b` for now. LoCAL2 will still work fully — you just won't see quality scores on responses. You can always pull it later.
+
+---
+
+### Step 4 — Install Docker Desktop (for web search)
+
+Docker Desktop lets LoCAL2 run its own private web search engine (SearXNG) on your machine. Your searches are not logged or tracked. **Skip this step if you don't need web search — LoCAL2 works fine without it.**
+
+1. Go to **https://www.docker.com/products/docker-desktop/**
+2. Click **"Download for Windows"**.
+3. Open the downloaded file (`Docker Desktop Installer.exe`).
+4. When asked about WSL 2, leave the checkbox checked and click OK. WSL 2 is a Windows feature that Docker needs — it will be installed automatically.
+5. If prompted to restart your computer, click Restart. After restarting, Docker Desktop will open on its own.
+6. On first launch, Docker Desktop may show a tutorial or setup screen — you can close or skip it.
+7. Wait until the whale icon in the system tray shows **"Docker Desktop is running"** (hover over the icon to check). This can take a minute or two.
+
+> If Docker Desktop shows an error about virtualization, you may need to enable it in your computer's BIOS/UEFI settings. Search for your computer model + "enable virtualization" for instructions specific to your hardware.
+
+---
+
+### Step 5 — Install LoCAL2
+
+Open Command Prompt and run:
+
+```
+pip install local2
+```
+
+You'll see a lot of text scroll by. Wait for the line that says `Successfully installed local2`.
+
+Then run the first-time setup:
+
+```
+local2 setup
+```
+
+This creates a data folder at `C:\Users\YourName\.local2\`, copies default settings there, and verifies the AI models are ready. You'll see a few lines confirming each step.
+
+---
+
+### Step 6 — Start web search (optional)
+
+If you installed Docker Desktop in Step 4, you can start the private web search engine. Make sure the Docker Desktop whale icon is visible in the system tray (it must be running), then open Command Prompt and run:
+
+```
+local2 searxng up
+```
+
+You only need to do this once per session. SearXNG keeps running in the background until you shut down Docker Desktop or run `local2 searxng down`.
+
+---
+
+### Step 7 — Start LoCAL2
+
+```
+local2
+```
+
+Your default browser will open to **http://localhost:8000** and you can start chatting.
+
+---
+
+### Every time you use LoCAL2
+
+1. Make sure the **Ollama llama icon** is visible in the system tray. If it's not there, open the Start menu, search for **Ollama**, and launch it. Wait about 30 seconds.
+2. *(If you want web search)* Make sure **Docker Desktop** is running (whale icon in the system tray), then open Command Prompt and run `local2 searxng up`.
+3. Open Command Prompt and run `local2`.
+
+---
+
+### Windows Troubleshooting
+
+**"'python' is not recognized as an internal or external command"**
+You skipped the "Add Python to PATH" checkbox during installation. Go to Control Panel → Programs → Uninstall a program, remove Python, then reinstall from Step 1 and check that box.
+
+**"'local2' is not recognized as an internal or external command"**
+Close Command Prompt completely and open a new one. If that doesn't fix it, run `python -m pip install local2` instead of `pip install local2`, then try again.
+
+**Ollama isn't responding / chat just spins**
+Check the system tray for the llama icon. If it's not there, open the Start menu, find Ollama, and launch it. Give it 30 seconds to start before trying LoCAL2 again.
+
+**"local2 searxng up" fails with a Docker error**
+Docker Desktop must be fully running before this command will work. Open Docker Desktop from the Start menu, wait until the whale icon shows "Docker Desktop is running", then try again.
+
+**Docker Desktop won't start / WSL 2 error**
+Open PowerShell as administrator: Start menu → search "PowerShell" → right-click → "Run as administrator". Run:
+```
+wsl --install
+```
+Restart your computer and try Docker Desktop again.
+
+---
+
+## Prerequisites (macOS)
 
 - Python 3.11+
 - [Ollama](https://ollama.com) — download the macOS app or `brew install ollama`
 
 ---
 
-## Install
+## Install (macOS)
 
 ```bash
 brew install pipx

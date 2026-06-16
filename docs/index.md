@@ -17,6 +17,7 @@ LoCAL2 (Loosely-Coupled Agent Language model, v2) — a bus-based personal AI as
 | [conversation-service.md](architecture/conversation-service.md) | Session management, history format, token tracking, compaction |
 | [document-service.md](architecture/document-service.md) | RAG document store: collections, chunking, ingestion, DocumentsWindow |
 | [config-reference.md](architecture/config-reference.md) | Every config file and every knob, with defaults and descriptions |
+| [xai-privacy.md](architecture/xai-privacy.md) | XAI features (thinking tokens, tool trace, retrieval attribution, groundedness, Prometheus scoring) and privacy model (local LLM, SearXNG, ChromaDB) |
 
 ---
 

@@ -75,12 +75,15 @@ class MemoryAgent(BaseAgent):
             return
 
         query, answer, query_id, session_id = msg.query, msg.answer, msg.query_id, msg.session_id
+        thinking = msg.thinking or ""
 
         self._do_transition(MemoryAgentAction.START_INGEST)
         try:
             classification = self._classify(query, answer)
             if session_id:
                 classification["session_id"] = session_id
+            if thinking:
+                classification["thinking"] = thinking
             self._memory.write_episodic(query, answer, metadata=classification, query_id=query_id or None)
             logger.info(
                 "MemoryAgent: ingested engram intent=%r entities=%r",

@@ -135,6 +135,9 @@ class MemoryService:
             meta["respondent_id"] = respondent_id
             if session_id:
                 meta["session_id"] = session_id
+            thinking = metadata.get("thinking", "")
+            if thinking:
+                meta["thinking"] = thinking
         self._collection.add(
             ids=[doc_id],
             documents=[content],

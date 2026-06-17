@@ -225,11 +225,12 @@ async def get_session(session_id: str) -> JSONResponse:
                         if name:
                             tool_names.add(name)
                 j += 1
-            score, feedback = None, ""
+            score, feedback, thinking = None, "", ""
             if engram_idx < len(engrams):
                 meta = engrams[engram_idx].get("metadata") or {}
                 score = meta.get("critic_score")
                 feedback = meta.get("critic_feedback") or ""
+                thinking = meta.get("thinking") or ""
                 engram_idx += 1
             enriched.append({
                 "role": "assistant",
@@ -237,6 +238,7 @@ async def get_session(session_id: str) -> JSONResponse:
                 "groundedness": _derive_groundedness(tool_names),
                 "critic_score": score,
                 "critic_feedback": feedback,
+                "thinking": thinking,
             })
             i = j
         else:

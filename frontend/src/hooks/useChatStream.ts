@@ -47,6 +47,7 @@ export function useChatStream(
   const [streaming, setStreaming] = useState<StreamingTurn | null>(null);
   const [tokenCount, setTokenCount] = useState(0);
   const pendingToolCallsRef = useRef<ToolCall[]>([]);
+  const pendingToolStartRef = useRef<{ tool: string; args: Record<string, unknown>; ts: string } | null>(null);
   const pendingSourcesRef = useRef<Record<string, RetrievalSource[]>>({});
   const pendingQueryIdRef = useRef<string>("");
   const onResponseRef = useRef(onResponse);
@@ -69,6 +70,7 @@ export function useChatStream(
 
         case "tool_start": {
           pendingQueryIdRef.current = ev.query_id;
+          pendingToolStartRef.current = { tool: ev.tool, args: ev.args, ts: ev.ts };
           setStreaming((prev) =>
             prev
               ? { ...prev, active_tool: { tool: ev.tool, args: ev.args } }
@@ -82,10 +84,18 @@ export function useChatStream(
         }
 
         case "tool_result": {
+          const start = pendingToolStartRef.current;
+          pendingToolStartRef.current = null;
           // Accumulate completed tool calls; clear the active indicator.
           pendingToolCallsRef.current = [
             ...pendingToolCallsRef.current,
-            { tool: ev.tool, args: {}, result: ev.result },
+            {
+              tool: ev.tool,
+              args: start?.tool === ev.tool ? start.args : {},
+              result: ev.result,
+              call_ts: start?.tool === ev.tool ? start.ts : undefined,
+              result_ts: ev.ts,
+            },
           ];
           // Accumulate retrieval sources keyed by query_id.
           if (ev.sources?.length) {

@@ -207,24 +207,40 @@ async def get_session(session_id: str) -> JSONResponse:
             enriched.append({"role": "user", "content": msg.get("content") or ""})
             i += 1
         elif role == "assistant":
-            # Accumulate all tool names across this exchange (may span multiple turns)
+            # Accumulate tool names, args, and results across this exchange.
             tool_names: set[str] = set()
+            tool_calls_out: list[dict] = []
             final_content = (msg.get("content") or "").strip()
-            for tc in (msg.get("tool_calls") or []):
-                name = (tc.get("function") or {}).get("name", "")
-                if name:
-                    tool_names.add(name)
+
+            def _collect_calls(m: dict) -> list[dict]:
+                calls = []
+                for tc in (m.get("tool_calls") or []):
+                    fn = tc.get("function") or {}
+                    name = fn.get("name", "")
+                    if name:
+                        tool_names.add(name)
+                        raw_args = fn.get("arguments", {})
+                        args = raw_args if isinstance(raw_args, dict) else {}
+                        calls.append({"tool": name, "args": args, "result": ""})
+                return calls
+
+            pending_calls = _collect_calls(msg)
             j = i + 1
             while j < len(history) and history[j].get("role") in ("tool", "assistant"):
-                if history[j].get("role") == "assistant":
-                    c = (history[j].get("content") or "").strip()
+                h = history[j]
+                if h.get("role") == "tool":
+                    result = (h.get("content") or "").strip()
+                    if pending_calls:
+                        call = pending_calls.pop(0)
+                        call["result"] = result
+                        tool_calls_out.append(call)
+                elif h.get("role") == "assistant":
+                    c = (h.get("content") or "").strip()
                     if c:
                         final_content = c
-                    for tc in (history[j].get("tool_calls") or []):
-                        name = (tc.get("function") or {}).get("name", "")
-                        if name:
-                            tool_names.add(name)
+                    pending_calls.extend(_collect_calls(h))
                 j += 1
+
             score, feedback, thinking = None, "", ""
             if engram_idx < len(engrams):
                 meta = engrams[engram_idx].get("metadata") or {}
@@ -239,6 +255,7 @@ async def get_session(session_id: str) -> JSONResponse:
                 "critic_score": score,
                 "critic_feedback": feedback,
                 "thinking": thinking,
+                "tool_calls": tool_calls_out if tool_calls_out else None,
             })
             i = j
         else:

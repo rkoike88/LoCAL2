@@ -33,46 +33,52 @@ function ThinkingBlock({ text, streaming }: { text: string; streaming: boolean }
   );
 }
 
-function ToolChips({ calls, activeTool }: { calls?: ToolCall[]; activeTool?: { tool: string } | null }) {
-  const [expanded, setExpanded] = useState<number | null>(null);
+function formatTs(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
 
+function ToolBlock({ calls, activeTool }: { calls?: ToolCall[]; activeTool?: { tool: string; args: Record<string, unknown> } | null }) {
   if (!calls?.length && !activeTool) return null;
 
+  if (activeTool) {
+    return (
+      <div className="text-xs text-gray-500 font-mono flex items-center gap-1.5">
+        <Spinner />
+        {activeTool.tool}
+      </div>
+    );
+  }
+
+  const toolNames = [...new Set(calls!.map((tc) => tc.tool))].join(" · ");
+
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {calls?.map((tc, i) => (
-        <div key={i} className="relative">
-          <button
-            onClick={() => setExpanded(expanded === i ? null : i)}
-            className="text-xs bg-surface-2 border border-surface-3 rounded px-2 py-0.5 text-accent-muted hover:border-accent-muted transition-colors"
-          >
-            {tc.tool}
-          </button>
-          {expanded === i && (
-            <div className="absolute z-10 top-full left-0 mt-1 w-80 bg-surface-1 border border-surface-3 rounded-lg p-3 shadow-xl text-xs text-gray-400 space-y-2">
-              {Object.keys(tc.args).length > 0 && (
-                <div>
-                  <p className="text-gray-600 mb-1">args</p>
-                  <pre className="whitespace-pre-wrap break-all">{JSON.stringify(tc.args, null, 2)}</pre>
+    <details className="group">
+      <summary className="text-xs text-gray-600 cursor-pointer select-none hover:text-gray-400 transition-colors font-mono">
+        {toolNames} ({calls!.length} call{calls!.length !== 1 ? "s" : ""})
+      </summary>
+      <div className="mt-1 text-xs text-gray-500 font-mono bg-surface-1 rounded-lg p-3 border border-surface-3 space-y-3">
+        {calls!.map((tc, i) => (
+          <div key={i}>
+            <div className="text-gray-600">[{formatTs(tc.call_ts)}]  → {tc.tool}</div>
+            {Object.entries(tc.args).map(([k, v]) => (
+              <div key={k} className="pl-4 text-gray-500">
+                {k}: {typeof v === "string" ? v : JSON.stringify(v)}
+              </div>
+            ))}
+            {tc.result && (
+              <>
+                <div className="text-gray-600 mt-1">[{formatTs(tc.result_ts)}]  ← result</div>
+                <div className="pl-4 text-gray-500 whitespace-pre-wrap line-clamp-6">
+                  {tc.result.slice(0, 500)}{tc.result.length > 500 ? "…" : ""}
                 </div>
-              )}
-              {tc.result && (
-                <div>
-                  <p className="text-gray-600 mb-1">result</p>
-                  <pre className="whitespace-pre-wrap break-all line-clamp-6">{tc.result.slice(0, 600)}{tc.result.length > 600 ? "…" : ""}</pre>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      ))}
-      {activeTool && (
-        <span className="text-xs bg-surface-2 border border-surface-3 rounded px-2 py-0.5 text-accent-muted flex items-center gap-1">
-          <Spinner />
-          {activeTool.tool}
-        </span>
-      )}
-    </div>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -226,6 +232,8 @@ export default function App() {
 
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
+  const [temperature, setTemperature] = useState<number | null>(null);
+  const [numCtx, setNumCtx] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/models")
@@ -234,7 +242,11 @@ export default function App() {
       .catch(() => {});
     fetch("/api/settings/generator")
       .then((r) => r.json())
-      .then((d) => { if (d.model) setSelectedModel(d.model); })
+      .then((d) => {
+        if (d.model) setSelectedModel(d.model);
+        if (d.temperature != null) setTemperature(d.temperature);
+        if (d.num_ctx != null) setNumCtx(d.num_ctx);
+      })
       .catch(() => {});
   }, []);
 
@@ -319,7 +331,18 @@ export default function App() {
               <span className="text-gray-600">ready</span>
             )}
           </span>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-4">
+            {selectedModel && (
+              <span className="text-xs text-gray-600 font-mono hidden sm:flex items-center gap-3">
+                <span>model: {selectedModel}</span>
+                {temperature != null && <span>temp: {temperature}</span>}
+                {numCtx != null && (
+                  <span>
+                    context: {tokenCount > 0 ? `${tokenCount.toLocaleString()}/` : ""}{numCtx >= 1000 ? `${Math.round(numCtx / 1000)}k` : numCtx}
+                  </span>
+                )}
+              </span>
+            )}
             <TokenGauge tokenCount={tokenCount} sessionId={activeSessionId} />
           </div>
         </header>
@@ -342,7 +365,7 @@ export default function App() {
               {streaming.thinking && (
                 <ThinkingBlock text={streaming.thinking} streaming />
               )}
-              <ToolChips activeTool={streaming.active_tool} />
+              <ToolBlock activeTool={streaming.active_tool} />
               {!streaming.thinking && !streaming.active_tool && (
                 <span className="text-xs text-gray-600 flex items-center gap-1.5">
                   <Spinner />
@@ -429,7 +452,7 @@ function MessageRow({ msg, sessionId }: { msg: ChatMessage; sessionId: string })
   return (
     <div className="space-y-2 max-w-2xl">
       {msg.thinking && <ThinkingBlock text={msg.thinking} streaming={false} />}
-      <ToolChips calls={msg.tool_calls} />
+      <ToolBlock calls={msg.tool_calls} />
       {msg.sources && <SourcesStrip sources={msg.sources} />}
       <div className="prose prose-invert prose-sm max-w-none">
         <ReactMarkdown

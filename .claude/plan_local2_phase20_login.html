@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LoCAL2 Phase 20 — Login & User Identity</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; color: #e0e0e0; background: #1a1a1a; line-height: 1.6; }
+  h1 { color: #fff; border-bottom: 2px solid #444; padding-bottom: .5rem; }
+  h2 { color: #ccc; border-bottom: 1px solid #333; padding-bottom: .3rem; margin-top: 2rem; }
+  h3 { color: #aaa; margin-top: 1.5rem; }
+  code { background: #2a2a2a; padding: .15em .4em; border-radius: 3px; font-size: .9em; color: #7ec8e3; }
+  pre { background: #2a2a2a; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: .85em; color: #bbb; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th { background: #2a2a2a; color: #ccc; text-align: left; padding: .5rem .75rem; }
+  td { padding: .4rem .75rem; border-top: 1px solid #2a2a2a; color: #bbb; vertical-align: top; }
+  .tag { display: inline-block; padding: .1em .5em; border-radius: 3px; font-size: .8em; font-weight: bold; }
+  .new { background: #1e3a2a; color: #6fcf97; }
+  .mod { background: #2a2a1a; color: #f2c94c; }
+  .note { background: #1e2a3a; border-left: 3px solid #4a8fc7; padding: .75rem 1rem; border-radius: 0 4px 4px 0; margin: 1rem 0; color: #aac4e0; }
+  .decision { background: #2a1e2a; border-left: 3px solid #bb86fc; padding: .75rem 1rem; border-radius: 0 4px 4px 0; margin: 1rem 0; color: #d4b8f0; }
+  .warning { background: #3a1e1e; border-left: 3px solid #eb5757; padding: .75rem 1rem; border-radius: 0 4px 4px 0; margin: 1rem 0; color: #f0b8b8; }
+</style>
+</head>
+<body>
+
+<h1>Phase 20 — Login &amp; User Identity</h1>
+
+<p><strong>Goal:</strong> Add a user identity layer so memory, sessions, libraries, and preferences are properly partitioned per user. All stores are keyed to a <code>user_id</code> from day one so multi-user is a data concern, not an architecture rewrite.</p>
+
+<div class="warning">
+  <strong>Why this must come before Phase 19 (Preferences):</strong> Without user identity, every store — memory, sessions, library, and future preferences — is shared across all browsers and all people who access the system. A second user's conversations already pollute the memory store. Login is the foundation, not a feature.
+</div>
+
+<h2>1. Architecture Overview</h2>
+
+<pre>
+Browser                       Gateway                        Bus / Agents
+──────                        ───────                        ────────────
+POST /api/auth/login ──────► validate credentials
+  username + password          issue session token ────────► cookie (HTTP-only)
+
+WS /ws/chat/{session_id} ──► check cookie
+  (with cookie)                resolve user_id
+                               inject into query.received
+                                 {query, session_id, user_id}  ──────────────────►  GeneratorAgent
+                                                                                     MemoryAgent  → MemoryService  (filter by user_id)
+                                                                                     ConversationService           (tag sessions)
+</pre>
+
+<h2>2. User Store</h2>
+
+<h3>Storage</h3>
+<p>A JSON file at <code>~/.local2/users.json</code> managed by a <code>UserService</code>. Simple, portable, no external dependency.</p>
+
+<pre>
+{
+  "users": [
+    {
+      "user_id": "a3f8c2d1-...",   // stable UUID, assigned at creation
+      "username": "richard",
+      "password_hash": "$2b$12$...",  // bcrypt
+      "created_at": 1750000000.0,
+      "role": "admin"               // admin | user (future use)
+    }
+  ]
+}
+</pre>
+
+<h3>UserService</h3>
+<pre>
+# src/local/services/user_service.py
+
+class UserService:
+    def create_user(self, username: str, password: str, role: str = "user") -> str:
+        """Create a user. Returns user_id. Raises if username taken."""
+
+    def authenticate(self, username: str, password: str) -> str | None:
+        """Verify credentials. Returns user_id or None."""
+
+    def get_user(self, user_id: str) -> dict | None:
+        """Return user record by user_id."""
+
+    def list_users(self) -> list[dict]:
+        """Return all users (without password_hash)."""
+
+    def change_password(self, user_id: str, new_password: str) -> None:
+</pre>
+
+<h3>CLI commands</h3>
+<pre>
+local2 useradd &lt;username&gt;     # prompts for password; first user gets role=admin
+local2 userlist               # list users
+local2 passwd &lt;username&gt;      # change password
+</pre>
+
+<div class="note">
+  <strong>First user is admin.</strong> If no users exist and LoCAL2 starts, the web UI shows a "create first user" screen rather than a login form. This avoids the chicken-and-egg problem of needing a CLI to bootstrap access.
+</div>
+
+<h2>3. Session Tokens</h2>
+
+<p>After successful login, the gateway issues a random 32-byte token (URL-safe base64), stores it server-side in a <code>TokenStore</code> dict mapping <code>token → {user_id, expires_at}</code>, and sets it as an HTTP-only cookie named <code>local2_session</code>.</p>
+
+<pre>
+TokenStore (in-memory, not persisted):
+  { "aB3xQ...": { "user_id": "a3f8c2d1-...", "expires_at": 1750086400.0 } }
+</pre>
+
+<p>Default TTL: 30 days. Token is renewed on each authenticated request. On process restart, all tokens are invalidated — users re-login. This is acceptable for a local assistant; persistent tokens can be added later.</p>
+
+<div class="decision">
+  <strong>Decision: no JWT.</strong> JWTs require secret key management and are stateless (hard to revoke). A server-side token store is simpler, revocable instantly, and appropriate for a single-server local deployment.
+</div>
+
+<h2>4. Auth API Endpoints</h2>
+
+<table>
+  <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+  <tr><td><code>POST</code></td><td><code>/api/auth/login</code></td><td>Body: <code>{username, password}</code>. Sets <code>local2_session</code> cookie. Returns <code>{user_id, username}</code>.</td></tr>
+  <tr><td><code>POST</code></td><td><code>/api/auth/logout</code></td><td>Clears cookie, revokes token.</td></tr>
+  <tr><td><code>GET</code></td><td><code>/api/auth/me</code></td><td>Returns current user info or 401.</td></tr>
+  <tr><td><code>POST</code></td><td><code>/api/auth/setup</code></td><td>Create the first admin user (only works if no users exist).</td></tr>
+</table>
+
+<h3>Auth middleware</h3>
+<p>FastAPI dependency <code>require_auth(request)</code> — reads <code>local2_session</code> cookie, validates against <code>TokenStore</code>, returns <code>user_id</code>. Applied to all <code>/api/*</code> endpoints and the WebSocket handshake.</p>
+
+<p>Static assets (<code>/assets/*</code>, <code>/</code>) and the auth endpoints themselves are unauthenticated. The frontend handles the redirect to login if <code>/api/auth/me</code> returns 401.</p>
+
+<h2>5. WebSocket Auth</h2>
+
+<p>At <code>WS /ws/chat/{session_id}</code> connect time, the gateway reads the <code>local2_session</code> cookie from the WebSocket handshake headers and resolves <code>user_id</code>. If the token is invalid, the WebSocket is rejected with a 4001 close code. The resolved <code>user_id</code> is attached to the session for the lifetime of the connection.</p>
+
+<h2>6. Threading user_id Through the Pipeline</h2>
+
+<p><code>user_id</code> is added to <code>QueryReceived</code> and flows through every downstream message that currently carries <code>session_id</code>.</p>
+
+<h3>Messages to update</h3>
+<table>
+  <tr><th>Message</th><th>Change</th></tr>
+  <tr><td><code>QueryReceived</code></td><td>Add <code>user_id: str = "default"</code></td></tr>
+  <tr><td><code>ResponseGeneration</code></td><td>Add <code>user_id: str = "default"</code></td></tr>
+  <tr><td><code>AnswerDialog</code></td><td>Add <code>user_id: str = "default"</code></td></tr>
+  <tr><td><code>MessageEnvelope</code> metadata</td><td>Add <code>user_id</code> alongside <code>session_id</code></td></tr>
+</table>
+
+<h3>Agents and services to update</h3>
+<table>
+  <tr><th>Component</th><th>Change</th></tr>
+  <tr><td><code>GeneratorAgent</code></td><td>Read <code>user_id</code> from <code>QueryReceived</code>; pass to MemoryService calls and AnswerDialog</td></tr>
+  <tr><td><code>MemoryAgent</code></td><td>Read <code>user_id</code> from <code>ResponseGeneration</code>; pass to <code>write_episodic</code></td></tr>
+  <tr><td><code>MemoryService</code></td><td>Add <code>user_id</code> param to <code>write_episodic</code> and <code>search_episodic</code>; store in metadata; filter on search</td></tr>
+  <tr><td><code>ConversationService</code></td><td>Tag each session with <code>user_id</code>; <code>list_sessions</code> filters by user</td></tr>
+  <tr><td><code>gateway.py</code></td><td>Inject <code>user_id</code> from resolved token into <code>QueryReceived</code>; filter session list and session history by user</td></tr>
+</table>
+
+<h2>7. Data Partitioning</h2>
+
+<h3>Episodic Memory</h3>
+<p>Add <code>user_id</code> to every engram's metadata. Filter <code>search_episodic</code> with a ChromaDB <code>where</code> clause: <code>{"user_id": {"$eq": user_id}}</code>. Users never see each other's memories.</p>
+
+<h3>Session History</h3>
+<p>Add <code>user_id</code> field to each session entry in <code>ConversationService</code>. <code>list_sessions(user_id)</code> returns only that user's sessions. <code>get_history(session_id, user_id)</code> returns 404 if the session belongs to a different user.</p>
+
+<h3>Library / RAG Documents</h3>
+
+<div class="decision">
+  <strong>Decision: per-user ChromaDB collections + optional shared collections.</strong>
+  <ul>
+    <li>Private collections are named <code>user.&lt;user_id&gt;.&lt;collection_name&gt;</code></li>
+    <li>Shared (admin-managed) collections keep their current names (e.g., <code>collective.documents</code>)</li>
+    <li><code>search_library</code> searches the requesting user's private collections + all shared collections</li>
+    <li>Only admins can ingest into shared collections</li>
+  </ul>
+  This allows a team scenario: shared company knowledge base + each user's personal library.
+</div>
+
+<h3>Migration of Existing Data</h3>
+<p>Existing data has no <code>user_id</code>. On first startup after this phase, a migration script assigns all orphaned records to a <code>"default"</code> user. The first user created via <code>local2 useradd</code> or the setup screen should have their account linked to this <code>"default"</code> user_id, or a separate migration step reassigns data.</p>
+
+<div class="note">
+  <strong>Practical migration path:</strong> Run <code>local2 useradd richard --claim-default</code> — creates the user and reassigns all <code>user_id="default"</code> records to the new <code>user_id</code>. Keeps the original owner's data intact.
+</div>
+
+<h2>8. Frontend Changes</h2>
+
+<h3>Login screen</h3>
+<p>The React app checks <code>GET /api/auth/me</code> on load. If 401, it renders a login form (username + password) instead of the chat UI. On success, the cookie is set by the server and the app renders normally.</p>
+
+<h3>First-run setup screen</h3>
+<p>If <code>/api/auth/me</code> returns a special <code>403 setup_required</code> status, the app renders a "Create your account" form that calls <code>POST /api/auth/setup</code>. This only works once.</p>
+
+<h3>User indicator</h3>
+<p>Small username + logout button in the header bar next to the token gauge.</p>
+
+<h2>9. Sub-phases</h2>
+
+<table>
+  <tr><th>Sub-phase</th><th>Scope</th><th>Est.</th></tr>
+  <tr><td><strong>20a</strong></td><td>UserService + <code>users.json</code> store + CLI commands (<code>useradd</code>, <code>userlist</code>, <code>passwd</code>)</td><td>2h</td></tr>
+  <tr><td><strong>20b</strong></td><td>TokenStore + auth endpoints (login, logout, me, setup) + FastAPI auth middleware</td><td>3h</td></tr>
+  <tr><td><strong>20c</strong></td><td>WebSocket auth guard; thread <code>user_id</code> through <code>QueryReceived</code> → all messages</td><td>2h</td></tr>
+  <tr><td><strong>20d</strong></td><td>Partition episodic memory + session history by <code>user_id</code></td><td>2h</td></tr>
+  <tr><td><strong>20e</strong></td><td>Partition library by <code>user_id</code>; shared collection concept</td><td>2h</td></tr>
+  <tr><td><strong>20f</strong></td><td>Migration script: assign orphaned data to first user via <code>--claim-default</code></td><td>1h</td></tr>
+  <tr><td><strong>20g</strong></td><td>Frontend: login screen, first-run setup, username + logout in header</td><td>3h</td></tr>
+</table>
+
+<h2>10. Files Changed</h2>
+
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>src/local/services/user_service.py</code></td><td><span class="tag new">NEW</span> UserService (users.json, bcrypt)</td></tr>
+  <tr><td><code>src/local/api/auth.py</code></td><td><span class="tag new">NEW</span> TokenStore + auth endpoints + require_auth dependency</td></tr>
+  <tr><td><code>src/local/api/gateway.py</code></td><td><span class="tag mod">MOD</span> Apply auth middleware; inject user_id into QueryReceived; filter sessions by user</td></tr>
+  <tr><td><code>src/local/protocol/messages.py</code></td><td><span class="tag mod">MOD</span> Add user_id to QueryReceived, ResponseGeneration, AnswerDialog</td></tr>
+  <tr><td><code>src/local/protocol/envelope.py</code></td><td><span class="tag mod">MOD</span> Add user_id to metadata</td></tr>
+  <tr><td><code>src/local/agents/generator_agent.py</code></td><td><span class="tag mod">MOD</span> Read + propagate user_id</td></tr>
+  <tr><td><code>src/local/agents/memory_agent.py</code></td><td><span class="tag mod">MOD</span> Pass user_id to write_episodic</td></tr>
+  <tr><td><code>src/local/services/memory_service.py</code></td><td><span class="tag mod">MOD</span> user_id param on write/search; filter by user_id</td></tr>
+  <tr><td><code>src/local/services/conversation_service.py</code></td><td><span class="tag mod">MOD</span> Tag sessions with user_id; filter list/get by user</td></tr>
+  <tr><td><code>src/local/services/document_service.py</code></td><td><span class="tag mod">MOD</span> Per-user collection naming; shared collection concept</td></tr>
+  <tr><td><code>src/local/cli.py</code></td><td><span class="tag mod">MOD</span> Add useradd, userlist, passwd, --claim-default</td></tr>
+  <tr><td><code>src/local/run.py</code></td><td><span class="tag mod">MOD</span> Instantiate UserService; pass to gateway configure()</td></tr>
+  <tr><td><code>frontend/src/App.tsx</code></td><td><span class="tag mod">MOD</span> Auth check on load; login screen; first-run setup screen</td></tr>
+  <tr><td><code>frontend/src/components/LoginScreen.tsx</code></td><td><span class="tag new">NEW</span></td></tr>
+  <tr><td><code>frontend/src/components/SetupScreen.tsx</code></td><td><span class="tag new">NEW</span></td></tr>
+  <tr><td><code>scripts/migrate_default_user.py</code></td><td><span class="tag new">NEW</span> Reassign orphaned data</td></tr>
+  <tr><td><code>tests/test_user_service.py</code></td><td><span class="tag new">NEW</span></td></tr>
+  <tr><td><code>tests/test_auth.py</code></td><td><span class="tag new">NEW</span></td></tr>
+</table>
+
+<h2>11. Out of Scope (Phase 20)</h2>
+<ul>
+  <li>OAuth / SSO / external identity providers</li>
+  <li>Email verification or password reset flow</li>
+  <li>Role-based access control beyond admin/user distinction</li>
+  <li>Audit logging of user actions</li>
+  <li>Per-user model selection (each user picks their own generator model)</li>
+  <li>Phase 19 (Preferences) — implement after this phase completes</li>
+</ul>
+
+</body>
+</html>

@@ -86,6 +86,7 @@ def translate(envelope: MessageEnvelope) -> dict | None:
             "type": "tool_start",
             "tool": tool_name,
             "args": payload.get("args", {}),
+            "ts": envelope.timestamp_utc,
             "query_id": query_id,
         }
 
@@ -96,6 +97,7 @@ def translate(envelope: MessageEnvelope) -> dict | None:
             "tool": tool_name,
             "result": payload.get("result", ""),
             "sources": payload.get("sources", []),
+            "ts": envelope.timestamp_utc,
             "query_id": query_id,
         }
 

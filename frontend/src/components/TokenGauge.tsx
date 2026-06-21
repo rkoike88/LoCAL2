@@ -24,9 +24,6 @@ export function TokenGauge({ tokenCount, sessionId }: Props) {
 
   return (
     <div className="flex items-center gap-2 text-xs text-gray-500">
-      <span title="Prompt tokens in last generation">
-        {tokenCount.toLocaleString()} tok
-      </span>
       <button
         onClick={compact}
         disabled={compacting}

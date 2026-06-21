@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { SessionMeta } from "../hooks/useSessions";
 
 function formatRelative(ts: number): string {
@@ -48,6 +49,11 @@ export function SessionSidebar({
   onSelectSession,
   onDeleteSession,
 }: Props) {
+  const [query, setQuery] = useState("");
+  const filtered = query.trim()
+    ? sessions.filter((s) => s.title.toLowerCase().includes(query.toLowerCase()))
+    : sessions;
+
   return (
     <aside
       className={`shrink-0 bg-surface-1 border-r border-surface-3 flex flex-col h-screen overflow-hidden transition-[width] duration-200 ${open ? "w-52" : "w-10"}`}
@@ -68,9 +74,26 @@ export function SessionSidebar({
         </button>
       </div>
 
-      {/* New chat — only shown when open */}
+      {/* Search + New chat — only shown when open */}
       {open && (
-        <div className="px-3 py-2 border-b border-surface-3">
+        <div className="px-3 py-2 border-b border-surface-3 space-y-1.5">
+          <div className="relative">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search…"
+              className="w-full text-xs px-3 py-1.5 rounded-lg bg-surface-2 border border-surface-3 text-gray-300 placeholder-gray-600 focus:outline-none focus:border-accent-muted"
+            />
+            {query && (
+              <button
+                onClick={() => setQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400"
+              >
+                ×
+              </button>
+            )}
+          </div>
           <button
             onClick={onNewChat}
             className="w-full text-left text-xs px-3 py-2 rounded-lg bg-surface-2 hover:bg-surface-3 text-gray-300 transition-colors"
@@ -83,10 +106,12 @@ export function SessionSidebar({
       {/* Session list — only shown when open */}
       {open && (
         <nav className="flex-1 overflow-y-auto py-2 px-1 space-y-0.5">
-          {sessions.length === 0 && (
-            <p className="text-gray-600 text-xs px-3 py-2">No sessions yet</p>
+          {filtered.length === 0 && (
+            <p className="text-gray-600 text-xs px-3 py-2">
+              {query ? "No matches" : "No sessions yet"}
+            </p>
           )}
-          {sessions.map((s) => {
+          {filtered.map((s) => {
             const active = s.session_id === activeSessionId;
             return (
               <div

@@ -10,6 +10,7 @@ export interface ToolStartEvent {
   type: "tool_start";
   tool: string;
   args: Record<string, unknown>;
+  ts: string;
   query_id: string;
 }
 
@@ -31,6 +32,7 @@ export interface ToolResultEvent {
   tool: string;
   result: string;
   sources: RetrievalSource[];
+  ts: string;
   query_id: string;
 }
 
@@ -38,6 +40,8 @@ export interface ToolCall {
   tool: string;
   args: Record<string, unknown>;
   result: string;
+  call_ts?: string;
+  result_ts?: string;
 }
 
 export interface ResponseEvent {

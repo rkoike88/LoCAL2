@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LoCAL2 Phase 18 — XAI (Explainable AI)</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0f0f0f; color: #d4d4d4;
+    margin: 0; padding: 32px;
+    line-height: 1.6;
+  }
+  h1 { color: #e0e0e0; font-size: 1.6em; margin-bottom: 4px; }
+  h2 { color: #9dbde8; font-size: 1.15em; margin: 32px 0 8px; border-bottom: 1px solid #2a2a2a; padding-bottom: 6px; }
+  h3 { color: #c8a47e; font-size: 1em; margin: 20px 0 6px; }
+  .subtitle { color: #666; font-size: 0.9em; margin-bottom: 32px; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  code {
+    font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    background: #1a1a1a; color: #c8a47e;
+    padding: 2px 6px; border-radius: 3px; font-size: 0.88em;
+  }
+  pre {
+    background: #141414; color: #d4d4d4;
+    padding: 14px 16px; border-radius: 6px; border-left: 3px solid #2a4a6a;
+    overflow-x: auto; font-size: 0.85em; line-height: 1.5;
+  }
+  pre code { background: none; color: inherit; padding: 0; }
+  .phase-card {
+    background: #141414;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin: 20px 0;
+  }
+  .phase-header {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 14px;
+  }
+  .phase-tag {
+    font-family: 'Menlo','Monaco','Courier New', monospace;
+    font-size: 0.8em; font-weight: bold;
+    padding: 3px 10px; border-radius: 4px;
+    white-space: nowrap;
+  }
+  .tag-trivial  { background: #1a2a1a; color: #7ec8a4; border: 1px solid #3a5a3a; }
+  .tag-small    { background: #1a2a3a; color: #9dbde8; border: 1px solid #2a4a6a; }
+  .tag-medium   { background: #2a2a1a; color: #c8c87e; border: 1px solid #5a5a3a; }
+  .tag-core     { background: #2a1a1a; color: #c87e7e; border: 1px solid #6a3a3a; }
+  .tag-light    { background: #1a1a2a; color: #c8a4c8; border: 1px solid #4a3a6a; }
+  .phase-title { color: #e0e0e0; font-size: 1.05em; font-weight: bold; }
+  .phase-est   { color: #555; font-size: 0.85em; }
+  .gap-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.88em; }
+  .gap-table th { text-align: left; color: #888; border-bottom: 1px solid #2a2a2a; padding: 6px 10px; }
+  .gap-table td { padding: 8px 10px; border-bottom: 1px solid #1e1e1e; vertical-align: top; }
+  .gap-table tr:last-child td { border-bottom: none; }
+  .pill {
+    display: inline-block; font-size: 0.78em; padding: 2px 8px;
+    border-radius: 10px; margin-right: 4px; white-space: nowrap;
+  }
+  .pill-done   { background: #1a2a1a; color: #7ec8a4; border: 1px solid #3a5a3a; }
+  .pill-gap    { background: #2a1a1a; color: #c87e7e; border: 1px solid #5a2a2a; }
+  .arrow { color: #555; padding: 0 8px; }
+  .flow {
+    display: flex; flex-wrap: wrap; align-items: center;
+    gap: 4px; margin: 10px 0; font-size: 0.85em;
+  }
+  .flow-box {
+    background: #1a1a1a; border: 1px solid #2a2a2a;
+    border-radius: 4px; padding: 4px 10px; color: #c8a47e;
+    font-family: 'Menlo','Monaco','Courier New', monospace; font-size: 0.9em;
+  }
+  .flow-arrow { color: #555; padding: 0 4px; font-size: 1.1em; }
+  .criteria { background: #0e1a0e; border: 1px solid #1e3a1e; border-radius: 6px; padding: 12px 16px; margin-top: 14px; }
+  .criteria-label { color: #7ec8a4; font-size: 0.8em; font-weight: bold; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  blockquote { border-left: 3px solid #2a4a6a; margin: 12px 0; padding: 8px 16px; color: #888; font-style: italic; }
+  .note { background: #1a1a0f; border: 1px solid #3a3a1e; border-radius: 6px; padding: 10px 14px; color: #c8c87e; font-size: 0.85em; margin: 10px 0; }
+</style>
+</head>
+<body>
+
+<h1>LoCAL2 Phase 18 — Explainable AI (XAI)</h1>
+<p class="subtitle">Making retrieval, quality grading, and tool decisions visible — not just to developers, but to users during every conversation turn.</p>
+
+<!-- ═══════════════════════════════════════════════════════ PROMETHEUS CONTEXT -->
+<h2>Prometheus as the XAI Engine</h2>
+
+<p>Prometheus is not a generic LLM used for grading — it is an <strong>evaluator model purpose-built for explainability</strong>. Its design principles map directly onto the XAI gaps in LoCAL2:</p>
+
+<table class="gap-table">
+  <tr>
+    <th>Prometheus capability</th>
+    <th>How LoCAL2 uses it</th>
+    <th>XAI gap (current)</th>
+  </tr>
+  <tr>
+    <td><strong>Fine-grained natural language feedback</strong> — explains <em>why</em> a score was given in prose, not just a number</td>
+    <td><code>CriticAgent._grade()</code> extracts the feedback text from Prometheus output and stores it in <code>CritiqueResult.feedback</code></td>
+    <td>Feedback is set as a <em>tooltip</em> on a 16px label — invisible unless hovered, truncated even then</td>
+  </tr>
+  <tr>
+    <td><strong>Rubric-driven evaluation</strong> — the rubric is the evaluation contract; feedback is always written against it</td>
+    <td>Rubric is in <code>config/critic.yaml</code>; injected into the Prometheus prompt at grading time</td>
+    <td>Rubric never shown to users; feedback references criteria the user hasn't seen</td>
+  </tr>
+  <tr>
+    <td><strong>Controllability</strong> — open-weight, runs locally, no version drift or data privacy concerns</td>
+    <td>Prometheus runs via Ollama as <code>prometheus-7b:latest</code> — fully local</td>
+    <td>✓ Already realized — no action needed</td>
+  </tr>
+  <tr>
+    <td><strong>Customizable rubrics</strong> — domain-specific criteria beyond generic helpfulness (toxicity, hallucination, compliance)</td>
+    <td>One generic rubric in <code>critic.yaml</code></td>
+    <td>Future: rubric presets selectable per session (see Future Extensions)</td>
+  </tr>
+</table>
+
+<p>The central insight: <strong>the Prometheus feedback text is already the XAI explanation</strong> — a per-response natural language narrative that Prometheus generates every turn. It is being produced and then buried. Phase 18f surfaces it as a first-class artifact.</p>
+
+<!-- ═══════════════════════════════════════════════════════ GAP INVENTORY -->
+<h2>Gap Inventory</h2>
+
+<p>LoCAL2 already has strong process transparency (state machine transitions, thinking tokens, tool activity panels). The gaps are in <strong>connecting those artifacts to each other</strong> and to the final answer.</p>
+
+<table class="gap-table">
+  <tr>
+    <th>Gap</th>
+    <th>Current state</th>
+    <th>Addressed by</th>
+  </tr>
+  <tr>
+    <td><strong>Retrieval attribution</strong><br>Which engrams/chunks influenced this answer?</td>
+    <td>Source IDs exist in ChromaDB results; stripped to plain text before tool result is returned to Gemma. No link from answer back to sources.</td>
+    <td>18d</td>
+  </tr>
+  <tr>
+    <td><strong>Retrieval score visibility</strong><br>Why did these 5 engrams rank first?</td>
+    <td>MemoryWindow Browse shows critic score but no similarity distance. Search mode returns ranked results with no scores shown.</td>
+    <td>18a</td>
+  </tr>
+  <tr>
+    <td><strong>Rubric disclosure</strong><br>What does 3/5 mean?</td>
+    <td>Prometheus rubric lives in <code>config/critic.yaml</code> only. Users see a number with no grading criteria.</td>
+    <td>18b</td>
+  </tr>
+  <tr>
+    <td><strong>Tool decision trace</strong><br>Why was web_search called? What was the call chain?</td>
+    <td>Tool activity panels show each tool's log. Main window doesn't show the within-turn call sequence inline with the response card.</td>
+    <td>18c</td>
+  </tr>
+  <tr>
+    <td><strong>Groundedness signal</strong><br>Did Gemma use retrieved sources or answer from training knowledge?</td>
+    <td>No distinction. A grounded response and a hallucinated one look identical in the UI.</td>
+    <td>18e</td>
+  </tr>
+  <tr>
+    <td><strong>Prometheus feedback buried</strong><br>Prometheus generates a natural language explanation for every score — the "why" behind 3/5.</td>
+    <td><code>CritiqueResult.feedback</code> is populated every turn but rendered only as a hover tooltip on the score label. Never visible without deliberate hover; truncated even then.</td>
+    <td>18f</td>
+  </tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════ PHASE 18a -->
+<h2>Phase 18a — Retrieval Score Column in MemoryWindow</h2>
+
+<div class="phase-card">
+  <div class="phase-header">
+    <span class="phase-tag tag-trivial">trivial</span>
+    <span class="phase-title">Add composite similarity score to Search results table</span>
+    <span class="phase-est">~30 min</span>
+  </div>
+
+  <p><code>MemoryService.search_episodic()</code> already returns a composite score per result (cosine similarity + entity overlap + critic weight). The MemoryWindow Search mode discards it — only content and metadata are displayed.</p>
+
+  <h3>What changes</h3>
+  <ul>
+    <li><code>ui/memory_window.py</code> — add <code>"Score"</code> column to <code>_EPISODIC_COLS</code> (between "Age" and "Query"). Format as <code>"0.87"</code> (2 decimal places).</li>
+    <li><code>_populate_episodic()</code> — read <code>row_data.get("score")</code> and include it in the per-row values list. It is already present in every dict returned by <code>search_episodic</code>.</li>
+    <li>Browse mode also benefits: for browse results, score is absent (list_episodic doesn't score), so show <code>"—"</code>.</li>
+  </ul>
+
+  <h3>Data flow (unchanged)</h3>
+  <div class="flow">
+    <span class="flow-box">search_episodic() → [{id, content, metadata, score}]</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-box">_populate_episodic(rows)</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-box">Score column in table</span>
+  </div>
+
+  <div class="criteria">
+    <div class="criteria-label">Acceptance</div>
+    <ul>
+      <li>Search mode shows a "Score" column with float values (e.g. "0.87", "0.71")</li>
+      <li>Results still sorted highest-first (sort happens in <code>search_episodic</code>, not in the table)</li>
+      <li>Browse mode shows "—" in the Score column</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PHASE 18b -->
+<h2>Phase 18b — Rubric Disclosure in CriticWindow</h2>
+
+<div class="phase-card">
+  <div class="phase-header">
+    <span class="phase-tag tag-small">small</span>
+    <span class="phase-title">Surface the Prometheus grading rubric in the UI</span>
+    <span class="phase-est">~1 hr</span>
+  </div>
+
+  <p>The absolute grading rubric — what distinguishes a 1 from a 3 from a 5 — is buried in <code>config/critic.yaml</code>. Users see a numeric badge with no grading criteria. This undermines trust in the score, because the Prometheus feedback (Phase 18f) references criteria the user hasn't seen.</p>
+
+  <p>The rubric is the <strong>evaluation contract</strong>: Prometheus feedback is always written <em>against</em> it. Disclosing the rubric completes the XAI chain — users can read the score, read the feedback, and then read the rubric to understand exactly what criteria were applied.</p>
+
+  <h3>What changes</h3>
+  <ul>
+    <li><code>ui/critic_window.py</code> — add a <strong>third stack page</strong> (alongside the existing activity log and settings pages) that shows the rubric text. CriticWindow inherits <code>BaseObservabilityWindow</code>'s two-page stack; extend to three pages.</li>
+    <li>Add a <strong>"?" button</strong> in the CriticWindow header (next to the ⚙ gear). Toggles to rubric page.</li>
+    <li>Rubric page: loads <code>config/critic.yaml</code>, reads the <code>rubric</code> key, displays as a styled <code>QTextEdit</code> (read-only, monospace).</li>
+    <li><code>BaseObservabilityWindow</code> may need a small refactor to support a third page, or CriticWindow can manage the extra page itself since it's critic-specific.</li>
+  </ul>
+
+  <h3>Design note</h3>
+  <p>The rubric in <code>critic.yaml</code> is a multi-line string already formatted for human reading (Prometheus-style). Just render it as-is — no parsing needed.</p>
+
+  <div class="criteria">
+    <div class="criteria-label">Acceptance</div>
+    <ul>
+      <li>"?" button visible in CriticWindow header</li>
+      <li>Clicking it switches to rubric view showing the full rubric text from config</li>
+      <li>Clicking "?" again (or a ← back button) returns to activity log</li>
+      <li>Rubric reloads if the config is hot-reloaded (low priority — static read on open is fine)</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PHASE 18c -->
+<h2>Phase 18c — Inline Tool Call Trace in Response Card</h2>
+
+<div class="phase-card">
+  <div class="phase-header">
+    <span class="phase-tag tag-medium">medium</span>
+    <span class="phase-title">Show tool call chain inline between thinking and answer</span>
+    <span class="phase-est">~2 hrs</span>
+  </div>
+
+  <p>Thinking tokens show Gemma's reasoning. The answer shows the result. But the tool calls that happened between — Gemma decided to call <code>search_memory</code>, then <code>web_search</code> — are only visible in the side panels. The main response card should show the step chain.</p>
+
+  <h3>Visual target</h3>
+  <pre><code>[10:42:12] RESPONSE  ✓
+
+◈ thinking  ▼
+[collapsed thinking block]
+
+→ search_memory  "previous discussion about flux"
+→ web_search  "flux capacitor timeline 2024"
+→ web_fetch  "https://example.com/flux"
+
+[answer text here]
+
+● 4/5  👍 👎</code></pre>
+
+  <h3>What changes</h3>
+  <ul>
+    <li><code>ui/main_window.py — StreamingResponseWidget</code>:
+      <ul>
+        <li>Add a <code>QVBoxLayout</code> container (between thinking block and answer) called <code>self._trace_layout</code>.</li>
+        <li>Method <code>add_tool_step(tool_name: str, preview: str)</code> appends a dim label row: <code>"→ tool_name  &lt;preview&gt;"</code>. Preview is the first arg truncated to 60 chars.</li>
+        <li>The trace section is hidden until the first step is added.</li>
+      </ul>
+    </li>
+    <li><code>ui/main_window.py — MainWindow</code>:
+      <ul>
+        <li>Subscribe to all <code>tool.activity.*</code> subjects (already done via <code>_TOOL_ACTIVITY_SUBJECTS</code>).</li>
+        <li>In the activity handler, on event <code>"request"</code>: look up the pending response widget by <code>correlation_id</code> and call <code>add_tool_step(tool_name, query_preview)</code>.</li>
+        <li>The <code>correlation_id</code> on tool activity events matches the original <code>query_id</code> (confirmed: GeneratorAgent threads it through all tool calls).</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h3>Data flow</h3>
+  <div class="flow">
+    <span class="flow-box">tool.activity.search_memory {event:"request", query:"...", correlation_id}</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-box">MainWindow looks up self._pending[correlation_id]</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-box">widget.add_tool_step("search_memory", "...")</span>
+  </div>
+
+  <div class="note">
+    <strong>Note:</strong> Some tool activities may arrive after the response (race condition in async processing). Guard against adding steps to a finalized widget by checking <code>self._finalized</code> flag.
+  </div>
+
+  <div class="criteria">
+    <div class="criteria-label">Acceptance</div>
+    <ul>
+      <li>After a turn that uses web_search then web_fetch, the response card shows both steps in order between thinking and answer</li>
+      <li>For turns with no tool calls, the trace section is absent (not just empty)</li>
+      <li>Tool name and truncated query arg are legible but visually subordinate to the answer text</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PHASE 18d -->
+<h2>Phase 18d — Retrieval Attribution Strip</h2>
+
+<div class="phase-card">
+  <div class="phase-header">
+    <span class="phase-tag tag-core">core</span>
+    <span class="phase-title">Link each response back to the specific engrams/chunks it drew from</span>
+    <span class="phase-est">~3 hrs</span>
+  </div>
+
+  <p>This is the core XAI gap. When Gemma uses <code>search_memory</code> or <code>search_library</code>, the retrieved snippets are passed as text in the tool result — but which specific engrams or document chunks were fetched is lost before the answer is rendered. The user cannot tell whether Gemma cited two engrams from last week or three chunks from a PDF they uploaded.</p>
+
+  <h3>What changes</h3>
+
+  <h4>1. SearchMemoryTool — emit source IDs in activity</h4>
+  <p>In <code>tools/search_memory_tool.py</code>, <code>_search()</code> iterates <code>candidates</code> (which already carries <code>id</code>, <code>score</code>, <code>content</code>, <code>metadata</code>). Before returning the text string, collect source metadata and pass it to <code>_publish_activity</code>:</p>
+  <pre><code>sources = [
+    {
+        "id": c["id"],
+        "score": round(c["score"], 3),
+        "snippet": c["content"][:80],
+        "query": c["metadata"].get("query", ""),
+    }
+    for c in candidates
+]
+self._publish_activity("result", {"result": result, "sources": sources}, correlation_id)</code></pre>
+
+  <h4>2. SearchLibraryTool — emit source refs in activity</h4>
+  <p>In <code>tools/search_library_tool.py</code>, <code>_search()</code> iterates <code>hits</code> (already has <code>source_file</code>, <code>chunk_index</code>, <code>page</code>, <code>content</code>). Collect and emit:</p>
+  <pre><code>sources = [
+    {
+        "source_file": h["source_file"],
+        "chunk_index": h.get("chunk_index"),
+        "page": h.get("page"),
+        "snippet": h["content"].strip()[:80],
+    }
+    for h in hits
+]
+self._publish_activity("result", {"result": result, "sources": sources}, correlation_id)</code></pre>
+
+  <h4>3. MainWindow — accumulate sources per turn</h4>
+  <p>Add <code>self._pending_sources: dict[str, list[dict]] = {}</code>. In the tool activity handler, on event <code>"result"</code> for search tools, merge incoming sources into <code>self._pending_sources[correlation_id]</code>.</p>
+
+  <h4>4. MainWindow._on_response — inject sources into widget</h4>
+  <p>After the response widget is finalized, if <code>query_id</code> is in <code>self._pending_sources</code>, call <code>widget.set_sources(sources)</code> and remove from the pending dict to avoid leaking.</p>
+
+  <h4>5. StreamingResponseWidget — sources strip</h4>
+  <p>Add a collapsible "Sources" section at the bottom of the response card, below the answer and above the score/thumbs row.</p>
+  <pre><code>▼ 3 sources
+  ┌ memory: "What is the capital of…"  (score 0.87, 2d ago)
+  ├ memory: "Discussed flux capacitor…"  (score 0.71, 1h ago)
+  └ library: research-paper.pdf p.4, chunk 12</code></pre>
+  <p>The sources strip is collapsed by default; a "▼ N sources" toggle expands it. Each source row is a label — memory rows show query preview + age, library rows show filename + page.</p>
+
+  <h3>Data flow</h3>
+  <div class="flow">
+    <span class="flow-box">tool.activity.search_memory {event:"result", result:"…", sources:[{id,score,snippet}]}</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-box">MainWindow accumulates in _pending_sources[correlation_id]</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-box">response.generation arrives</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-box">widget.set_sources(sources)</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-box">Sources strip renders</span>
+  </div>
+
+  <div class="note">
+    <strong>ToolActivity wire format:</strong> <code>ToolActivity.to_envelope()</code> spreads <code>self.data</code> as <code>**self.data</code> into the payload dict. The <code>sources</code> list is a JSON-serializable structure (list of dicts with str/int/float values). No protocol changes needed — <code>ToolActivity</code> already accepts arbitrary data.
+  </div>
+
+  <div class="criteria">
+    <div class="criteria-label">Acceptance</div>
+    <ul>
+      <li>After a turn that calls search_memory, the response card shows "▼ N sources" toggle</li>
+      <li>Expanding it lists each engram with a snippet and composite score</li>
+      <li>After a turn that calls search_library, library chunks appear with filename and page</li>
+      <li>If both search_memory and search_library fire in one turn, sources from both are listed</li>
+      <li>For turns with no retrieval, the strip is absent</li>
+      <li>Sources are preserved after context compaction (they're stored on the widget, not the bus)</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PHASE 18e -->
+<h2>Phase 18e — Groundedness Indicator</h2>
+
+<div class="phase-card">
+  <div class="phase-header">
+    <span class="phase-tag tag-light">lightweight</span>
+    <span class="phase-title">Show whether the answer is grounded in retrieved sources</span>
+    <span class="phase-est">~1 hr</span>
+  </div>
+
+  <p>Even with the sources strip (18d), a user glancing at the conversation log can't immediately tell whether a response drew on retrieved evidence or pure training knowledge. A groundedness indicator makes this scannable at a glance.</p>
+
+  <h3>What changes</h3>
+
+  <h4>Indicator design</h4>
+  <p>A small badge in the response card header row, next to the timestamp:</p>
+  <pre><code>[10:42:12] RESPONSE  ✓   ⊙ grounded       ← retrieved sources used
+[10:44:05] RESPONSE  ✓   ○ knowledge       ← answered from training only</code></pre>
+  <p>Three groundedness levels, tracked by which tools fired:</p>
+  <ul>
+    <li><strong>⊙ grounded</strong> (teal) — search_memory, search_library, or search_papers fired</li>
+    <li><strong>◉ web</strong> (blue) — web_search or web_fetch fired</li>
+    <li><strong>○ knowledge</strong> (dim gray) — no retrieval tools fired this turn</li>
+  </ul>
+  <p>If both web and memory tools fire, show the highest-confidence indicator (web &gt; grounded).</p>
+
+  <h4>Implementation</h4>
+  <ul>
+    <li><code>StreamingResponseWidget</code>: add a small <code>QLabel self._ground_label</code> in the header row. Initially hidden. Method <code>set_groundedness(level: str)</code> sets text and color.</li>
+    <li><code>MainWindow</code>: add <code>self._pending_ground: dict[str, set[str]] = {}</code>. In the tool activity handler on event <code>"request"</code>, add the tool name to the set for that <code>correlation_id</code>.</li>
+    <li>In <code>_on_response</code>, look up the tool set, derive groundedness level, call <code>widget.set_groundedness(level)</code>.</li>
+  </ul>
+
+  <div class="note">
+    <strong>Why separate from 18d:</strong> Groundedness is a scannable summary — visible even when the sources strip is collapsed. It answers "should I trust this?" at a glance. The sources strip answers "what exactly was used?" on demand. They serve different user needs.
+  </div>
+
+  <div class="criteria">
+    <div class="criteria-label">Acceptance</div>
+    <ul>
+      <li>After a turn that used search_memory, response header shows "⊙ grounded" in teal</li>
+      <li>After a turn that used web_search, response header shows "◉ web" in blue</li>
+      <li>After a pure-knowledge turn, response header shows "○ knowledge" in dim gray</li>
+      <li>Multi-tool turns (web + memory) show the highest-confidence indicator</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PHASE 18f -->
+<h2>Phase 18f — Prometheus Feedback Expansion in Response Card</h2>
+
+<div class="phase-card">
+  <div class="phase-header">
+    <span class="phase-tag tag-small">small</span>
+    <span class="phase-title">Surface Prometheus natural language feedback as a collapsible block per response</span>
+    <span class="phase-est">~1 hr</span>
+  </div>
+
+  <p>Every response already receives a paragraph of natural language feedback from Prometheus explaining <em>why</em> it earned its score. This is the primary XAI artifact the system produces. It is currently set as a tooltip on the score label — hover-only, invisible by default, truncated to a single line.</p>
+
+  <p>The fix mirrors the thinking token pattern already in <code>StreamingResponseWidget</code>: a collapsible toggle that expands to show the full feedback text below the score badge.</p>
+
+  <h3>Visual target</h3>
+  <pre><code>[10:42:12] RESPONSE  ✓   ⊙ grounded
+
+◈ thinking  ▼
+[collapsed]
+
+→ search_memory  "previous discussion…"
+
+[answer text]
+
+▼ sources
+
+● 4/5  ◈ Prometheus  ▼         ← new toggle, replaces bare label
+  The response correctly identifies the core mechanism and provides
+  a clear explanation. Minor gaps: it doesn't address edge cases
+  mentioned in the rubric's Score 5 criteria.
+
+👍 👎</code></pre>
+
+  <h3>What changes</h3>
+  <ul>
+    <li><code>ui/main_window.py — StreamingResponseWidget</code>:
+      <ul>
+        <li>Replace <code>self._score_label</code> (plain <code>QLabel</code>) with a <code>QPushButton</code> styled as a toggle — same pattern as <code>self._toggle_btn</code> for thinking.</li>
+        <li>Add <code>self._feedback_box</code>: a <code>QTextEdit</code> (read-only, max height ~120px, initially hidden) below the score button.</li>
+        <li><code>set_score(score, feedback)</code>: set button text to <code>f"● {score}/5  ◈ Prometheus  ▼"</code>; store feedback text; connect button click to toggle <code>self._feedback_box</code> visibility.</li>
+        <li>Remove the <code>setToolTip(feedback)</code> call — tooltip is superseded by the expandable block.</li>
+      </ul>
+    </li>
+    <li>No bus, protocol, or agent changes — <code>CritiqueResult.feedback</code> is already delivered to <code>MainWindow._on_critique()</code> and passed to <code>widget.set_score()</code>.</li>
+  </ul>
+
+  <h3>Data flow (unchanged — feedback already arrives)</h3>
+  <div class="flow">
+    <span class="flow-box">Prometheus → CriticAgent._grade() → CritiqueResult.feedback</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-box">critique.result bus event</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-box">MainWindow._on_critique()</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-box">widget.set_score(score, feedback)</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-box">_feedback_box (collapsible)</span>
+  </div>
+
+  <div class="note">
+    <strong>Why this matters:</strong> The XAI chain is: <em>rubric</em> (what was evaluated) → <em>feedback</em> (what Prometheus said about this response) → <em>score</em> (the summary judgment). Phase 18b exposes the rubric; 18f exposes the feedback. Together they give users a complete, auditable quality narrative per response.
+  </div>
+
+  <div class="criteria">
+    <div class="criteria-label">Acceptance</div>
+    <ul>
+      <li>Score badge is a clickable toggle: <code>● 4/5  ◈ Prometheus  ▼</code></li>
+      <li>Clicking it expands a text block with the full Prometheus feedback text</li>
+      <li>Clicking again collapses it (same toggle behavior as thinking block)</li>
+      <li>For responses where Prometheus returned <code>score=None</code>, the toggle is absent (no feedback to show)</li>
+      <li>Feedback text is untruncated — full paragraph visible when expanded</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ FUTURE EXTENSIONS -->
+<h2>Future Extensions (out of scope for Phase 18)</h2>
+
+<div class="phase-card" style="border-color: #2a2a3a;">
+  <p>These ideas are valid extensions of the Prometheus XAI capability but are deferred to avoid scope creep:</p>
+  <ul>
+    <li><strong>Custom rubric presets</strong> — selectable rubrics per session (toxicity, hallucination rate, domain compliance, factual accuracy). Prometheus is capable of evaluating all of these given the right rubric. Implementation: a rubric dropdown in CriticWindow settings; <code>config/critic.yaml</code> gains a <code>rubric_presets</code> map.</li>
+    <li><strong>On-demand pairwise comparison</strong> — Gemma-callable <code>critic_comparison</code> tool (the infrastructure exists as <code>CriticAgentTool</code>, removed in Phase 5 when RespondentB was cut). With single-respondent architecture, pairwise comparison would evaluate two user-supplied alternatives rather than two system respondents. Prometheus provides a reasoned ranking with explanation — the XAI output, not just a winner flag.</li>
+    <li><strong>Feedback annotation in MemoryWindow</strong> — show Prometheus feedback alongside critic score in the episodic memory table detail pane, so users can see not just that an engram scored 4/5 but why.</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ SUMMARY -->
+<h2>Implementation Order &amp; Dependencies</h2>
+
+<table class="gap-table">
+  <tr>
+    <th>Phase</th>
+    <th>Est.</th>
+    <th>Dependencies</th>
+    <th>Risk</th>
+  </tr>
+  <tr>
+    <td><strong>18a</strong> — Score column in MemoryWindow</td>
+    <td>30m</td>
+    <td>None</td>
+    <td>None — read-only UI change</td>
+  </tr>
+  <tr>
+    <td><strong>18b</strong> — Rubric disclosure in CriticWindow</td>
+    <td>1h</td>
+    <td>None</td>
+    <td>Low — BaseObservabilityWindow stack extension</td>
+  </tr>
+  <tr>
+    <td><strong>18c</strong> — Tool call trace in response card</td>
+    <td>2h</td>
+    <td>None (uses existing tool.activity subscription)</td>
+    <td>Medium — race between activity and response events; handle with finalized flag</td>
+  </tr>
+  <tr>
+    <td><strong>18d</strong> — Retrieval attribution strip</td>
+    <td>3h</td>
+    <td>None protocol changes needed; ToolActivity already supports arbitrary data</td>
+    <td>Medium — need to verify correlation_id threading end-to-end</td>
+  </tr>
+  <tr>
+    <td><strong>18e</strong> — Groundedness indicator</td>
+    <td>1h</td>
+    <td>18c groundwork (pending_ground dict is similar to trace logic)</td>
+    <td>Low — purely additive to response widget</td>
+  </tr>
+  <tr>
+    <td><strong>18f</strong> — Prometheus feedback expansion</td>
+    <td>1h</td>
+    <td>None — feedback already delivered to widget via set_score()</td>
+    <td>Low — UI-only; score label → toggle button + QTextEdit</td>
+  </tr>
+</table>
+
+<p>Recommended order: <strong>18f → 18b → 18a → 18e → 18c → 18d</strong>.</p>
+<ul>
+  <li><strong>18f first</strong> — highest XAI impact, smallest code change; the feedback is already generated and delivered; this is purely surfacing it.</li>
+  <li><strong>18b second</strong> — completes the Prometheus XAI chain (rubric + feedback together). Depends on nothing.</li>
+  <li><strong>18a</strong> — trivial read-only change; can be done any time.</li>
+  <li><strong>18e → 18c</strong> — share the <code>pending_ground / tool activity</code> dict pattern; do in sequence.</li>
+  <li><strong>18d last</strong> — largest surface area (tool changes + protocol enrichment + new widget section); benefits from patterns established in 18c.</li>
+</ul>
+
+<!-- ═══════════════════════════════════════════════════════ INVARIANTS -->
+<h2>Architecture Invariants</h2>
+<ul>
+  <li><strong>No new bus subjects.</strong> All changes use existing <code>tool.activity.*</code> data (enriched) and existing event subscriptions. The bus is the coordination mechanism, not a new XAI channel.</li>
+  <li><strong>ToolActivity data is open.</strong> <code>ToolActivity.to_envelope()</code> spreads <code>self.data</code> into the payload. Adding <code>sources</code> to the data dict requires no protocol changes.</li>
+  <li><strong>Correlation_id is the join key.</strong> <code>query_id == correlation_id</code> for top-level queries (set in MainWindow at send time). GeneratorAgent threads it through tool calls. Verified in <code>tool_dispatcher.py</code>.</li>
+  <li><strong>UI enrichment only.</strong> No changes to how Gemma sees tool results. The text string Gemma receives from search tools is unchanged. XAI metadata is a side channel for the UI only.</li>
+  <li><strong>Config in YAML.</strong> Any new visual thresholds (groundedness colors, score formatting) go in config, not hardcoded in Python.</li>
+</ul>
+
+<p class="subtitle" style="margin-top:32px;">Plan written 2026-06-14, updated 2026-06-14 (Prometheus XAI framing + 18f) · LoCAL2 v0.2.4 · Next phase after 17 (packaging)</p>
+
+</body>
+</html>

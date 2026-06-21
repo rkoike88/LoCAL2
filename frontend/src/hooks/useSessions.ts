@@ -45,6 +45,7 @@ export function useSessions(): UseSessionsResult {
           critic_score?: number | null;
           critic_feedback?: string;
           thinking?: string;
+          tool_calls?: Array<{ tool: string; args: Record<string, unknown>; result: string }> | null;
         }>;
       } = await res.json();
       return (data.messages ?? [])
@@ -55,6 +56,7 @@ export function useSessions(): UseSessionsResult {
           content: m.content,
           groundedness: m.groundedness as ChatMessage["groundedness"],
           thinking: m.thinking || undefined,
+          tool_calls: m.tool_calls?.length ? m.tool_calls : undefined,
           critique:
             m.critic_score != null
               ? { score: m.critic_score, feedback: m.critic_feedback ?? "" }

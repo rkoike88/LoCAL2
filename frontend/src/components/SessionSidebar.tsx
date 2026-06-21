@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { SessionMeta } from "../hooks/useSessions";
+import type { SessionMeta } from "../types/events";
 
 function formatRelative(ts: number): string {
   const delta = Date.now() / 1000 - ts;

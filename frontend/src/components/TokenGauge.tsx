@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { compactSession } from "../api/client";
 
 interface Props {
   tokenCount: number;
@@ -13,7 +14,7 @@ export function TokenGauge({ tokenCount, sessionId }: Props) {
     setCompacting(true);
     setCompacted(false);
     try {
-      await fetch(`/api/sessions/${sessionId}/compact`, { method: "POST" });
+      await compactSession(sessionId);
       setCompacted(true);
     } finally {
       setCompacting(false);

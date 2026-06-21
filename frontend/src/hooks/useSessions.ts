@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ChatMessage } from "../types/events";
+import type { ChatMessage, SessionMeta } from "../types/events";
 import { randomUUID } from "../utils/uuid";
-
-export interface SessionMeta {
-  session_id: string;
-  title: string;
-  message_count: number;
-  started_at: number;
-  last_active: number;
-}
+import {
+  deleteSession as apiDeleteSession,
+  getSessions,
+  getSession,
+} from "../api/client";
 
 export interface UseSessionsResult {
   sessions: SessionMeta[];
@@ -22,8 +19,7 @@ export function useSessions(): UseSessionsResult {
 
   const fetchSessions = useCallback(async () => {
     try {
-      const res = await fetch("/api/sessions");
-      if (res.ok) setSessions(await res.json());
+      setSessions(await getSessions());
     } catch {
       // ignore network errors
     }
@@ -35,19 +31,7 @@ export function useSessions(): UseSessionsResult {
 
   const loadSession = useCallback(async (id: string): Promise<ChatMessage[]> => {
     try {
-      const res = await fetch(`/api/sessions/${id}`);
-      if (!res.ok) return [];
-      const data: {
-        messages: Array<{
-          role: string;
-          content: string;
-          groundedness?: string;
-          critic_score?: number | null;
-          critic_feedback?: string;
-          thinking?: string;
-          tool_calls?: Array<{ tool: string; args: Record<string, unknown>; result: string }> | null;
-        }>;
-      } = await res.json();
+      const data = await getSession(id);
       return (data.messages ?? [])
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({
@@ -69,7 +53,7 @@ export function useSessions(): UseSessionsResult {
 
   const deleteSession = useCallback(
     async (id: string) => {
-      await fetch(`/api/sessions/${id}`, { method: "DELETE" });
+      await apiDeleteSession(id);
       fetchSessions();
     },
     [fetchSessions]

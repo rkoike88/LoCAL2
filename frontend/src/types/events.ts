@@ -1,5 +1,14 @@
 // Typed WebSocket events streamed from the LoCAL2 gateway.
 
+export interface SessionMeta {
+  session_id: string;
+  title: string;
+  message_count: number;
+  started_at: number;
+  last_active: number;
+}
+
+
 export interface ThinkingChunkEvent {
   type: "thinking_chunk";
   chunk: string;

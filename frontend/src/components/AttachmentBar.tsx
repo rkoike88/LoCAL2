@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { uploadAttachment } from "../api/client";
 import type { Attachment } from "../types/events";
 
 const ACCEPTED = ".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.md,.py,.js,.ts,.yaml,.yml,.json,.csv";
@@ -16,12 +17,8 @@ export function AttachmentBar({ attachments, onChange, disabled }: Props) {
     if (!files || files.length === 0) return;
     const results: Attachment[] = [];
     for (const file of Array.from(files)) {
-      const form = new FormData();
-      form.append("file", file);
       try {
-        const res = await fetch("/api/attachments", { method: "POST", body: form });
-        const att: Attachment = await res.json();
-        results.push(att);
+        results.push(await uploadAttachment(file));
       } catch {
         results.push({ type: "error", name: file.name, error: "Upload failed" });
       }

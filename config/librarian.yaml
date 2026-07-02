@@ -1,0 +1,66 @@
+id: search_library_tool
+model: gemma4:e4b
+temperature: 0.0
+num_ctx_categorise: 512
+num_ctx_reorganise: 4096
+
+description: |
+  Manage the user's personal document library.
+  Use for ALL library requests: searching documents, listing collections,
+  adding a file, deleting a document, or reorganising collections.
+
+param_action: |
+  search — find information in the library.
+  list — show all collections and files.
+  add — ingest an attached file (requires filename).
+  delete — remove a document (requires filename).
+  reorganise — restructure collections.
+
+param_instruction: Plain-language description of what to do.
+
+param_filename: |
+  The filename from the [Attached: <name>] header.
+  Required for add and delete actions.
+
+param_collection: Collection to search in. Omit to search all collections.
+
+prompt_categorise: |
+  You are a librarian. Given these existing collections:
+  {col_summary}
+
+  Which collection does the file '{filename}' belong to? Reply with ONLY:
+    EXISTING: <collection_name>
+  OR if no collection fits:
+    NEW: <short_snake_case_name> | <one-sentence description>
+  Nothing else.
+
+prompt_reorganise: |
+  You are a librarian. The user wants to: {instruction}
+
+  Current library:
+  {col_summary}
+
+  Propose a reorganisation plan as a JSON object. Reply with ONLY valid JSON, no other text:
+  {{
+    "new_collections": [{{"name": "snake_case_name", "description": "one sentence"}}],
+    "moves": [{{"file": "filename.pdf", "from": "source_collection", "to": "target_collection"}}]
+  }}
+  Use empty arrays if nothing needs to change. Collection names must be snake_case.
+collection: collective.documents
+chroma_path: .chroma
+embed_model: nomic-embed-text
+chunk_size: 1500
+chunk_overlap: 200
+n_results: 5
+collections:
+- name: mba
+  display_name: MBA Textbooks
+  description: MBA textbooks covering strategy, finance, marketing, and operations
+- name: cs
+  display_name: Comp Sci
+  description: Computer Science textbooks including Software Engineering, Artificial
+    Intelligence, Data Structures and Algorithms, Database Systems, and Java
+- name: math
+  display_name: Math Textbooks
+  description: Mathematics textbooks covering Logic, Calculus, Linear Algebra, Probability,
+    and Statistics

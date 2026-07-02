@@ -9,3 +9,18 @@ id: location_tool
 # coordinates: "37.3230° N, 122.0322° W"
 
 cache_ttl: 300   # seconds before re-fetching live IP geolocation
+
+schema:
+  type: function
+  function:
+    name: get_location
+    description: |
+      Returns the user's current location (city, state/region, country, timezone,
+      and coordinates). Call this tool for any question that depends on the user's
+      physical location — weather, nearby restaurants or places, local events,
+      travel distances, or when you need to know where the user is before calling
+      another tool such as web_search.
+    parameters:
+      type: object
+      properties: {}
+      required: []

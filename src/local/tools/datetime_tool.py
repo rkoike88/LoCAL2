@@ -35,25 +35,6 @@ class DateTimeTool(BaseTool):
     def __init__(self) -> None:
         super().__init__(TOOL_CALL_GET_DATETIME)
 
-    def _build_schema(self) -> dict:
-        return {
-            "type": "function",
-            "function": {
-                "name": self.TOOL_NAME,
-                "description": (
-                    "Returns the current local date, time, day of week, and timezone. "
-                    "Call this tool for any question about the current time, date, day, year, "
-                    "or timezone. Do not answer from training data — your training cutoff is "
-                    "not the current date."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                },
-            },
-        }
-
     def _handle_request(self, envelope: MessageEnvelope) -> None:
         correlation_id = envelope.correlation_id
         self._publish_activity("request", {}, correlation_id)

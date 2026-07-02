@@ -107,26 +107,6 @@ class LocationTool(BaseTool):
         self._cache: tuple[float, str] | None = None  # (monotonic_time, result)
         super().__init__(TOOL_CALL_GET_LOCATION)
 
-    def _build_schema(self) -> dict:
-        return {
-            "type": "function",
-            "function": {
-                "name": self.TOOL_NAME,
-                "description": (
-                    "Returns the user's current location (city, state/region, country, timezone, "
-                    "and coordinates). Call this tool for any question that depends on the user's "
-                    "physical location — weather, nearby restaurants or places, local events, "
-                    "travel distances, or when you need to know where the user is before calling "
-                    "another tool such as web_search."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                },
-            },
-        }
-
     def _get_location(self) -> str:
         # 1. Static config override
         config_loc = _from_config()

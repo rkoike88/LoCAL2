@@ -121,35 +121,6 @@ class SemanticScholarTool(BaseTool):
     def __init__(self) -> None:
         super().__init__(TOOL_CALL_SEARCH_PAPERS)
 
-    def _build_schema(self) -> dict:
-        return {
-            "type": "function",
-            "function": {
-                "name": self.TOOL_NAME,
-                "description": (
-                    "Searches the Semantic Scholar academic paper database and returns ranked "
-                    "results with titles, authors, years, citation counts, abstracts, and URLs. "
-                    "Call this tool for any question about research papers, scientific studies, "
-                    "academic literature, or when the user asks to find papers on a topic. "
-                    "Do not guess at citations or paper details — always call this tool."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Research topic, keywords, or paper title to search for.",
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "description": "Maximum number of papers to return (default 5, max 10).",
-                        },
-                    },
-                    "required": ["query"],
-                },
-            },
-        }
-
     def _handle_request(self, envelope: MessageEnvelope) -> None:
         args = envelope.payload.get("args") or {}
         query = args.get("query", "")

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 
-from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     TOOL_ACTIVITY_SEARCH_MEMORY,
@@ -28,25 +27,6 @@ class SearchMemoryTool(BaseTool):
     def __init__(self, memory_service: MemoryService | None = None) -> None:
         self._memory = memory_service or MemoryService()
         super().__init__(TOOL_CALL_SEARCH_MEMORY)
-
-    def _build_schema(self) -> dict:
-        cfg = get_config(CONFIG_NAME)
-        description = (cfg.get("description") or "").strip()
-        param_query = (cfg.get("param_query") or "").strip()
-        return {
-            "type": "function",
-            "function": {
-                "name": self.TOOL_NAME,
-                "description": description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": param_query},
-                    },
-                    "required": ["query"],
-                },
-            },
-        }
 
     def _handle_request(self, envelope: MessageEnvelope) -> None:
         args: dict = envelope.payload.get("args", {})

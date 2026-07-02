@@ -6,6 +6,7 @@ import logging
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
+    LIBRARY_COLLECTION_CREATED,
     TOOL_ACTIVITY_SEARCH_DOCUMENTS,
     TOOL_CALL_SEARCH_DOCUMENTS,
     TOOL_RESULT_SEARCH_DOCUMENTS,
@@ -15,7 +16,7 @@ from local.tools.base_tool import BaseTool
 
 logger = logging.getLogger(__name__)
 
-CONFIG_NAME = "documents"
+CONFIG_NAME = "librarian"
 TOOL_NAME = "search_library"
 
 
@@ -27,7 +28,14 @@ class SearchLibraryTool(BaseTool):
 
     def __init__(self, document_service: DocumentService | None = None) -> None:
         self._docs = document_service or DocumentService()
-        super().__init__(TOOL_CALL_SEARCH_DOCUMENTS)
+        super().__init__(TOOL_CALL_SEARCH_DOCUMENTS, extra_subjects=[LIBRARY_COLLECTION_CREATED])
+
+    def _handle_extra(self, envelope: MessageEnvelope) -> None:
+        if envelope.subject == LIBRARY_COLLECTION_CREATED:
+            from local.config_loader import ConfigManager
+            ConfigManager.invalidate(self.CONFIG_NAME)
+            self._announce_schema()
+            logger.info("SearchLibraryTool: schema re-announced after new collection")
 
     def _build_schema(self) -> dict:
         cfg = get_config(CONFIG_NAME) or {}

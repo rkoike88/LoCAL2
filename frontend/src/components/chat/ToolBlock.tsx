@@ -43,7 +43,10 @@ export function ToolBlock({ calls, activeTool }: Props) {
                   {k}: {typeof v === "string" ? v : JSON.stringify(v)}
                 </div>
               ))}
-              {tc.result && (
+              {tc.error && (
+                <div className="text-red-500 mt-1">[{formatTs(tc.result_ts)}]  ✕ {tc.error}</div>
+              )}
+              {!tc.error && tc.result && (
                 <>
                   <div className="text-gray-600 mt-1">[{formatTs(tc.result_ts)}]  ← result</div>
                   <div className="pl-4 text-gray-500 whitespace-pre-wrap">

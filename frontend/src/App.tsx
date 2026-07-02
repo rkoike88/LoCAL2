@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AttachmentBar } from "./components/AttachmentBar";
 import { MessageRow, Spinner, ThinkingBlock, ToolBlock } from "./components/chat";
 import { SessionSidebar } from "./components/SessionSidebar";
@@ -15,11 +15,24 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const { sessions, fetchSessions, loadSession, deleteSession } = useSessions();
 
-  const { messages, streaming, isStreaming, sendQuery, loadHistory, tokenCount } =
+  const { messages, streaming, isStreaming, sendQuery, loadHistory, tokenCount, toast, clearToast } =
     useChatStream(activeSessionId, fetchSessions);
 
-  const { models, selectedModel, temperature, numCtx, handleModelChange } =
+  const { models, selectedModel, temperature, numCtx, handleModelChange, setSelectedModel } =
     useGeneratorSettings();
+
+  // Update header model display from the most recent response's actual model.
+  useEffect(() => {
+    const last = [...messages].reverse().find((m) => m.role === "assistant" && m.model);
+    if (last?.model) setSelectedModel(last.model);
+  }, [messages, setSelectedModel]);
+
+  // Auto-dismiss completion toasts after 5 s; loading toasts (⟳) stay until replaced.
+  useEffect(() => {
+    if (!toast || toast.startsWith("⟳")) return;
+    const t = setTimeout(clearToast, 5000);
+    return () => clearTimeout(t);
+  }, [toast, clearToast]);
 
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -183,6 +196,16 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {toast && (
+        <div
+          className="fixed bottom-6 right-6 z-50 bg-surface-2 border border-surface-3 text-gray-300 text-sm rounded-lg px-4 py-3 shadow-lg max-w-sm"
+          onClick={clearToast}
+          role="status"
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

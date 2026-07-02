@@ -12,6 +12,16 @@ interface Props {
 }
 
 export function MessageRow({ msg, sessionId }: Props) {
+  if (msg.role === "notice") {
+    return (
+      <div className="flex items-center gap-3 py-1">
+        <div className="flex-1 h-px bg-surface-3" />
+        <span className="text-xs text-surface-text-muted font-mono shrink-0">{msg.content}</span>
+        <div className="flex-1 h-px bg-surface-3" />
+      </div>
+    );
+  }
+
   if (msg.role === "user") {
     return (
       <div className="flex justify-end">
@@ -45,6 +55,7 @@ export function MessageRow({ msg, sessionId }: Props) {
         score={msg.critique?.score ?? null}
         feedback={msg.critique?.feedback}
         groundedness={msg.groundedness}
+        model={msg.model}
         queryId={msg.id}
         sessionId={sessionId}
       />

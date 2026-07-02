@@ -24,7 +24,7 @@ from local.config_loader import get_config
 
 logger = logging.getLogger(__name__)
 
-_CONFIG = "documents"
+_CONFIG = "librarian"
 
 
 def _chunk_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
@@ -276,6 +276,27 @@ class DocumentService:
                 "source_count": source_count,
             })
         return result
+
+    def create_collection(self, name: str, description: str, display_name: str = "") -> None:
+        """Append a new collection entry to documents.yaml.
+
+        Args:
+            name: Machine-readable collection name (used as Chroma metadata value).
+            description: One-sentence description for LLM context.
+            display_name: Human-readable label; defaults to name.
+        """
+        from local.config_loader import ConfigManager
+        cfg = dict(get_config(_CONFIG) or {})
+        collections = list(cfg.get("collections") or [])
+        if any(c.get("name") == name for c in collections):
+            return
+        collections.append({
+            "name": name,
+            "display_name": display_name or name,
+            "description": description,
+        })
+        cfg["collections"] = collections
+        ConfigManager.save(_CONFIG, cfg)
 
     def list_sources(self, collection: Optional[str] = None) -> list[str]:
         """Return unique source filenames, optionally filtered by collection."""

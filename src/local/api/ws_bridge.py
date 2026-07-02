@@ -12,8 +12,12 @@ from local.protocol.subjects import (
     ANSWER_DIALOG,
     CRITIQUE,
     GENERATION_THINKING,
+    LIBRARY_INGEST_COMPLETE,
+    LIBRARY_INGEST_STARTED,
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
+    TOOL_CALL_CONSULT_LIBRARIAN,
+    TOOL_TRANSITION,
     TOOL_CALL_GET_DATETIME,
     TOOL_CALL_GET_LOCATION,
     TOOL_CALL_SEARCH_DOCUMENTS,
@@ -21,6 +25,7 @@ from local.protocol.subjects import (
     TOOL_CALL_SEARCH_PAPERS,
     TOOL_CALL_WEB_FETCH,
     TOOL_CALL_WEB_SEARCH,
+    TOOL_RESULT_CONSULT_LIBRARIAN,
     TOOL_RESULT_GET_DATETIME,
     TOOL_RESULT_GET_LOCATION,
     TOOL_RESULT_SEARCH_DOCUMENTS,
@@ -48,6 +53,10 @@ CHAT_OBSERVE = [
     TOOL_RESULT_SEARCH_PAPERS,
     TOOL_CALL_SEARCH_DOCUMENTS,
     TOOL_RESULT_SEARCH_DOCUMENTS,
+    TOOL_CALL_CONSULT_LIBRARIAN,
+    TOOL_RESULT_CONSULT_LIBRARIAN,
+    LIBRARY_INGEST_COMPLETE,
+    TOOL_TRANSITION,
     RESPONSE_GENERATION,
     ANSWER_DIALOG,
     CRITIQUE,
@@ -110,6 +119,7 @@ def translate(envelope: MessageEnvelope) -> dict | None:
             "session_id": payload.get("session_id", ""),
             "query_id": payload.get("query_id") or query_id,
             "prompt_tokens": payload.get("prompt_tokens", 0),
+            "model": payload.get("model", ""),
         }
 
     if subject == CRITIQUE:
@@ -118,6 +128,34 @@ def translate(envelope: MessageEnvelope) -> dict | None:
             "score": payload.get("score"),
             "feedback": payload.get("feedback", ""),
             "query_id": payload.get("query_id") or query_id,
+        }
+
+    if subject == LIBRARY_INGEST_STARTED:
+        return {
+            "type": "library_ingest_started",
+            "filename": payload.get("filename", ""),
+            "collection": payload.get("collection", ""),
+        }
+
+    if subject == TOOL_TRANSITION:
+        return {
+            "type": "tool_transition",
+            "tool": payload.get("tool", ""),
+            "from_state": payload.get("from_state", ""),
+            "action": payload.get("action", ""),
+            "to": payload.get("to", ""),
+            "error": payload.get("error", ""),
+            "query_id": query_id,
+        }
+
+    if subject == LIBRARY_INGEST_COMPLETE:
+        error = payload.get("error", "")
+        return {
+            "type": "library_ingested",
+            "filename": payload.get("filename", ""),
+            "collection": payload.get("collection", ""),
+            "chunks": payload.get("chunk_count", 0),
+            "error": error,
         }
 
     return None

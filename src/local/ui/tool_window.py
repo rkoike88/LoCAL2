@@ -312,9 +312,9 @@ class ToolWindow(BaseObservabilityWindow):
 
     # Tool schema names that differ from their config file stem.
     _CONFIG_NAME: dict[str, str] = {
-        "get_location":  "location",
-        "search_papers": "semantic_scholar",
-        "search_library": "documents",
+        "get_location":       "location",
+        "search_papers":      "semantic_scholar",
+        "consult_librarian":  "librarian",
     }
 
     def __init__(self, tool_name: str, publisher=None, on_lib_click=None, lib_tooltip: str = "Open") -> None:

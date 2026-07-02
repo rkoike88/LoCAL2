@@ -4,13 +4,23 @@ searxng_url: http://localhost:8080
 max_results: 5
 timeout: 10
 
-description: |
-  Search the web for current information, news, or facts not in your training data.
-  Call this when the user asks about recent events, wants you to look something up,
-  or asks a question that requires live information (e.g. "search for X", "what is
-  the latest on Y", "find information about Z").
-  Follow up with web_fetch to retrieve the full content of a specific result.
-
-param_query: |
-  The search query string. Be concise and specific.
-  Examples: "Python 3.12 release notes", "current weather Tokyo".
+schema:
+  type: function
+  function:
+    name: web_search
+    description: |
+      Search the web for current information, news, or facts not in your training data.
+      Call this when the user asks about recent events, wants you to look something up,
+      or asks a question that requires live information (e.g. "search for X", "what is
+      the latest on Y", "find information about Z").
+      Follow up with web_fetch to retrieve the full content of a specific result.
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: |
+            The search query string. Be concise and specific.
+            Examples: "Python 3.12 release notes", "current weather Tokyo".
+      required:
+        - query

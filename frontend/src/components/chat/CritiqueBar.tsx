@@ -19,11 +19,12 @@ interface Props {
   score: number | null;
   feedback?: string;
   groundedness?: string;
+  model?: string;
   queryId: string;
   sessionId: string;
 }
 
-export function CritiqueBar({ score, feedback, groundedness, queryId, sessionId }: Props) {
+export function CritiqueBar({ score, feedback, groundedness, model, queryId, sessionId }: Props) {
   const [sentiment, setSentiment] = useState<"positive" | "negative" | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
@@ -38,6 +39,11 @@ export function CritiqueBar({ score, feedback, groundedness, queryId, sessionId 
   return (
     <div className="pt-1">
       <div className="flex items-center gap-3">
+        {model && (
+          <span className="text-xs text-surface-text-muted font-mono" title="Model used for this response">
+            {model}
+          </span>
+        )}
         {ground && (
           <span className={`text-xs ${ground.className}`} title={ground.title}>
             {ground.label}

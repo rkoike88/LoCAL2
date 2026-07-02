@@ -2,11 +2,20 @@ id: web_fetch_tool
 max_chars: 12000
 timeout: 15
 
-description: |
-  Fetch and extract the text content of a specific URL.
-  Call this after web_search to retrieve the full content of a search result,
-  or when the user provides a URL they want you to read.
-  Returns cleaned text up to 12000 characters; very long pages will be truncated.
-
-param_url: |
-  The full URL to fetch. Must be a valid http or https URL.
+schema:
+  type: function
+  function:
+    name: web_fetch
+    description: |
+      Fetch and extract the text content of a specific URL.
+      Call this after web_search to retrieve the full content of a search result,
+      or when the user provides a URL they want you to read.
+      Returns cleaned text up to 12000 characters; very long pages will be truncated.
+    parameters:
+      type: object
+      properties:
+        url:
+          type: string
+          description: The full URL to fetch. Must be a valid http or https URL.
+      required:
+        - url

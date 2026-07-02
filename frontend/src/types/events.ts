@@ -51,6 +51,17 @@ export interface ToolCall {
   result: string;
   call_ts?: string;
   result_ts?: string;
+  error?: string;
+}
+
+export interface ToolTransitionEvent {
+  type: "tool_transition";
+  tool: string;
+  from_state: string;
+  action: string;
+  to: string;
+  error: string;
+  query_id: string;
 }
 
 export interface ResponseEvent {
@@ -61,6 +72,7 @@ export interface ResponseEvent {
   session_id: string;
   query_id: string;
   prompt_tokens: number;
+  model?: string;
 }
 
 export interface CritiqueEvent {
@@ -70,16 +82,33 @@ export interface CritiqueEvent {
   query_id: string;
 }
 
+export interface LibraryIngestStartedEvent {
+  type: "library_ingest_started";
+  filename: string;
+  collection: string;
+}
+
+export interface LibraryIngestedEvent {
+  type: "library_ingested";
+  filename: string;
+  collection: string;
+  chunks: number;
+  error: string;
+}
+
 export type GatewayEvent =
   | ThinkingChunkEvent
   | ToolStartEvent
   | ToolResultEvent
+  | ToolTransitionEvent
   | ResponseEvent
-  | CritiqueEvent;
+  | CritiqueEvent
+  | LibraryIngestStartedEvent
+  | LibraryIngestedEvent;
 
 // A processed file attachment ready to send to the generator.
 export interface Attachment {
-  type: "text" | "image" | "error";
+  type: "text" | "image" | "error" | "uploading";
   name: string;
   data?: string;
   error?: string;
@@ -88,7 +117,7 @@ export interface Attachment {
 // A fully resolved message in the chat history.
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "notice";
   content: string;
   thinking?: string;
   tool_calls?: ToolCall[];
@@ -97,6 +126,7 @@ export interface ChatMessage {
   sources?: RetrievalSource[];
   prompt_tokens?: number;
   attachments?: Attachment[];
+  model?: string;
 }
 
 // An in-progress assistant turn while streaming.

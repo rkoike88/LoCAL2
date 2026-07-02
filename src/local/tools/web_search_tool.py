@@ -33,25 +33,6 @@ class WebSearchTool(BaseTool):
         super().__init__(TOOL_CALL_WEB_SEARCH)
         logger.info("web_search_tool: provider=%s  max_results=%s", self._provider, self._max_results)
 
-    def _build_schema(self) -> dict:
-        cfg = get_config(CONFIG_NAME)
-        description = (cfg.get("description") or "").strip()
-        param_query = (cfg.get("param_query") or "").strip()
-        return {
-            "type": "function",
-            "function": {
-                "name": self.TOOL_NAME,
-                "description": description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": param_query},
-                    },
-                    "required": ["query"],
-                },
-            },
-        }
-
     def _handle_request(self, envelope: MessageEnvelope) -> None:
         args: dict = envelope.payload.get("args", {})
         query = args.get("query") or args.get("queries") or ""

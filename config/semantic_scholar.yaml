@@ -4,3 +4,25 @@ timeout: 15
 fields: "title,authors,year,abstract,citationCount,url,externalIds"
 abstract_max_chars: 300   # truncation limit per paper abstract in tool result
 min_request_gap: 1.2      # seconds between API requests (unauthenticated rate limit)
+
+schema:
+  type: function
+  function:
+    name: search_papers
+    description: |
+      Searches the Semantic Scholar academic paper database and returns ranked
+      results with titles, authors, years, citation counts, abstracts, and URLs.
+      Call this tool for any question about research papers, scientific studies,
+      academic literature, or when the user asks to find papers on a topic.
+      Do not guess at citations or paper details — always call this tool.
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Research topic, keywords, or paper title to search for.
+        limit:
+          type: integer
+          description: Maximum number of papers to return (default 5, max 10).
+      required:
+        - query

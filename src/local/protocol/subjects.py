@@ -45,6 +45,7 @@ REWARD_EVENT = "reward.event"
 
 # Phase 6 — agent state transition visibility
 AGENT_TRANSITION = "agent.transition"
+TOOL_TRANSITION  = "tool.transition"
 
 # Phase 14 — conversation compaction
 COMPACTION_REQUEST = "compaction.request"
@@ -52,3 +53,11 @@ COMPACTION_RESULT  = "compaction.result"
 
 # Phase 15 — generator observability
 GENERATOR_STATUS = "generator.status"
+
+# Phase 21d — library agent tool
+TOOL_CALL_CONSULT_LIBRARIAN   = "tool.call.consult_librarian"
+TOOL_RESULT_CONSULT_LIBRARIAN = "tool.result.consult_librarian"
+TOOL_ACTIVITY_CONSULT_LIBRARIAN = "tool.activity.consult_librarian"
+LIBRARY_COLLECTION_CREATED    = "library.collection.created"
+LIBRARY_INGEST_STARTED        = "library.ingest.started"
+LIBRARY_INGEST_COMPLETE       = "library.ingest.complete"

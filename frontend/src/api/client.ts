@@ -1,7 +1,8 @@
 import type { Attachment, SessionMeta } from "../types/events";
 
 export interface GeneratorSettings {
-  model: string;
+  model?: string;
+  models?: { default: string; vision?: string; quality?: string };
   temperature: number | null;
   num_ctx: number | null;
 }

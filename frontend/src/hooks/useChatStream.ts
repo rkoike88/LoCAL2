@@ -11,6 +11,8 @@ export interface UseChatStreamResult {
   sendQuery: (query: string, attachments?: Attachment[]) => void;
   loadHistory: (msgs: ChatMessage[]) => void;
   tokenCount: number;
+  toast: string | null;
+  clearToast: () => void;
 }
 
 function isGatewayEvent(v: unknown): v is GatewayEvent {
@@ -69,6 +71,8 @@ export function useChatStream(
     dispatch({ type: "load_history", messages: msgs });
   }, []);
 
+  const clearToast = useCallback(() => dispatch({ type: "clear_toast" }), []);
+
   return {
     messages: state.messages,
     streaming: state.streaming,
@@ -76,5 +80,7 @@ export function useChatStream(
     sendQuery,
     loadHistory,
     tokenCount: state.tokenCount,
+    toast: state.toast,
+    clearToast,
   };
 }

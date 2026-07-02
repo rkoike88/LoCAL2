@@ -35,25 +35,6 @@ class WebFetchTool(BaseTool):
         super().__init__(TOOL_CALL_WEB_FETCH)
         logger.info("web_fetch_tool: max_chars=%s  timeout=%s", self._max_chars, self._timeout)
 
-    def _build_schema(self) -> dict:
-        cfg = get_config(CONFIG_NAME)
-        description = (cfg.get("description") or "").strip()
-        param_url = (cfg.get("param_url") or "").strip()
-        return {
-            "type": "function",
-            "function": {
-                "name": self.TOOL_NAME,
-                "description": description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "url": {"type": "string", "description": param_url},
-                    },
-                    "required": ["url"],
-                },
-            },
-        }
-
     def _handle_request(self, envelope: MessageEnvelope) -> None:
         args: dict = envelope.payload.get("args", {})
         url: str = args.get("url", "")

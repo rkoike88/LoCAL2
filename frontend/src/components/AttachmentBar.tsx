@@ -1,6 +1,8 @@
 import { useRef } from "react";
+import { flushSync } from "react-dom";
 import { uploadAttachment } from "../api/client";
 import type { Attachment } from "../types/events";
+import { Spinner } from "./chat/Spinner";
 
 const ACCEPTED = ".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.md,.py,.js,.ts,.yaml,.yml,.json,.csv";
 
@@ -15,15 +17,25 @@ export function AttachmentBar({ attachments, onChange, disabled }: Props) {
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
+    const fileArray = Array.from(files);
+    console.log("[AttachmentBar] handleFiles:", fileArray.map(f => `${f.name} (${(f.size / 1024).toFixed(0)}KB)`));
+
+    const before = attachments;
+    flushSync(() => {
+      onChange([...before, ...fileArray.map(f => ({ type: "uploading" as const, name: f.name }))]);
+    });
+
     const results: Attachment[] = [];
-    for (const file of Array.from(files)) {
+    for (const file of fileArray) {
+      console.log("[AttachmentBar] uploading:", file.name);
       try {
         results.push(await uploadAttachment(file));
+        console.log("[AttachmentBar] done:", file.name);
       } catch {
         results.push({ type: "error", name: file.name, error: "Upload failed" });
       }
     }
-    onChange([...attachments, ...results]);
+    onChange([...before, ...results]);
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -51,18 +63,22 @@ export function AttachmentBar({ attachments, onChange, disabled }: Props) {
           className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-mono ${
             att.type === "error"
               ? "bg-red-900/40 text-red-400 border border-red-700/40"
+              : att.type === "uploading"
+              ? "bg-yellow-900/40 text-yellow-300 border border-yellow-700/40"
               : "bg-surface-3 text-accent border border-surface-3"
           }`}
         >
-          {att.type === "error" ? "⚠" : "📎"} {att.name}
-          <button
-            type="button"
-            onClick={() => remove(i)}
-            className="ml-0.5 hover:text-white transition-colors"
-            aria-label={`Remove ${att.name}`}
-          >
-            ✕
-          </button>
+          {att.type === "uploading" ? <Spinner /> : att.type === "error" ? "⚠" : "📎"} {att.name}
+          {att.type !== "uploading" && (
+            <button
+              type="button"
+              onClick={() => remove(i)}
+              className="ml-0.5 hover:text-white transition-colors"
+              aria-label={`Remove ${att.name}`}
+            >
+              ✕
+            </button>
+          )}
         </span>
       ))}
 

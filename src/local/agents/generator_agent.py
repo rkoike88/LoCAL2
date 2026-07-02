@@ -65,7 +65,9 @@ class GeneratorAgent(BaseAgent):
         """
         cfg = get_config("generator")
         sys_cfg = get_config("system") or {}
-        self._model: str = model or cfg["model"]
+        self._models: dict = cfg.get("models") or {"default": cfg.get("model", "")}
+        self._model: str = model or self._models.get("default", "")
+        self._active_model: str = self._model
         self._options: dict = {
             "num_ctx": cfg["num_ctx"],
             "temperature": temperature if temperature is not None else cfg["temperature"],
@@ -128,6 +130,10 @@ class GeneratorAgent(BaseAgent):
         query_id = original_query_id
         correlation_id = envelope.correlation_id or query_id
 
+        has_images = any(a.get("type") == "image" for a in attachments if isinstance(a, dict))
+        active_model = self._models.get("vision", self._model) if has_images else self._model
+        self._active_model = active_model
+
         self._do_transition(GeneratorAction.RECEIVE)
 
         messages = self._build_messages(query, session_id, attachments)
@@ -136,7 +142,7 @@ class GeneratorAgent(BaseAgent):
 
         try:
             answer, thinking, tool_call_log, prompt_tokens = self._generate(
-                messages, correlation_id, session_id, query_id
+                messages, correlation_id, session_id, query_id, model=active_model
             )
         except Exception as exc:
             logger.error("GeneratorAgent: generation failed: %s", exc, exc_info=True)
@@ -145,7 +151,7 @@ class GeneratorAgent(BaseAgent):
                 ResponseGeneration(
                     query=query, answer=f"[generation error: {exc}]",
                     thinking="", tool_calls=[], session_id=session_id or "",
-                    query_id=query_id, error=True,
+                    query_id=query_id, error=True, model=active_model,
                 ),
                 sender_id=self.id, correlation_id=correlation_id, session_id=session_id or "",
             )
@@ -162,7 +168,7 @@ class GeneratorAgent(BaseAgent):
             ResponseGeneration(
                 query=query, answer=answer, thinking=thinking,
                 tool_calls=tool_call_log, session_id=session_id or "",
-                query_id=query_id, prompt_tokens=prompt_tokens,
+                query_id=query_id, prompt_tokens=prompt_tokens, model=active_model,
             ),
             sender_id=self.id, correlation_id=correlation_id, session_id=session_id or "",
         )
@@ -174,6 +180,7 @@ class GeneratorAgent(BaseAgent):
             sender_id=self.id, correlation_id=correlation_id, session_id=session_id or "",
         )
 
+        self._active_model = self._model
         self._do_transition(GeneratorAction.RESET)
 
     def _build_messages(
@@ -228,6 +235,7 @@ class GeneratorAgent(BaseAgent):
         correlation_id: str,
         session_id: str | None = None,
         query_id: str = "",
+        model: str = "",
     ) -> tuple[str, str, list[dict], int]:
         """Run the Ollama streaming chat loop with tool call dispatch.
 
@@ -270,7 +278,7 @@ class GeneratorAgent(BaseAgent):
             last_chunk = None
 
             for chunk in ollama.chat(
-                model=self._model,
+                model=model or self._model,
                 messages=messages,
                 tools=self._tool_schemas or None,
                 think=True,
@@ -329,7 +337,9 @@ class GeneratorAgent(BaseAgent):
     def _handle_config_reload(self) -> None:
         """Re-read model and params from config — takes effect on the next generation."""
         cfg = get_config("generator")
-        self._model = cfg["model"]
+        self._models = cfg.get("models") or {"default": cfg.get("model", "")}
+        self._model = self._models.get("default", "")
+        self._active_model = self._model
         self._options["num_ctx"] = cfg["num_ctx"]
         self._options["temperature"] = cfg["temperature"]
         self._system_prompt = cfg.get("system_prompt") or ""
@@ -349,7 +359,7 @@ class GeneratorAgent(BaseAgent):
         self._pub.publish(
             GeneratorStatus(
                 instance_id=self._instance_id,
-                model=self._model,
+                model=self._active_model,
                 temperature=self._options.get("temperature", 0.0),
                 num_ctx=self._options.get("num_ctx", 0),
                 state=self._sm.state.value,

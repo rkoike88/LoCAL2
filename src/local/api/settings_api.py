@@ -35,7 +35,7 @@ _ALLOWED_SECTIONS = frozenset({
     "memory",
     "web_search",
     "location",
-    "documents",
+    "librarian",
     "search_memory",
     "semantic_scholar",
     "web_fetch",

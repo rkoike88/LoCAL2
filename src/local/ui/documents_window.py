@@ -39,7 +39,7 @@ from local.config_loader import ConfigManager, get_config
 
 logger = logging.getLogger(__name__)
 
-_CONFIG_NAME = "documents"
+_CONFIG_NAME = "librarian"
 _ACCEPTED_EXTS = "Documents (*.pdf *.txt *.md *.py *.yaml *.json *.csv)"
 _PAGE_COLLECTIONS = 0
 _PAGE_SOURCES = 1

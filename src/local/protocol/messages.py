@@ -18,12 +18,16 @@ from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     AGENT_TRANSITION,
     ANSWER_DIALOG,
+    TOOL_TRANSITION,
     COMPACTION_REQUEST,
     COMPACTION_RESULT,
     CONFIG_RELOAD,
     CRITIQUE,
     GENERATION_THINKING,
     GENERATOR_STATUS,
+    LIBRARY_COLLECTION_CREATED,
+    LIBRARY_INGEST_COMPLETE,
+    LIBRARY_INGEST_STARTED,
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
     REWARD_EVENT,
@@ -121,6 +125,7 @@ class ResponseGeneration(BusMessage):
     query_id:      str
     prompt_tokens: int = 0
     error:         bool = False
+    model:         str = ""
 
     @classmethod
     def from_envelope(cls, envelope: MessageEnvelope) -> "ResponseGeneration":
@@ -134,6 +139,7 @@ class ResponseGeneration(BusMessage):
             query_id=p.get("query_id", ""),
             prompt_tokens=p.get("prompt_tokens", 0),
             error=bool(p.get("error", False)),
+            model=p.get("model", ""),
         )
 
 
@@ -290,6 +296,44 @@ class ToolActivity(BusMessage):
         event = p.get("event", "")
         data = {k: v for k, v in p.items() if k not in ("tool", "event")}
         return cls(tool=tool, event=event, data=data)
+
+
+@dataclass
+class ToolTransition(BusMessage):
+    subject:      ClassVar[str] = TOOL_TRANSITION
+    message_type: ClassVar[str] = "tool_transition"
+
+    tool:       str
+    from_state: str
+    action:     str
+    to:         str
+    error:      str = ""
+
+    def to_envelope(self, sender_id: str, correlation_id: str = "", session_id: str = "") -> MessageEnvelope:
+        return MessageEnvelope.create(
+            message_type=self.message_type,
+            subject=self.subject,
+            sender_id=sender_id,
+            payload={
+                "tool":       self.tool,
+                "from_state": self.from_state,
+                "action":     self.action,
+                "to":         self.to,
+                "error":      self.error,
+            },
+            correlation_id=correlation_id or str(uuid.uuid4()),
+        )
+
+    @classmethod
+    def from_envelope(cls, envelope: MessageEnvelope) -> "ToolTransition":
+        p = envelope.payload
+        return cls(
+            tool=p.get("tool", ""),
+            from_state=p.get("from_state", ""),
+            action=p.get("action", ""),
+            to=p.get("to", ""),
+            error=p.get("error", ""),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -493,3 +537,62 @@ class ConfigReload(BusMessage):
     @classmethod
     def from_envelope(cls, envelope: MessageEnvelope) -> "ConfigReload":
         return cls(target=envelope.payload.get("target", ""))
+
+
+# ---------------------------------------------------------------------------
+# Library events
+# ---------------------------------------------------------------------------
+
+@dataclass
+class LibraryCollectionCreated(BusMessage):
+    subject:      ClassVar[str] = LIBRARY_COLLECTION_CREATED
+    message_type: ClassVar[str] = "library_collection_created"
+
+    name:        str
+    description: str
+
+    @classmethod
+    def from_envelope(cls, envelope: MessageEnvelope) -> "LibraryCollectionCreated":
+        p = envelope.payload
+        return cls(
+            name=p.get("name", ""),
+            description=p.get("description", ""),
+        )
+
+
+@dataclass
+class LibraryIngestStarted(BusMessage):
+    subject:      ClassVar[str] = LIBRARY_INGEST_STARTED
+    message_type: ClassVar[str] = "library_ingest_started"
+
+    filename:   str
+    collection: str
+
+    @classmethod
+    def from_envelope(cls, envelope: MessageEnvelope) -> "LibraryIngestStarted":
+        p = envelope.payload
+        return cls(
+            filename=p.get("filename", ""),
+            collection=p.get("collection", ""),
+        )
+
+
+@dataclass
+class LibraryIngestComplete(BusMessage):
+    subject:      ClassVar[str] = LIBRARY_INGEST_COMPLETE
+    message_type: ClassVar[str] = "library_ingest_complete"
+
+    filename:    str
+    collection:  str
+    chunk_count: int = 0
+    error:       str = ""
+
+    @classmethod
+    def from_envelope(cls, envelope: MessageEnvelope) -> "LibraryIngestComplete":
+        p = envelope.payload
+        return cls(
+            filename=p.get("filename", ""),
+            collection=p.get("collection", ""),
+            chunk_count=p.get("chunk_count", 0),
+            error=p.get("error", ""),
+        )

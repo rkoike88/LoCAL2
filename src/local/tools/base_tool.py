@@ -1,89 +1,80 @@
 """BaseTool — abstract base class for all LoCAL2 tools.
 
-Subclasses must set TOOL_ID, TOOL_NAME, ACTIVITY_SUBJECT class vars and
-implement _build_schema() and _handle_request(). Everything else is inherited.
+Subclasses must set TOOL_NAME, ACTIVITY_SUBJECT, RESULT_SUBJECT class vars and
+implement _handle_request(). Override _build_schema() when the schema must be
+built dynamically; otherwise add a 'schema:' key to config/<CONFIG_NAME>.yaml.
 """
 from __future__ import annotations
 
 import logging
+import time
 from abc import abstractmethod
-from typing import ClassVar
+from contextlib import contextmanager
+from enum import Enum
+from typing import ClassVar, Generator
 
-from local.config_loader import ConfigManager
+from local.config_loader import ConfigManager, get_config
 from local.participants.participant import Participant
 from local.protocol.envelope import MessageEnvelope
-from local.protocol.messages import ToolActivity, ToolResult, ToolSchema
+from local.protocol.messages import ToolActivity, ToolResult, ToolSchema, ToolTransition
 from local.protocol.subjects import TOOL_SCHEMA_REQUEST
-from local.transport.bus_config import make_participant_bus
+from local.transport.bus_config import PROXY_FRONTEND_ADDR, make_participant_bus
+from local.transport.zmq_pubsub import ZmqPublisher
 
 logger = logging.getLogger(__name__)
+
+
+class ToolState(Enum):
+    IDLE      = "IDLE"
+    EXECUTING = "EXECUTING"
+    ERROR     = "ERROR"
 
 
 class BaseTool(Participant):
     """Abstract base for all LoCAL2 tools.
 
-    Handles the run loop, schema broadcasting, and activity event publishing.
-    Subclasses must declare class variables and implement two methods.
+    Handles the run loop, schema broadcasting, activity event publishing,
+    state machine transitions, and thread-safe publishing.
 
     Class Variables:
         CONFIG_NAME: Config key for this tool's yaml (required by Participant).
-            ``ConfigManager.invalidate`` is called on each ``TOOL_SCHEMA_REQUEST``
-            so ``_build_schema`` always sees the latest on-disk config.
-        TOOL_NAME: Function name in the OpenAI schema and in activity payloads
-            (e.g. ``"get_datetime"``).
+        TOOL_NAME: Function name in the OpenAI schema and in activity payloads.
         ACTIVITY_SUBJECT: Bus subject for ``tool.activity.*`` events.
         RESULT_SUBJECT: Bus subject for ``tool.result.*`` events.
     """
 
-    TOOL_NAME: ClassVar[str]
+    TOOL_NAME:        ClassVar[str]
     ACTIVITY_SUBJECT: ClassVar[str]
-    RESULT_SUBJECT: ClassVar[str]
+    RESULT_SUBJECT:   ClassVar[str]
 
-    def __init__(self, request_subject: str) -> None:
-        """Set up pub/sub bus subscriptions.
+    def __init__(self, request_subject: str, extra_subjects: list[str] | None = None) -> None:
+        subjects = [request_subject, TOOL_SCHEMA_REQUEST] + (extra_subjects or [])
+        self._pub, self._sub = make_participant_bus(subjects)
+        self._request_subject = request_subject
+        self._state = ToolState.IDLE
 
-        Args:
-            request_subject: The ``tool.call.*`` subject this tool handles
-                (e.g. ``TOOL_CALL_GET_DATETIME``).
-        """
-        self._pub, self._sub = make_participant_bus([request_subject, TOOL_SCHEMA_REQUEST])
-
-    @abstractmethod
     def _build_schema(self) -> dict:
         """Return the OpenAI-compatible function schema for this tool.
 
-        Returns:
-            A dict in the form::
-
-                {
-                    "type": "function",
-                    "function": {
-                        "name": <TOOL_NAME>,
-                        "description": "...",
-                        "parameters": {...}
-                    }
-                }
-
-            Published on ``tool.schema``; received by GeneratorAgent to
-            populate its live tool registry.
+        Default: reads from the ``schema:`` key in ``config/<CONFIG_NAME>.yaml``.
+        Override when the schema must be built dynamically.
         """
+        cfg = get_config(self.CONFIG_NAME) or {}
+        schema = cfg.get("schema")
+        if schema is None:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} must implement _build_schema() or "
+                f"add a 'schema:' key to config/{self.CONFIG_NAME}.yaml"
+            )
+        return schema
 
     @abstractmethod
     def _handle_request(self, envelope: MessageEnvelope) -> None:
-        """Handle an incoming ``tool.request.*`` envelope.
+        """Handle an incoming tool.call.* envelope.
 
-        Implementations must:
-
-        1. Extract args from ``envelope.payload["args"]``.
-        2. Call ``_publish_activity("request", ...)`` before executing.
-        3. Execute the tool logic.
-        4. Call ``_publish_activity("result", {"result": <str>}, ...)`` after.
-        5. Call ``_publish_result(result, correlation_id)``.
-
-        Args:
-            envelope: The incoming request envelope. ``envelope.correlation_id``
-                must be forwarded to all published envelopes so GeneratorAgent
-                can match the result to the pending tool call.
+        Implementations must call _publish_activity("request", ...) before
+        executing, then _publish_activity("result", ...) and _publish_result()
+        after. Forward envelope.correlation_id to all published envelopes.
         """
 
     def _publish_result(
@@ -92,13 +83,6 @@ class BaseTool(Participant):
         correlation_id: str | None,
         sources: list | None = None,
     ) -> None:
-        """Publish a tool.result.* envelope to the bus.
-
-        Args:
-            result: The tool's string output, forwarded to GeneratorAgent.
-            correlation_id: Forwarded from the originating request envelope.
-            sources: Optional list of retrieval source dicts for UI attribution.
-        """
         self._pub.publish(
             ToolResult(
                 tool=self.TOOL_NAME,
@@ -113,23 +97,61 @@ class BaseTool(Participant):
         self._pub.publish(ToolSchema(schema=self._build_schema()), sender_id=self.id)
 
     def _publish_activity(self, event_type: str, data: dict, correlation_id: str | None) -> None:
-        """Publish a ``tool.activity.*`` event to the bus.
-
-        Args:
-            event_type: ``"request"`` (before execution) or ``"result"`` (after).
-                ToolWindow renders ``"request"`` entries in green and
-                ``"result"`` entries in blue; any other value renders as a
-                gray subject-name fallback.
-            data: Extra payload fields merged into the event. For ``"result"``
-                events, include ``{"result": <str>}`` so ToolWindow can show
-                a preview snippet.
-            correlation_id: Forwarded from the originating request envelope.
-        """
         self._pub.publish(
             ToolActivity(tool=self.TOOL_NAME, event=event_type, data=data),
             sender_id=self.id,
             correlation_id=correlation_id or "",
         )
+
+    def _do_transition(self, action: str, error: str = "", correlation_id: str = "") -> None:
+        """Publish a tool.transition event and update internal state.
+
+        The published ``to`` field reflects the logical outcome (ERROR for
+        failures). Internal state always resets to IDLE after any action so
+        the next request can be handled.
+        """
+        from_state = self._state
+        if action == "REQUEST":
+            to_state = ToolState.EXECUTING
+        elif action == "RESULT":
+            to_state = ToolState.IDLE
+        else:
+            to_state = ToolState.ERROR
+
+        self._state = ToolState.IDLE if to_state == ToolState.ERROR else to_state
+
+        try:
+            self._pub.publish(
+                ToolTransition(
+                    tool=self.TOOL_NAME,
+                    from_state=from_state.value,
+                    action=action,
+                    to=to_state.value,
+                    error=error,
+                ),
+                sender_id=self.id,
+                correlation_id=correlation_id,
+            )
+        except Exception:
+            pass
+
+    @contextmanager
+    def _thread_publisher(self) -> Generator[ZmqPublisher, None, None]:
+        """Yield a ZmqPublisher safe to use from a daemon thread.
+
+        ZMQ sockets are not thread-safe. This creates a dedicated publisher
+        and waits 100ms for the async connect() to establish before yielding
+        (slow-joiner fix). Always closes the publisher on exit.
+        """
+        pub = ZmqPublisher(PROXY_FRONTEND_ADDR, bind=False)
+        time.sleep(0.1)
+        try:
+            yield pub
+        finally:
+            pub.close()
+
+    def _handle_extra(self, envelope: MessageEnvelope) -> None:
+        """Handle extra subscribed subjects. Override in subclasses."""
 
     def run(self) -> None:
         self._announce_schema()
@@ -144,5 +166,14 @@ class BaseTool(Participant):
                 if self.CONFIG_NAME:
                     ConfigManager.invalidate(self.CONFIG_NAME)
                 self._announce_schema()
+            elif envelope.subject == self._request_subject:
+                cid = envelope.correlation_id or ""
+                self._do_transition("REQUEST", correlation_id=cid)
+                try:
+                    self._handle_request(envelope)
+                    self._do_transition("RESULT", correlation_id=cid)
+                except Exception as exc:
+                    logger.error("%s: handler error: %s", self.__class__.__name__, exc)
+                    self._do_transition("ERROR", error=str(exc), correlation_id=cid)
             else:
-                self._handle_request(envelope)
+                self._handle_extra(envelope)

@@ -65,6 +65,11 @@ def _start_semantic_scholar() -> None:
     SemanticScholarTool().run()
 
 
+def _start_library_agent(document_service) -> None:
+    from local.tools.library_agent_tool import LibraryAgentTool
+    LibraryAgentTool(document_service=document_service).run()
+
+
 def _start_search_library(document_service) -> None:
     from local.tools.search_library_tool import SearchLibraryTool
     SearchLibraryTool(document_service=document_service).run()
@@ -171,6 +176,7 @@ def main() -> None:
     threading.Thread(target=_start_datetime, daemon=True, name="datetime").start()
     threading.Thread(target=_start_location, daemon=True, name="location").start()
     threading.Thread(target=_start_semantic_scholar, daemon=True, name="semantic_scholar").start()
+    threading.Thread(target=_start_library_agent, args=(shared_documents,), daemon=True, name="library_agent").start()
     threading.Thread(target=_start_search_library, args=(shared_documents,), daemon=True, name="search_library").start()
     time.sleep(0.5)   # let all tools connect and subscribe to schema.request
 

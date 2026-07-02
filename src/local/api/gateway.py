@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from local.api.settings_api import list_sections, read_section, write_section
 from local.api.ws_bridge import translate
+from local.protocol.subjects import LIBRARY_INGEST_COMPLETE, LIBRARY_INGEST_STARTED
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.messages import CompactionRequest, ConfigReload, UserFeedback
 from local.session.local_session import LoCALSession
@@ -100,10 +101,42 @@ async def ws_chat(websocket: WebSocket, session_id: str) -> None:
 
     Client sends: ``{"query": "...", "attachments": [...]}``
     Server streams typed events until the response (+ critique trail) arrive.
+
+    A background notification task runs for the full connection lifetime so that
+    async events (e.g. library.ingest.complete) reach the browser even when no
+    query turn is in progress.
     """
     await websocket.accept()
     publisher: ZmqPublisher = websocket.app.state.publisher
     loop = asyncio.get_event_loop()
+
+    # -- Background async notifications (not tied to any query turn) ----------
+    _ASYNC_SUBJECTS = [LIBRARY_INGEST_STARTED, LIBRARY_INGEST_COMPLETE]
+    notif_queue: asyncio.Queue = asyncio.Queue()
+    stop_notif = threading.Event()
+
+    def _notif_listener() -> None:
+        sub = ZmqSubscriber(PROXY_BACKEND_ADDR, subscriptions=_ASYNC_SUBJECTS, bind=False)
+        try:
+            while not stop_notif.is_set():
+                env = sub.receive_with_timeout(300)
+                if env is not None:
+                    asyncio.run_coroutine_threadsafe(notif_queue.put(env), loop)
+        finally:
+            sub.close()
+
+    async def _notif_forwarder() -> None:
+        while True:
+            env = await notif_queue.get()
+            msg = translate(env)
+            if msg is not None:
+                try:
+                    await websocket.send_json(msg)
+                except Exception:
+                    return
+
+    threading.Thread(target=_notif_listener, daemon=True, name="ws-notif-listener").start()
+    notif_task = asyncio.create_task(_notif_forwarder())
 
     try:
         while True:
@@ -135,6 +168,9 @@ async def ws_chat(websocket: WebSocket, session_id: str) -> None:
                     await websocket.send_json(msg)
     except WebSocketDisconnect:
         pass
+    finally:
+        stop_notif.set()
+        notif_task.cancel()
 
 
 # ---------------------------------------------------------------------------
@@ -362,23 +398,30 @@ async def post_feedback(body: FeedbackRequest) -> JSONResponse:
 async def upload_attachment(file: UploadFile) -> JSONResponse:
     """Process an uploaded file and return an attachment dict for the chat payload.
 
+    Saves the raw file to ``~/.local2/uploads/<filename>`` so that
+    LibraryAgentTool can locate it by name for ingestion.
+
     Returns ``{type, name, data}`` where type is ``"text"`` or ``"image"``,
     or ``{type: "error", name, error}`` for unsupported/failed files.
     """
-    import tempfile
+    import re
+    from local.data_dir import get_data_dir
     from local.utils.file_extract import process_for_attachment
 
-    suffix = "." + (file.filename or "file").rsplit(".", 1)[-1] if "." in (file.filename or "") else ""
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(await file.read())
-        tmp_path = tmp.name
+    raw_name = file.filename or "upload"
+    filename = re.split(r"[/\\:]", raw_name)[-1] or "upload"
+    raw = await file.read()
+
+    uploads_dir = get_data_dir() / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    upload_path = uploads_dir / filename
+    upload_path.write_bytes(raw)
 
     try:
-        result = process_for_attachment(tmp_path)
-        result["name"] = file.filename or result["name"]
-    finally:
-        import os
-        os.unlink(tmp_path)
+        result = process_for_attachment(str(upload_path))
+        result["name"] = filename
+    except Exception:
+        result = {"type": "error", "name": filename, "error": "extraction failed"}
 
     return JSONResponse(result)
 

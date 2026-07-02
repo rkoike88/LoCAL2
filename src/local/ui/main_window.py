@@ -54,10 +54,10 @@ from local.protocol.subjects import (
     GENERATOR_STATUS,
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
+    TOOL_ACTIVITY_CONSULT_LIBRARIAN,
     TOOL_ACTIVITY_GET_DATETIME,
     TOOL_ACTIVITY_GET_LOCATION,
     TOOL_ACTIVITY_SEARCH_MEMORY,
-    TOOL_ACTIVITY_SEARCH_DOCUMENTS,
     TOOL_ACTIVITY_SEARCH_PAPERS,
     TOOL_ACTIVITY_WEB_FETCH,
     TOOL_ACTIVITY_WEB_SEARCH,
@@ -85,11 +85,11 @@ _TOOL_ACTIVITY_SUBJECTS = [
     TOOL_ACTIVITY_GET_DATETIME,
     TOOL_ACTIVITY_GET_LOCATION,
     TOOL_ACTIVITY_SEARCH_PAPERS,
-    TOOL_ACTIVITY_SEARCH_DOCUMENTS,
+    TOOL_ACTIVITY_CONSULT_LIBRARIAN,
 ]
 
 _WEB_TOOLS      = {"web_search", "web_fetch"}
-_GROUNDED_TOOLS = {"search_memory", "search_library", "search_papers"}
+_GROUNDED_TOOLS = {"search_memory", "consult_librarian", "search_papers"}
 
 
 def _derive_groundedness(tool_names: set) -> str:
@@ -102,8 +102,8 @@ def _derive_groundedness(tool_names: set) -> str:
 # col, row within the 5×2 panel grid (right 5/7 of screen).
 # 2-tuple = full height; 3-tuple (col, row, half) = half height (half 0=top, 1=bottom).
 _TOOL_PANEL_SLOTS: dict[str, tuple] = {
-    "search_memory":  (0, 0),       # full height
-    "search_library": (1, 0),       # full height
+    "search_memory":      (0, 0),    # full height
+    "consult_librarian":  (1, 0),   # full height
     "search_papers":  (3, 0),       # full height
     "web_search":     (4, 0, 0),    # half height — top of row 0
     "web_fetch":      (4, 0, 1),    # half height — bottom of row 0
@@ -867,7 +867,18 @@ class MainWindow(QMainWindow):
 
     def _on_tool_schema(self, tool_name: str) -> None:
         if tool_name not in self._tool_windows:
-            win = ToolWindow(tool_name=tool_name, publisher=self._publisher)
+            if tool_name == "consult_librarian":
+                def _show_docs():
+                    self._documents_window.show()
+                    self._documents_window.raise_()
+                win = ToolWindow(
+                    tool_name=tool_name,
+                    publisher=self._publisher,
+                    on_lib_click=_show_docs,
+                    lib_tooltip="Open Library",
+                )
+            else:
+                win = ToolWindow(tool_name=tool_name, publisher=self._publisher)
             win.show()
             self._tool_windows[tool_name] = win
             self._tile_windows()
@@ -878,7 +889,7 @@ class MainWindow(QMainWindow):
         MainWindow: left 2/7, full height.
         Right 5/7: 5-column × 2-row grid of agent and tool panels.
           col 0 — memory    (search_memory top / MemoryWindow bottom)
-          col 1 — library   (search_library top / DocumentsWindow bottom)
+          col 1 — library   (consult_librarian top / DocumentsWindow bottom)
           col 2 — core      (GeneratorWindow top / ConversationsWindow bottom)
           col 3 — research  (search_papers top / CriticWindow bottom)
           col 4 — utilities (4 half-height: web_search, web_fetch, get_datetime, get_location)

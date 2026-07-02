@@ -5,6 +5,7 @@ import type {
   RetrievalSource,
   StreamingTurn,
   ToolCall,
+  ToolTransitionEvent,
 } from "../types/events";
 
 // Invariant: status === "streaming"  iff  streaming !== null
@@ -25,6 +26,7 @@ export interface ChatStreamState {
   pendingToolCalls: ToolCall[];
   pendingToolStart: PendingToolStart | null;
   pendingSources: Record<string, RetrievalSource[]>;
+  toast: string | null;
 }
 
 export const initialChatStreamState: ChatStreamState = {
@@ -35,12 +37,15 @@ export const initialChatStreamState: ChatStreamState = {
   pendingToolCalls: [],
   pendingToolStart: null,
   pendingSources: {},
+  toast: null,
 };
 
 export type ChatStreamAction =
   | GatewayEvent
+  | ToolTransitionEvent
   | { type: "load_history"; messages: ChatMessage[] }
-  | { type: "query_sent"; message: ChatMessage };
+  | { type: "query_sent"; message: ChatMessage }
+  | { type: "clear_toast" };
 
 export function chatStreamReducer(
   state: ChatStreamState,
@@ -123,6 +128,7 @@ export function chatStreamReducer(
         groundedness: deriveGroundedness(toolNames),
         sources: sources.length > 0 ? sources : undefined,
         prompt_tokens: action.prompt_tokens,
+        model: action.model || undefined,
       };
       return {
         ...state,
@@ -150,6 +156,39 @@ export function chatStreamReducer(
     // any -> idle
     case "load_history":
       return { ...initialChatStreamState, messages: action.messages };
+
+    case "library_ingest_started":
+      return { ...state, toast: `⟳ Ingesting ${action.filename} into ${action.collection}…` };
+
+    case "library_ingested": {
+      const content = action.error
+        ? `✗ Failed to ingest ${action.filename}: ${action.error}`
+        : `✓ ${action.filename} ingested into ${action.collection} (${action.chunks} chunks)`;
+      const notice: ChatMessage = { id: `ingest-${Date.now()}`, role: "notice", content };
+      return { ...state, messages: [...state.messages, notice] };
+    }
+
+    case "tool_transition": {
+      if (action.to !== "ERROR") return state;
+      const start = state.pendingToolStart;
+      const errorCall: ToolCall = {
+        tool: action.tool,
+        args: start?.tool === action.tool ? start.args : {},
+        result: "",
+        call_ts: start?.tool === action.tool ? start.ts : undefined,
+        result_ts: new Date().toISOString(),
+        error: action.error || "tool error",
+      };
+      return {
+        ...state,
+        pendingToolCalls: [...state.pendingToolCalls, errorCall],
+        pendingToolStart: null,
+        streaming: state.streaming ? { ...state.streaming, active_tool: null } : null,
+      };
+    }
+
+    case "clear_toast":
+      return { ...state, toast: null };
 
     default:
       return state;

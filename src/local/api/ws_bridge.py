@@ -132,6 +132,8 @@ def translate(envelope: MessageEnvelope) -> dict | None:
             "query_id": payload.get("query_id") or query_id,
             "prompt_tokens": payload.get("prompt_tokens", 0),
             "model": payload.get("model", ""),
+            "capsules": payload.get("capsules", []),
+            "pinned_facts": payload.get("pinned_facts", []),
         }
 
     if subject == CRITIQUE:

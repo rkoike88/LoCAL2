@@ -6,12 +6,19 @@ All startup logic lives here so that both ``python run_local.py`` (dev) and
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import resource
 import signal
 import sys
 import time
 import threading
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 # Raise the open-file soft limit — each ZMQ participant uses 2 sockets and
 # macOS defaults to 256, which is too low once we have 7+ participants.

@@ -177,17 +177,17 @@ class TestSearchEpisodic:
                 {"type": "episodic", "query": "q", "entities": json.dumps(["Python"])},
                 {"type": "episodic", "query": "q"},
             ],
-            [0.3, 0.1],  # doc_without would win on raw similarity
+            [0.4, 0.1],  # doc_without would win on raw similarity (0.95 vs 0.80+0.10=0.90)
         )
         svc = _make_service(col)
         with patch("local.services.memory_service.ollama.embeddings", return_value={"embedding": FAKE_EMBEDDING}):
             results = svc.search_episodic("tell me about Python")
-        # doc_with_entity: score = 0.7 + 0.1 boost = 0.8
-        # doc_without: score = 0.9 (no boost)
+        # doc_with_entity: score = 1-0.4/2 + 0.1 boost = 0.80 + 0.10 = 0.90
+        # doc_without: score = 1-0.1/2 = 0.95 (no boost)
         # doc_without still wins — boost is additive, not override
         assert results[0]["content"] == "doc_without"
         entity_result = next(r for r in results if r["content"] == "doc_with_entity")
-        assert entity_result["score"] == pytest.approx(0.8, abs=0.01)
+        assert entity_result["score"] == pytest.approx(0.90, abs=0.01)
 
     def test_uses_search_query_prefix(self):
         col = MagicMock()
@@ -223,18 +223,18 @@ class TestSearchEpisodic:
                 {"type": "episodic", "query": "q", "critic_score": 5},
                 {"type": "episodic", "query": "q"},
             ],
-            [0.3, 0.1],  # unscored would win on raw similarity (score 0.9 vs 0.7)
+            [0.4, 0.1],  # unscored would win on raw similarity (0.95 vs 0.80+0.10=0.90)
         )
         svc = _make_service(col)
         cfg_patch = {"critic_score_weight": 0.05}
         with patch("local.services.memory_service.ollama.embeddings", return_value={"embedding": FAKE_EMBEDDING}), \
              patch("local.services.memory_service.get_config", side_effect=lambda name: cfg_patch if name == "search_memory" else {}):
             results = svc.search_episodic("query")
-        # high_quality: 0.7 + (5-3)*0.05 = 0.70 + 0.10 = 0.80
-        # unscored: 0.9 (no adjustment)
-        # unscored still wins; high_quality score should be 0.80
+        # high_quality: 1-0.4/2 + (5-3)*0.05 = 0.80 + 0.10 = 0.90
+        # unscored: 1-0.1/2 = 0.95 (no adjustment)
+        # unscored still wins; high_quality score should be 0.90
         hq = next(r for r in results if r["content"] == "high_quality")
-        assert hq["score"] == pytest.approx(0.80, abs=0.01)
+        assert hq["score"] == pytest.approx(0.90, abs=0.01)
 
     def test_critic_score_1_penalises_result(self):
         col = MagicMock()
@@ -263,7 +263,8 @@ class TestSearchEpisodic:
         with patch("local.services.memory_service.ollama.embeddings", return_value={"embedding": FAKE_EMBEDDING}), \
              patch("local.services.memory_service.get_config", side_effect=lambda name: cfg_patch if name == "search_memory" else {}):
             results = svc.search_episodic("query")
-        assert results[0]["score"] == pytest.approx(0.80, abs=0.01)
+        # 1 - 0.2/2 = 0.90 (no critic adjustment)
+        assert results[0]["score"] == pytest.approx(0.90, abs=0.01)
 
 
 # ------------------------------------------------------------------

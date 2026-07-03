@@ -101,7 +101,8 @@ class MemoryAgent(BaseAgent):
         try:
             candidates = self._memory.search_episodic(query, n=self._max_results)
             capsules = [c for c in candidates if c["score"] >= self._min_similarity]
-            logger.info("MemoryAgent: relay capsules=%d (of %d candidates)", len(capsules), len(candidates))
+            top_scores = [round(c["score"], 3) for c in candidates[:3]]
+            logger.info("MemoryAgent: relay capsules=%d (of %d candidates) top_scores=%s", len(capsules), len(candidates), top_scores)
         except Exception as exc:
             logger.error("MemoryAgent: retrieval failed (publishing empty context): %s", exc)
         finally:

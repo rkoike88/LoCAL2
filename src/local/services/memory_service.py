@@ -119,7 +119,7 @@ class MemoryService:
         Returns:
             The engram ID (``query_id`` if supplied, otherwise a UUID).
         """
-        content = summary if summary else f"{query}\n{answer}"
+        content = f"{query}\n\n{summary}" if summary else f"{query}\n{answer}"
         embedding = self._embed_document(content)
         doc_id = query_id or str(uuid.uuid4())
         meta: dict[str, Any] = {
@@ -198,7 +198,7 @@ class MemoryService:
         candidates = []
         query_lower = query.lower()
         for id_, doc, meta, dist in zip(ids, docs, metas, distances):
-            score = 1.0 - dist
+            score = 1.0 - dist / 2  # ChromaDB returns squared-L2 for normalized vecs; convert to cosine similarity
             raw_entities = meta.get("entities", "")
             if raw_entities:
                 try:

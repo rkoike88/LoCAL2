@@ -193,6 +193,7 @@ class GeneratorAgent(BaseAgent):
                 query=query, answer=answer, thinking=thinking,
                 tool_calls=tool_call_log, session_id=session_id or "",
                 query_id=query_id, prompt_tokens=prompt_tokens, model=active_model,
+                capsules=capsules, pinned_facts=list(self._user_context),
             ),
             sender_id=self.id, correlation_id=correlation_id, session_id=session_id or "",
         )

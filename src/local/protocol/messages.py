@@ -130,6 +130,8 @@ class ResponseGeneration(BusMessage):
     prompt_tokens: int = 0
     error:         bool = False
     model:         str = ""
+    capsules:      list = field(default_factory=list)
+    pinned_facts:  list = field(default_factory=list)
 
     @classmethod
     def from_envelope(cls, envelope: MessageEnvelope) -> "ResponseGeneration":
@@ -144,6 +146,8 @@ class ResponseGeneration(BusMessage):
             prompt_tokens=p.get("prompt_tokens", 0),
             error=bool(p.get("error", False)),
             model=p.get("model", ""),
+            capsules=p.get("capsules") or [],
+            pinned_facts=p.get("pinned_facts") or [],
         )
 
 

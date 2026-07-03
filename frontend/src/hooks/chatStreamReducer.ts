@@ -121,6 +121,9 @@ export function chatStreamReducer(
       const pendingSources = { ...state.pendingSources };
       delete pendingSources[action.query_id];
       const toolNames = new Set(action.tool_calls.map((tc) => tc.tool));
+      const biscuit = (action.capsules?.length || action.pinned_facts?.length)
+        ? { capsules: action.capsules ?? [], pinned_facts: action.pinned_facts ?? [] }
+        : undefined;
       const msg: ChatMessage = {
         id: action.query_id,
         role: "assistant",
@@ -132,6 +135,7 @@ export function chatStreamReducer(
         prompt_tokens: action.prompt_tokens,
         model: action.model || undefined,
         persona: derivePersona(action.tool_calls) || undefined,
+        context_biscuit: biscuit,
       };
       return {
         ...state,

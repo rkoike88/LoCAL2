@@ -6,8 +6,8 @@ n_results: 5
 model: "gemma4:e4b"        # used by MemoryAgent for intent/entity classification and summarization
 
 retrieval:
-  min_similarity: 0.85     # cosine similarity threshold; converted to distance (1 - sim) at query time
-  max_results: 7           # cap on injected summaries; 0.85+ typically yields 0-3 in practice
+  min_similarity: 0.75     # true cosine similarity threshold (collection uses squared-L2; converted in search_episodic)
+  max_results: 7           # cap on injected summaries
 
 summarize_prompt: |
   Summarize what was established in this exchange in 2-4 sentences.

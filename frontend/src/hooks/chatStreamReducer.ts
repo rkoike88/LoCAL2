@@ -27,6 +27,7 @@ export interface ChatStreamState {
   pendingToolStart: PendingToolStart | null;
   pendingSources: Record<string, RetrievalSource[]>;
   toast: string | null;
+  generatorState: string;  // live GeneratorAgent state value
 }
 
 export const initialChatStreamState: ChatStreamState = {
@@ -38,6 +39,7 @@ export const initialChatStreamState: ChatStreamState = {
   pendingToolStart: null,
   pendingSources: {},
   toast: null,
+  generatorState: "idle",
 };
 
 export type ChatStreamAction =
@@ -195,6 +197,18 @@ export function chatStreamReducer(
         content: `Remembered: ${action.fact}${action.reason ? ` (${action.reason})` : ""}`,
       };
       return { ...state, messages: [...state.messages, notice] };
+    }
+
+    case "agent_state": {
+      // Track the generator state for the live status label.
+      // Memory agent retrieving state maps to a user-visible label too.
+      if (action.agent.includes("generator")) {
+        return { ...state, generatorState: action.state };
+      }
+      if (action.agent.includes("memory") && action.state === "retrieving") {
+        return { ...state, generatorState: "retrieving" };
+      }
+      return state;
     }
 
     case "clear_toast":

@@ -13,6 +13,7 @@ export interface UseChatStreamResult {
   tokenCount: number;
   toast: string | null;
   clearToast: () => void;
+  generatorState: string;
 }
 
 function isGatewayEvent(v: unknown): v is GatewayEvent {
@@ -82,5 +83,6 @@ export function useChatStream(
     tokenCount: state.tokenCount,
     toast: state.toast,
     clearToast,
+    generatorState: state.generatorState,
   };
 }

@@ -16,10 +16,14 @@ export function ToolBlock({ calls, activeTool }: Props) {
   if (!calls?.length && !activeTool) return null;
 
   if (activeTool) {
+    const isPersona = activeTool.tool === "persona";
+    const personaName = isPersona ? (activeTool.args.name as string | undefined) : undefined;
     return (
-      <div className="text-xs text-gray-500 font-mono flex items-center gap-1.5">
+      <div className={`text-xs font-mono flex items-center gap-1.5 ${isPersona ? "text-purple-400" : "text-gray-500"}`}>
         <Spinner />
-        {activeTool.tool}
+        {isPersona
+          ? `switching to ${personaName ?? "persona"}…`
+          : activeTool.tool}
       </div>
     );
   }

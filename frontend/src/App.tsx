@@ -10,12 +10,25 @@ import { useSessions } from "./hooks/useSessions";
 import type { Attachment } from "./types/events";
 import { randomUUID } from "./utils/uuid";
 
+const STATE_LABELS: Record<string, string> = {
+  retrieving:       "retrieving context…",
+  receiving:        "processing…",
+  generating:       "generating…",
+  dispatching_tool: "calling tool…",
+  waiting_for_tool: "waiting for tool…",
+  publishing:       "finishing…",
+};
+
+function generatorStateLabel(state: string): string {
+  return STATE_LABELS[state] ?? "generating…";
+}
+
 export default function App() {
   const [activeSessionId, setActiveSessionId] = useState<string>(() => randomUUID());
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const { sessions, fetchSessions, loadSession, deleteSession } = useSessions();
 
-  const { messages, streaming, isStreaming, sendQuery, loadHistory, tokenCount, toast, clearToast } =
+  const { messages, streaming, isStreaming, sendQuery, loadHistory, tokenCount, toast, clearToast, generatorState } =
     useChatStream(activeSessionId, fetchSessions);
 
   const { models, selectedModel, temperature, numCtx, handleModelChange, setSelectedModel } =
@@ -92,7 +105,7 @@ export default function App() {
             {isStreaming ? (
               <span className="flex items-center gap-1.5">
                 <Spinner />
-                <span>generating…</span>
+                <span>{generatorStateLabel(generatorState)}</span>
               </span>
             ) : (
               <span className="text-gray-600">ready</span>
@@ -133,7 +146,7 @@ export default function App() {
               {!streaming.thinking && !streaming.active_tool && (
                 <span className="text-xs text-gray-600 flex items-center gap-1.5">
                   <Spinner />
-                  generating…
+                  {generatorStateLabel(generatorState)}
                 </span>
               )}
             </div>

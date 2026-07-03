@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
+    AGENT_TRANSITION,
     ANSWER_DIALOG,
     CRITIQUE,
     GENERATION_THINKING,
@@ -17,7 +18,9 @@ from local.protocol.subjects import (
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
     TOOL_CALL_CONSULT_LIBRARIAN,
+    TOOL_CALL_PERSONA,
     TOOL_CALL_REMEMBER_THIS,
+    TOOL_RESULT_PERSONA,
     TOOL_TRANSITION,
     TOOL_CALL_GET_DATETIME,
     TOOL_CALL_GET_LOCATION,
@@ -60,8 +63,11 @@ CHAT_OBSERVE = [
     TOOL_RESULT_CONSULT_LIBRARIAN,
     TOOL_CALL_REMEMBER_THIS,
     TOOL_RESULT_REMEMBER_THIS,
+    TOOL_CALL_PERSONA,
+    TOOL_RESULT_PERSONA,
     LIBRARY_INGEST_COMPLETE,
     TOOL_TRANSITION,
+    AGENT_TRANSITION,
     RESPONSE_GENERATION,
     ANSWER_DIALOG,
     CRITIQUE,
@@ -170,5 +176,19 @@ def translate(envelope: MessageEnvelope) -> dict | None:
             "fact": payload.get("fact", ""),
             "reason": payload.get("reason", ""),
         }
+
+    if subject == AGENT_TRANSITION:
+        # Forward generator and memory agent state changes as a live status signal.
+        # Other agents (critic, reward, …) are not surfaced in the chat stream.
+        agent = payload.get("agent", "")
+        to_state = payload.get("to", "")
+        if "generator" in agent or "memory" in agent:
+            return {
+                "type": "agent_state",
+                "agent": agent,
+                "state": to_state,
+                "query_id": query_id,
+            }
+        return None
 
     return None

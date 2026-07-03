@@ -102,6 +102,13 @@ export interface ContextUpdatedEvent {
   reason: string;
 }
 
+export interface AgentStateEvent {
+  type: "agent_state";
+  agent: string;   // e.g. "generator_agent", "memory_agent"
+  state: string;   // GeneratorState / MemoryAgentState value
+  query_id: string;
+}
+
 export type GatewayEvent =
   | ThinkingChunkEvent
   | ToolStartEvent
@@ -111,7 +118,8 @@ export type GatewayEvent =
   | CritiqueEvent
   | LibraryIngestStartedEvent
   | LibraryIngestedEvent
-  | ContextUpdatedEvent;
+  | ContextUpdatedEvent
+  | AgentStateEvent;
 
 // A processed file attachment ready to send to the generator.
 export interface Attachment {

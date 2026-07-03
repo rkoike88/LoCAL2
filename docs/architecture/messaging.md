@@ -54,25 +54,28 @@ The proxy binds to `0.0.0.0` on ports 5570 (frontend) and 5571 (backend). Partic
 | Subject constant | String | Publisher | Subscribers |
 |---|---|---|---|
 | `TOOL_SCHEMA` | `tool.schema` | All tools (on startup + re-announce) | GeneratorAgent, MonitorApp |
-| `TOOL_SCHEMA_REQUEST` | `schema.request` | GeneratorAgent, MonitorApp | All tools |
+| `TOOL_SCHEMA_REQUEST` | `tool.schema.request` | GeneratorAgent, MonitorApp | All tools |
 
-### Tool request / result pairs
+### Tool call / result pairs
 
-| Tool | Request subject | Result subject |
+Tools are called by `ToolDispatcher` on behalf of the generator. The subject prefix is `tool.call.*` (not `tool.request.*`).
+
+| Tool | Call subject | Result subject |
 |---|---|---|
-| `search_memory` | `tool.request.search_memory` | `tool.result.search_memory` |
-| `web_search` | `tool.request.web_search` | `tool.result.web_search` |
-| `web_fetch` | `tool.request.web_fetch` | `tool.result.web_fetch` |
-| `get_datetime` | `tool.request.get_datetime` | `tool.result.get_datetime` |
-| `get_location` | `tool.request.get_location` | `tool.result.get_location` |
-| `search_papers` | `tool.request.search_papers` | `tool.result.search_papers` |
-| `search_library` | `tool.request.search_library` | `tool.result.search_library` |
+| `search_memory` | `tool.call.search_memory` | `tool.result.search_memory` |
+| `web_search` | `tool.call.web_search` | `tool.result.web_search` |
+| `web_fetch` | `tool.call.web_fetch` | `tool.result.web_fetch` |
+| `get_datetime` | `tool.call.get_datetime` | `tool.result.get_datetime` |
+| `get_location` | `tool.call.get_location` | `tool.result.get_location` |
+| `search_papers` | `tool.call.search_papers` | `tool.result.search_papers` |
+| `search_library` | `tool.call.search_library` | `tool.result.search_library` |
+| `consult_librarian` | `tool.call.consult_librarian` | `tool.result.consult_librarian` |
 
 The `function.name` in the tool's JSON schema must match the subject suffix exactly. Mismatches cause silent tool timeouts.
 
 ### Tool activity
 
-Each tool publishes one `tool.activity.<name>` envelope per request/result cycle. The UI subscribes and displays it in the corresponding ToolWindow.
+Each tool publishes one `tool.activity.<name>` envelope per call/result cycle. The UI subscribes and displays it in the corresponding ToolWindow.
 
 | Subject constant | String |
 |---|---|
@@ -83,6 +86,17 @@ Each tool publishes one `tool.activity.<name>` envelope per request/result cycle
 | `TOOL_ACTIVITY_GET_LOCATION` | `tool.activity.get_location` |
 | `TOOL_ACTIVITY_SEARCH_PAPERS` | `tool.activity.search_papers` |
 | `TOOL_ACTIVITY_SEARCH_DOCUMENTS` | `tool.activity.search_library` |
+| `TOOL_ACTIVITY_CONSULT_LIBRARIAN` | `tool.activity.consult_librarian` |
+
+### Document library events
+
+Published by `LibraryAgentTool` and `DocumentService` during document ingestion.
+
+| Subject constant | String | Publisher |
+|---|---|---|
+| `LIBRARY_COLLECTION_CREATED` | `library.collection.created` | LibraryAgentTool |
+| `LIBRARY_INGEST_STARTED` | `library.ingest.started` | LibraryAgentTool |
+| `LIBRARY_INGEST_COMPLETE` | `library.ingest.complete` | LibraryAgentTool |
 
 ### Feedback and grading
 
@@ -97,6 +111,7 @@ Each tool publishes one `tool.activity.<name>` envelope per request/result cycle
 | Subject constant | String | Publisher | Subscribers |
 |---|---|---|---|
 | `AGENT_TRANSITION` | `agent.transition` | GeneratorAgent, CriticAgent, MemoryAgent | MonitorApp |
+| `TOOL_TRANSITION` | `tool.transition` | Tools | MonitorApp |
 | `GENERATOR_STATUS` | `generator.status` | GeneratorAgent | MonitorApp (GeneratorWindow) |
 
 ### Compaction
@@ -135,7 +150,8 @@ Each tool publishes one `tool.activity.<name>` envelope per request/result cycle
   "tool_calls":    [{"tool": "web_search", "args": {...}, "result": "..."}],
   "session_id":    "uuid",
   "query_id":      "uuid",
-  "prompt_tokens": 4710
+  "prompt_tokens": 4710,
+  "model":         "gemma4:e2b"
 }
 ```
 

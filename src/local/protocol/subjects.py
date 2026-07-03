@@ -54,6 +54,11 @@ COMPACTION_RESULT  = "compaction.result"
 # Phase 15 — generator observability
 GENERATOR_STATUS = "generator.status"
 
+# Persona tool
+TOOL_CALL_PERSONA    = "tool.call.persona"
+TOOL_RESULT_PERSONA  = "tool.result.persona"
+TOOL_ACTIVITY_PERSONA = "tool.activity.persona"
+
 # Phase 21d — library agent tool
 TOOL_CALL_CONSULT_LIBRARIAN   = "tool.call.consult_librarian"
 TOOL_RESULT_CONSULT_LIBRARIAN = "tool.result.consult_librarian"

@@ -26,9 +26,9 @@ turns:
 
 expected_bus_events:
   present:
-    - "tool.request.get_datetime"
+    - "tool.call.get_datetime"
     - "tool.result.get_datetime"
-    - "tool.request.get_location"
+    - "tool.call.get_location"
     - "tool.result.get_location"
     - "response.generation"
 

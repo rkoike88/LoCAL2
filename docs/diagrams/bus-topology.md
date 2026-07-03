@@ -13,12 +13,18 @@ All participants connect to a single ZMQ XPUB/XSUB proxy. The proxy is the only 
               │  PUBLISHERS                SUBSCRIBERS    │
               │                                           │
   ┌─────────────────┐          Subjects published:        │
-  │  GeneratorAgent │──────── response.generation ────────┤→ FastAPI Gateway, CriticAgent, MemoryAgent
+  │  GeneratorAgent │──────── response.generation ────────┤→ FastAPI Gateway, CriticAgent, MemoryAgent, ModelService
   │                 │──────── answer.dialog ──────────────┤→ MemoryAgent
   │                 │──────── generation.thinking ────────┤→ FastAPI Gateway
   │                 │──────── agent.transition ───────────┤→ MonitorApp
   │                 │──────── generator.status ───────────┤→ MonitorApp (GeneratorWindow)
-  │                 │──────── tool.request.* ─────────────┤→ *Tools
+  │                 │──────── compaction.result ──────────┤→ FastAPI Gateway
+  └─────────────────┘
+  ┌─────────────────┐
+  │  ToolDispatcher │──────── tool.call.* ────────────────┤→ *Tools
+  └─────────────────┘
+  ┌─────────────────┐
+  │   ModelService  │──────── compaction.request (auto)───┤→ GeneratorAgent/ModelService
   │                 │──────── compaction.result ──────────┤→ FastAPI Gateway
   └─────────────────┘
   ┌─────────────────┐
@@ -32,23 +38,23 @@ All participants connect to a single ZMQ XPUB/XSUB proxy. The proxy is the only 
   │  RewardService  │──────── reward.event ───────────────┤→ (logged)
   └─────────────────┘
   ┌─────────────────┐
-  │    *Tools (7)   │──────── tool.result.* ──────────────┤→ GeneratorAgent
+  │    *Tools (8)   │──────── tool.result.* ──────────────┤→ ToolDispatcher
   │                 │──────── tool.activity.* ────────────┤→ MonitorApp (ToolWindows)
   │                 │──────── tool.schema ────────────────┤→ GeneratorAgent, MonitorApp
   └─────────────────┘
   ┌─────────────────┐
   │  FastAPI        │──────── query.received ─────────────┤→ GeneratorAgent
-  │  Gateway        │──────── schema.request ─────────────┤→ *Tools, GeneratorAgent
+  │  Gateway        │──────── tool.schema.request ────────┤→ *Tools, GeneratorAgent
   │                 │──────── user.feedback ──────────────┤→ RewardService
-  │                 │──────── compaction.request ─────────┤→ GeneratorAgent
+  │                 │──────── compaction.request ─────────┤→ ModelService
   └─────────────────┘
   ┌─────────────────┐
-  │  MonitorApp     │──────── schema.request ─────────────┤→ *Tools (once at startup)
+  │  MonitorApp     │──────── tool.schema.request ────────┤→ *Tools (once at startup)
   │  (Qt panels,    │
   │  --panels only) │
   └─────────────────┘
   ┌─────────────────┐
-  │  schema_refresh │──────── schema.request ─────────────┤→ *Tools (2s after web server starts)
+  │  schema_refresh │──────── tool.schema.request ────────┤→ *Tools (2s after web server starts)
   │  (daemon thread,│  ZMQ slow-joiner fix: connects pub
   │  web mode only) │  socket before sleeping, so the message
   └─────────────────┘  is not dropped on the floor
@@ -64,12 +70,14 @@ All participants connect to a single ZMQ XPUB/XSUB proxy. The proxy is the only 
 
 | Participant | Subscribes to |
 |---|---|
-| GeneratorAgent | `query.received`, `tool.schema`, `schema.request`, `compaction.request`, `tool.result.*` |
+| GeneratorAgent | `query.received`, `tool.schema`, `tool.schema.request`, `compaction.request`, `config.reload` |
+| ToolDispatcher | `tool.result.*` (per-call short-lived subscriptions) |
+| ModelService | `response.generation`, `compaction.request` |
 | CriticAgent | `response.generation` |
 | MemoryAgent | `response.generation`, `critique.result` |
 | RewardService | `user.feedback` |
-| Each `*Tool` | `tool.request.<name>`, `schema.request` |
-| FastAPI Gateway | `generation.thinking`, `response.generation`, `critique.result`, `answer.dialog`, `tool.request.*`, `tool.result.*`, `compaction.result`, `query.received` |
+| Each `*Tool` | `tool.call.<name>`, `tool.schema.request` |
+| FastAPI Gateway | `generation.thinking`, `response.generation`, `critique.result`, `answer.dialog`, `compaction.result` |
 | MonitorApp (Qt) | `tool.schema`, `generator.status`, `agent.transition`, `critique.result`, `tool.activity.*` |
 
 ## LAN Distribution

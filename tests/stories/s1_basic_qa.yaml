@@ -16,8 +16,8 @@ expected_bus_events:
     - "response.generation"
     - "answer.dialog"
   absent:
-    - "tool.request.web_search"
-    - "tool.request.web_fetch"
+    - "tool.call.web_search"
+    - "tool.call.web_fetch"
 
 response_generation_checks:
   answer_not_empty: true

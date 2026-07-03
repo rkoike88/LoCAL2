@@ -83,7 +83,12 @@ LoCAL2 uses three AI models. You download them once — they are stored permanen
 
 Open Command Prompt (Windows key → type `cmd` → Enter) and run each of these commands, pressing Enter after each one and waiting for it to finish before running the next:
 
-**Main conversational model (~10 GB — this one takes the longest):**
+**Default text model (~5 GB):**
+```
+ollama pull gemma4:e2b
+```
+
+**Vision + memory model (~10 GB — for image queries; also pulled by `local2 setup`):**
 ```
 ollama pull gemma4:e4b
 ```
@@ -212,8 +217,10 @@ local2 setup
 1. Writes default config files to `~/.local2/config/`
 2. Copies `docker-compose.yml` and SearXNG settings to `~/.local2/`
 3. Generates a random `MY_SEARX_SECRET` in `~/.local2/.env`
-4. Pulls `gemma4:e4b` (generator + memory classifier)
+4. Pulls `gemma4:e4b` (vision model for image queries; memory intent classifier)
 5. Pulls `nomic-embed-text` (embeddings for memory and RAG library)
+
+The default text model is `gemma4:e2b` (faster, lower VRAM). It is pulled on first use. To pre-fetch it: `ollama pull gemma4:e2b`.
 
 The critic uses `prometheus-7b:latest` (pulled on first use, or run `ollama pull prometheus-7b:latest` to pre-fetch).
 

@@ -38,7 +38,7 @@ expected_bus_events:
     - "response.generation"
     - "critique.result"
   absent:
-    - "tool.request.web_search"   # should NOT be called for simple factual queries
+    - "tool.call.web_search"   # should NOT be called for simple factual queries
 
 notes: >
   Additional context, known edge cases, config requirements.

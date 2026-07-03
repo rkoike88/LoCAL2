@@ -78,6 +78,7 @@ class GeneratorAgent(BaseAgent):
         self._tool_schemas: list = cfg.get("tools") or []
         self._instance_id: str = sys_cfg.get("instance_id") or socket.gethostname()
         self._token_count: int = 0
+        self._active_persona: dict[str, str] = {}  # session_id -> active persona name
         self._conv = conversation_service or ConversationService()
         self._tool_dispatcher = tool_dispatcher or ToolDispatcher(self._tool_timeout)
         self._sm = GeneratorStateMachine()
@@ -158,6 +159,12 @@ class GeneratorAgent(BaseAgent):
             self._do_transition(GeneratorAction.RESET)
             return
 
+        for tc in tool_call_log:
+            if tc.get("tool") == "persona":
+                name = (tc.get("args") or {}).get("name", "")
+                if name and session_id:
+                    self._active_persona[session_id] = name
+
         new_messages = [clean_for_history(m) for m in messages[initial_len - 1:]]
         self._conv.append_messages(session_id, new_messages)
         self._conv.set_token_count(session_id, prompt_tokens)
@@ -208,8 +215,11 @@ class GeneratorAgent(BaseAgent):
         """
         history = self._conv.get_history(session_id)
         messages: list[dict] = []
-        if self._system_prompt:
-            messages.append({"role": "system", "content": self._system_prompt})
+        active_persona = self._active_persona.get(session_id or "")
+        persona_clause = f" Your current persona is {active_persona}." if active_persona else ""
+        system_text = self._system_prompt.replace("{persona_clause}", persona_clause)
+        if system_text:
+            messages.append({"role": "system", "content": system_text})
         messages.extend(history)
 
         max_chars: int = get_config("generator")["max_attachment_chars"]

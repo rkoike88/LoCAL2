@@ -3,7 +3,19 @@ collection: "local_memory"
 chroma_path: ".chroma"
 embed_model: "nomic-embed-text"
 n_results: 5
-model: "gemma4:e4b"        # used by MemoryAgent for intent/entity classification
+model: "gemma4:e4b"        # used by MemoryAgent for intent/entity classification and summarization
+
+retrieval:
+  min_similarity: 0.85     # cosine similarity threshold; converted to distance (1 - sim) at query time
+  max_results: 7           # cap on injected summaries; 0.85+ typically yields 0-3 in practice
+
+summarize_prompt: |
+  Summarize what was established in this exchange in 2-4 sentences.
+  Capture: what was asked, key facts or conclusions reached, any preferences or decisions stated.
+  Be terse. Output only the summary — no preamble, no 'Here is a summary:'.
+
+  Q: {query}
+  A: {answer}
 
 classify_prompt: |
   Classify this Q&A pair and extract named entities. Output JSON only, no explanation:

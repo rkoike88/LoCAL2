@@ -10,16 +10,30 @@ Controls GeneratorAgent.
 
 | Key | Default | Description |
 |---|---|---|
-| `model` | `gemma4:e4b` | Ollama model tag for generation |
+| `model` | `gemma4:e2b` | Ollama model tag for generation (fallback if `models.default` is absent) |
+| `models.default` | `gemma4:e2b` | Model for standard text queries |
+| `models.vision` | `gemma4:e4b` | Model auto-selected when the query includes image attachments |
+| `models.quality` | `gemma4:31b-mlx` | Higher-capability model for explicitly quality-requested responses |
 | `num_ctx` | `128000` | Context window size — always set explicitly; never rely on Ollama's default |
 | `temperature` | `0.1` | Sampling temperature — 0.1 required for reliable tool calling |
 | `max_tool_iterations` | `5` | Max tool-call rounds per generation turn before forcing a final answer |
-| `tool_timeout` | `20` | Seconds to wait for a tool result before returning an error string |
+| `tool_timeout` | `120` | Seconds to wait for a tool result before returning an error string |
 | `max_attachment_chars` | `32000` | Truncation limit per text attachment |
-| `compaction_tail_turns` | `4` | Verbatim user+assistant pairs kept after compaction summary |
 | `system_prompt` | see file | Injected as `{"role": "system", ...}` at the start of every messages array |
 | `tools` | `[]` | Do not populate; tools register dynamically via `tool.schema` at runtime |
-| `ollama_debug` | `false` | (in system.yaml) Print Ollama request/response timing to stdout |
+
+---
+
+## config/compaction.yaml
+
+Controls ModelService (auto-compaction and compaction execution).
+
+| Key | Default | Description |
+|---|---|---|
+| `threshold` | `0.8` | Fraction of `num_ctx` at which auto-compaction triggers (0.8 = 80%) |
+| `tail_turns` | `4` | Verbatim user+assistant pairs kept verbatim after the summary |
+| `summary_prefix` | `[SUMMARY]` | Prefix prepended to the compaction summary message |
+| `system_prompt` | see file | System prompt for the summarization call |
 
 ---
 
@@ -155,7 +169,7 @@ API key is set via `SEMANTIC_SCHOLAR_API_KEY` environment variable (in `~/.zshrc
 
 ## Startup Order
 
-Tools must start before the generator. The generator broadcasts `schema.request` 0.5s after startup; if tools aren't running yet they miss the request (MonitorApp also broadcasts `schema.request` 600ms after connecting to catch late starters).
+Tools must start before the generator. The generator broadcasts `tool.schema.request` 0.5s after startup; if tools aren't running yet they miss the request. The web server also broadcasts `tool.schema.request` 2 seconds after starting to catch late starters.
 
 Order enforced by `run_local.py`:
 1. ZMQ proxy
@@ -181,4 +195,4 @@ Order enforced by `run_local.py`:
 | `--web-port PORT` | Override default port 8000 |
 | `--model MODEL` | Override the Ollama model tag at startup |
 
-In `--panels` mode, Qt windows are read-only observers (no bus commands). The single exception is a one-time `schema.request` broadcast at startup so tools re-announce their schemas and ToolWindows can be spawned.
+In `--panels` mode, Qt windows are read-only observers (no bus commands). The single exception is a one-time `tool.schema.request` broadcast at startup so tools re-announce their schemas and ToolWindows can be spawned.

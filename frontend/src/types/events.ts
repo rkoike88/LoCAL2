@@ -127,6 +127,7 @@ export interface ChatMessage {
   prompt_tokens?: number;
   attachments?: Attachment[];
   model?: string;
+  persona?: string;
 }
 
 // An in-progress assistant turn while streaming.

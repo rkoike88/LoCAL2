@@ -57,6 +57,7 @@ class MemoryAgent(BaseAgent):
         cfg = get_config("memory")
         model = cfg["model"]
         self._classify_prompt: str = (cfg.get("classify_prompt") or "").strip()
+        self._summarize_prompt: str = (cfg.get("summarize_prompt") or "").strip()
         self._memory = memory_service or MemoryService()
         self._llm = llm or OllamaBackend(model=model, agent_name=self.id)
         self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION, CRITIQUE])
@@ -84,7 +85,8 @@ class MemoryAgent(BaseAgent):
                 classification["session_id"] = session_id
             if thinking:
                 classification["thinking"] = thinking
-            self._memory.write_episodic(query, answer, metadata=classification, query_id=query_id or None)
+            summary = self._summarize(query, answer)
+            self._memory.write_episodic(query, answer, metadata=classification, query_id=query_id or None, summary=summary)
             logger.info(
                 "MemoryAgent: ingested engram intent=%r entities=%r",
                 classification.get("intent", ""),
@@ -112,6 +114,26 @@ class MemoryAgent(BaseAgent):
             logger.error("MemoryAgent: update_engram_score failed: %s", exc)
         finally:
             self._do_transition(MemoryAgentAction.COMPLETE)
+
+    def _summarize(self, query: str, answer: str) -> str | None:
+        """Produce a compact prose summary of the Q+A exchange for storage.
+
+        The summary becomes the ChromaDB document — what gets embedded,
+        retrieved, and injected verbatim into generation context. Falls back
+        to None on failure so the caller uses raw Q+A instead.
+
+        Args:
+            query: The user's question.
+            answer: The agent's response, truncated to 1000 chars in the prompt.
+
+        Returns:
+            Summary string, or None if the LLM returns no text.
+        """
+        if not self._summarize_prompt:
+            return None
+        prompt = self._summarize_prompt.format(query=query, answer=answer[:1000])
+        text, _ = self._llm.chat([{"role": "user", "content": prompt}])
+        return text.strip() or None
 
     def _classify(self, query: str, answer: str) -> dict:
         """Classify intent and extract named entities via the small LLM.

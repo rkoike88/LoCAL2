@@ -20,11 +20,12 @@ interface Props {
   feedback?: string;
   groundedness?: string;
   model?: string;
+  persona?: string;
   queryId: string;
   sessionId: string;
 }
 
-export function CritiqueBar({ score, feedback, groundedness, model, queryId, sessionId }: Props) {
+export function CritiqueBar({ score, feedback, groundedness, model, persona, queryId, sessionId }: Props) {
   const [sentiment, setSentiment] = useState<"positive" | "negative" | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
@@ -42,6 +43,11 @@ export function CritiqueBar({ score, feedback, groundedness, model, queryId, ses
         {model && (
           <span className="text-xs text-surface-text-muted font-mono" title="Model used for this response">
             {model}
+          </span>
+        )}
+        {persona && (
+          <span className="text-xs text-purple-400 font-mono" title="Cognitive persona active for this response">
+            ◈ {persona}
           </span>
         )}
         {ground && (

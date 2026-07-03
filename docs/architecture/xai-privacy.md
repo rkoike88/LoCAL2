@@ -63,13 +63,17 @@ The strip uses a tree display (┌ / ├ / └) for visual clarity. Clicking `�
 
 This answers the question: *which past conversations or documents did the model draw from?*
 
+### Per-Response Model Display
+
+Every assistant message shows which model produced it in the XAI footer (e.g. `gemma4:e2b` or `gemma4:e4b`). This is populated from the `model` field in `response.generation` and persisted with the session record so it's available when a conversation is rejoined.
+
 ### Groundedness Indicator
 
 Every assistant message carries a groundedness badge derived from which tools fired during that turn:
 
 | Badge | Meaning |
 |---|---|
-| `⊙ grounded` | Answer drew on retrieved memory (`search_memory`) or library sources (`search_library`) |
+| `⊙ grounded` | Answer drew on retrieved memory (`search_memory`) or library sources (`consult_librarian`) |
 | `◉ web` | Answer drew on live web search (`web_search`) or fetched page content (`web_fetch`) |
 | `○ knowledge` | No retrieval tools used — answer came from the model's training knowledge alone |
 

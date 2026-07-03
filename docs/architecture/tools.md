@@ -1,6 +1,6 @@
 # Tools
 
-LoCAL2 has seven tools. Each is a stateless `*Tool` participant: it subscribes to `tool.request.<name>`, executes, and publishes `tool.result.<name>` + `tool.activity.<name>`. Gemma decides when to call them based on the description in the tool's JSON schema.
+LoCAL2 has eight tools. Seven are stateless `*Tool` participants; one (`consult_librarian`) is a `*AgentTool` with its own LLM call. Each subscribes to `tool.call.<name>`, executes, and publishes `tool.result.<name>` + `tool.activity.<name>`. Gemma decides when to call them based on the description in the tool's JSON schema.
 
 For the tool call protocol and timing, see [../diagrams/tool-call-flow.md](../diagrams/tool-call-flow.md).
 
@@ -11,11 +11,11 @@ For the tool call protocol and timing, see [../diagrams/tool-call-flow.md](../di
 All tools follow the same bus contract:
 
 1. On startup, publish JSON schema on `tool.schema`.
-2. Subscribe to `tool.request.<name>` and `schema.request`.
-3. On `schema.request`, re-announce schema (supports late-joining generators and UI).
-4. On `tool.request.<name>`, execute, publish `tool.result.<name>` + `tool.activity.<name>`.
+2. Subscribe to `tool.call.<name>` and `tool.schema.request`.
+3. On `tool.schema.request`, re-announce schema (supports late-joining generators and UI).
+4. On `tool.call.<name>`, execute, publish `tool.result.<name>` + `tool.activity.<name>`.
 
-The `function.name` in the schema **must** match the `tool.request.<name>` subject suffix exactly. A mismatch causes the generator to publish to the right subject but the tool to never subscribe — silent timeout.
+The `function.name` in the schema **must** match the `tool.call.<name>` subject suffix exactly. A mismatch causes the dispatcher to publish to the right subject but the tool to never subscribe — silent timeout.
 
 Schema descriptions carry "when to call" guidance. This is the correct place for trigger conditions (e.g. "call for any question about the current time"). It does not belong in the system prompt.
 
@@ -126,17 +126,36 @@ Academic paper search via the Semantic Scholar Graph API.
 
 ---
 
+## consult_librarian
+
+`src/local/tools/library_agent_tool.py`
+
+LLM-powered librarian agent. This is the Gemma-facing entry point for document library queries. Gemma calls this with a natural-language instruction; the librarian agent interprets the instruction, calls `search_library` internally via the bus, and returns a synthesized answer with source attribution.
+
+**Type:** `*AgentTool` — has its own LLM call (uses the default generator model). Gemma receives a synthesized answer rather than raw chunks.
+
+**Input:** `instruction` (string) — natural-language description of what to look up; optional `filename` for a specific document.
+**Output:** synthesized answer with named sources.
+
+Bus subjects: `tool.call.consult_librarian` / `tool.result.consult_librarian` / `tool.activity.consult_librarian`.
+
+Also publishes `library.ingest.started` and `library.ingest.complete` when documents are ingested.
+
+For document ingestion and collection management, see [document-service.md](document-service.md).
+
+---
+
 ## search_library
 
 `src/local/tools/search_library_tool.py`
 
-Semantic search over ingested document collections (RAG). Backed by `DocumentService` / ChromaDB `collective.documents`.
+Low-level semantic search over ingested document collections (RAG). Backed by `DocumentService` / ChromaDB `collective.documents`. **Not exposed directly to Gemma** — called internally by `LibraryAgentTool` via `tool.call.search_library`.
 
 **Input:** `query` (string), and optionally `collection` (enum when multiple collections exist).
 
 **Dynamic schema:** the schema adapts to the current number of collections:
-- 0 or 1 collection: no `collection` parameter — Gemma just provides a query.
-- 2+ collections: `collection` is a required enum with per-value descriptions so Gemma can target the right collection.
+- 0 or 1 collection: no `collection` parameter.
+- 2+ collections: `collection` is a required enum with per-value descriptions so the caller can target the right collection.
 
 For document ingestion and collection management, see [document-service.md](document-service.md).
 

@@ -27,23 +27,25 @@ For message format and subject constants, see [messaging.md](messaging.md).
 | **GeneratorAgent** | `*Agent` (LLM) | `query.received` | `response.generation`, `answer.dialog`, `agent.transition`, `generator.status` |
 | **CriticAgent** | `*Agent` (LLM) | `response.generation` | `critique.result`, `agent.transition` |
 | **MemoryAgent** | `*Agent` (LLM) | `response.generation`, `critique.result` | `agent.transition` |
+| **ModelService** | Service | `response.generation`, `compaction.request` | `compaction.request` (auto), `compaction.result` |
 | **RewardService** | Service | `user.feedback` | `reward.event` |
-| **SearchMemoryTool** | `*Tool` | `tool.request.search_memory` | `tool.result.search_memory`, `tool.activity.search_memory` |
-| **WebSearchTool** | `*Tool` | `tool.request.web_search` | `tool.result.web_search`, `tool.activity.web_search` |
-| **WebFetchTool** | `*Tool` | `tool.request.web_fetch` | `tool.result.web_fetch`, `tool.activity.web_fetch` |
-| **DateTimeTool** | `*Tool` | `tool.request.get_datetime` | `tool.result.get_datetime`, `tool.activity.get_datetime` |
-| **LocationTool** | `*Tool` | `tool.request.get_location` | `tool.result.get_location`, `tool.activity.get_location` |
-| **SemanticScholarTool** | `*Tool` | `tool.request.search_papers` | `tool.result.search_papers`, `tool.activity.search_papers` |
-| **SearchLibraryTool** | `*Tool` | `tool.request.search_library` | `tool.result.search_library`, `tool.activity.search_library` |
-| **FastAPI Gateway** | UI/API | HTTP/WebSocket | `query.received`, `compaction.request`, `user.feedback`, `schema.request` |
+| **SearchMemoryTool** | `*Tool` | `tool.call.search_memory` | `tool.result.search_memory`, `tool.activity.search_memory` |
+| **WebSearchTool** | `*Tool` | `tool.call.web_search` | `tool.result.web_search`, `tool.activity.web_search` |
+| **WebFetchTool** | `*Tool` | `tool.call.web_fetch` | `tool.result.web_fetch`, `tool.activity.web_fetch` |
+| **DateTimeTool** | `*Tool` | `tool.call.get_datetime` | `tool.result.get_datetime`, `tool.activity.get_datetime` |
+| **LocationTool** | `*Tool` | `tool.call.get_location` | `tool.result.get_location`, `tool.activity.get_location` |
+| **SemanticScholarTool** | `*Tool` | `tool.call.search_papers` | `tool.result.search_papers`, `tool.activity.search_papers` |
+| **SearchLibraryTool** | `*Tool` | `tool.call.search_library` | `tool.result.search_library`, `tool.activity.search_library` |
+| **LibraryAgentTool** | `*AgentTool` (LLM) | `tool.call.consult_librarian` | `tool.result.consult_librarian`, `tool.activity.consult_librarian`, `library.*` events |
+| **FastAPI Gateway** | UI/API | HTTP/WebSocket | `query.received`, `compaction.request`, `user.feedback`, `tool.schema.request` |
 
 **Participant naming convention:**
 
 | Suffix | Has LLM | Triggered by | Output |
 |---|---|---|---|
 | `*Agent` | Yes | System (bus event) | Bus subject (not Gemma) |
-| `*Tool` | No | Gemma (`tool.request.*`) | Back to Gemma via `tool.result.*` |
-| `*AgentTool` | Yes | Gemma (`tool.request.*`) | Back to Gemma via `tool.result.*` |
+| `*Tool` | No | Gemma (`tool.call.*`) | Back to Gemma via `tool.result.*` |
+| `*AgentTool` | Yes | Gemma (`tool.call.*`) | Back to Gemma via `tool.result.*` |
 
 ---
 
@@ -56,9 +58,9 @@ User types query (optionally with file attachments)
   → Gemma streams: thinking tokens → GENERATION_THINKING
   → If Gemma calls a tool:
       GeneratorAgent → DISPATCHING_TOOL
-      publishes tool.request.<name>
+      ToolDispatcher publishes tool.call.<name>
       Tool executes, publishes tool.result.<name>
-      GeneratorAgent receives result, feeds back to Gemma → GENERATING
+      ToolDispatcher returns result to GeneratorAgent → GENERATING
       (repeats up to max_tool_iterations)
   → Final text answer → PUBLISHING
   → GeneratorAgent publishes response.generation + answer.dialog → IDLE
@@ -75,15 +77,36 @@ User types query (optionally with file attachments)
 
 Tools are registered dynamically. On startup, every tool publishes its JSON schema on `tool.schema`. GeneratorAgent subscribes, builds a live registry, and passes the current schema list to every `ollama.chat()` call.
 
-On reconnect, GeneratorAgent (and the UI) broadcast `schema.request`. All running tools respond by re-announcing their schema. This means a tool that starts after the generator is still picked up without restarting anything.
+On reconnect, GeneratorAgent (and the UI) broadcast `tool.schema.request`. All running tools respond by re-announcing their schema. This means a tool that starts after the generator is still picked up without restarting anything.
 
-A second `schema.request` is also broadcast automatically 2 seconds after the web server starts (the `schema_refresh` daemon thread in `run.py`). This catches tools that lose the first request due to the ZMQ slow-joiner problem — a PUB socket drops messages published before its connection has fully settled.
+A second `tool.schema.request` is also broadcast automatically 2 seconds after the web server starts (the `schema_refresh` daemon thread in `run.py`). This catches tools that lose the first request due to the ZMQ slow-joiner problem — a PUB socket drops messages published before its connection has fully settled.
 
 Schema descriptions are the mechanism for "when to call" guidance — they tell Gemma under what conditions to use a tool. This belongs in the tool description, not the system prompt.
 
 ---
 
-## 5. Memory Model
+## 5. Multi-Model Routing
+
+GeneratorAgent supports routing different queries to different Ollama models via the `models` key in `config/generator.yaml`:
+
+```yaml
+models:
+  default: gemma4:e2b      # standard text queries
+  vision:  gemma4:e4b      # queries with image attachments (auto-selected)
+  quality: gemma4:31b-mlx  # explicitly requested high-quality responses
+```
+
+Model selection per turn:
+- If the query includes image attachments → `models.vision`
+- Otherwise → `models.default`
+
+The `response.generation` payload includes a `model` field indicating which model produced that turn. The UI displays this in the XAI footer so it's always visible which model answered.
+
+`ModelService` handles compaction independently of the generator, reading `model` fresh from config on each compaction so model changes via `PUT /api/settings/generator` take effect immediately.
+
+---
+
+## 7. Memory Model
 
 **Episodic store (ChromaDB):** Every Q&A turn is ingested as an engram by MemoryAgent. The engram includes: query text, answer text, intent classification, named entities, session ID, and metadata fields populated by later events.
 
@@ -95,7 +118,7 @@ Schema descriptions are the mechanism for "when to call" guidance — they tell 
 
 ---
 
-## 6. Context Management
+## 8. Context Management
 
 **Token tracking:** After each generation, the final Ollama streaming chunk includes `prompt_eval_count` — the exact token count of the prompt sent. GeneratorAgent stores this in ConversationService and includes it in `response.generation`. The UI's TokenGauge reads it.
 
@@ -103,7 +126,7 @@ Schema descriptions are the mechanism for "when to call" guidance — they tell 
 
 ---
 
-## 7. Web UI Layer (Phase 16)
+## 9. Web UI Layer (Phase 16)
 
 The user-facing layer is a browser-based frontend. There is no required desktop app — any browser on the same machine (or same network) can connect.
 
@@ -162,7 +185,7 @@ The gateway translates ZMQ bus events into this WebSocket stream. The `ws_bridge
 
 ---
 
-## 8. Install and Packaging (Phase 17)
+## 10. Install and Packaging (Phase 17)
 
 LoCAL2 is a standard Python package installable via pip.
 
@@ -209,7 +232,7 @@ All user-editable state lives in `~/.local2/`, not inside the package or repo. T
 
 ---
 
-## 9. File Attachments
+## 11. File Attachments
 
 The web UI supports attaching files to a query. On submit, the frontend uploads each file to `POST /api/attachments`, which processes it server-side and returns an `Attachment` object:
 
@@ -225,7 +248,7 @@ GeneratorAgent builds the user message as:
 
 ---
 
-## 10. Remote-Bus Mode
+## 12. Remote-Bus Mode
 
 The ZMQ proxy binds to `0.0.0.0`, making it reachable from the local network. Participants connect to `127.0.0.1` by default; setting `LOCAL2_PROXY_HOST` (or `--ipaddress`) redirects connections to a remote proxy.
 
@@ -237,7 +260,7 @@ The ZMQ proxy binds to `0.0.0.0`, making it reachable from the local network. Pa
 
 ---
 
-## 11. Architecture Invariants
+## 13. Architecture Invariants
 
 - The bus is the only coordination mechanism. No direct agent-to-agent function calls.
 - The LLM receives the raw query and full conversation history — no preprocessing or rewriting before the generator sees it.

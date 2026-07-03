@@ -75,6 +75,11 @@ def _start_search_library(document_service) -> None:
     SearchLibraryTool(document_service=document_service).run()
 
 
+def _start_persona() -> None:
+    from local.tools.persona_tool import PersonaTool
+    PersonaTool().run()
+
+
 def _start_search_memory(memory_service) -> None:
     from local.tools.search_memory_tool import SearchMemoryTool
     SearchMemoryTool(memory_service=memory_service).run()
@@ -170,6 +175,7 @@ def main() -> None:
     shared_model_service = ModelService(conversation_service=shared_conv)
     threading.Thread(target=shared_model_service.run, daemon=True, name="model_service").start()
 
+    threading.Thread(target=_start_persona, daemon=True, name="persona").start()
     threading.Thread(target=_start_web_search, daemon=True, name="web_search").start()
     threading.Thread(target=_start_web_fetch, daemon=True, name="web_fetch").start()
     threading.Thread(target=_start_search_memory, args=(shared_memory,), daemon=True, name="search_memory").start()

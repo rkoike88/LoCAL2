@@ -24,7 +24,7 @@
 <body>
 
 <h1>Phase 21 — Browser UI Enhancements</h1>
-<p>Four targeted improvements that close the gap between the PySide6 desktop UI and the web UI, enabling a remote visitor to get the full LoCAL2 experience in a browser.</p>
+<p>Four targeted improvements to the web UI. PySide6 and the web UI are parallel interfaces that coexist; these enhancements add capability to the browser experience, not replacements for the desktop app.</p>
 
 <table>
   <tr><th>#</th><th>Enhancement</th><th>Scope</th><th>Effort</th></tr>
@@ -115,7 +115,7 @@ if subject.startswith(_TOOL_RESULT_PREFIX):
 <h2>21d — Library Agent Tool</h2>
 
 <h3>Goal</h3>
-<p>Replace the PySide6 <code>DocumentsWindow</code> admin panel with a Gemma-callable LLM-powered agent. The user says "add this file to the library" — Gemma delegates the whole task in one call. The librarian figures out categorization, creates collections if needed, and ingests asynchronously so the conversation is never blocked.</p>
+<p>Add a Gemma-callable LLM-powered librarian agent that exposes library management through conversation. The user says "add this file to the library" — Gemma delegates the whole task in one call. The librarian figures out categorization, creates collections if needed, and ingests asynchronously so the conversation is never blocked. The PySide6 <code>DocumentsWindow</code> panel continues to exist as a parallel interface.</p>
 
 <h3>Participant: LibraryAgentTool</h3>
 <p><code>src/local/tools/library_agent_tool.py</code> — follows <code>*AgentTool</code> naming convention (LLM-powered, Gemma-callable, result returns to Gemma via <code>tool.result.*</code>).</p>
@@ -201,7 +201,7 @@ if subject.startswith(_TOOL_RESULT_PREFIX):
 <ul>
   <li><strong>memory_window</strong> — covered by asking Gemma to call <code>search_memory</code></li>
   <li><strong>generator_window</strong> — deferred; not blocking browser-only usage</li>
-  <li><strong>PySide6 removal</strong> — separate phase; PySide6 stays until web UI is confirmed complete</li>
+  <li><strong>PySide6</strong> — not being replaced; it remains a parallel interface alongside the web UI</li>
 </ul>
 
 </body>

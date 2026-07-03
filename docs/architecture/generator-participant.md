@@ -13,15 +13,19 @@ The generator is the only participant that calls an LLM on the critical path. It
 - The Ollama chat API calls (streaming, with tool support)
 - The live tool schema registry (populated by `tool.schema` announcements)
 - The conversation history for each session (via ConversationService)
-- The compaction flow (summarizing and replacing session history)
+- Multi-model routing: selects `models.vision` for image-bearing queries, `models.default` otherwise
 - The `generator.status` publishing (identity + live state snapshot)
+
+**Compaction** is handled by `ModelService` — a separate bus participant that watches `response.generation` token counts and executes compaction via `compaction.request`. The generator is not involved.
+
+**Tool dispatch** is handled by `ToolDispatcher` — a synchronous bus bridge that the generator delegates to. The generator publishes the tool call internally; `ToolDispatcher` routes it on the bus and returns the result.
 
 ---
 
 ## Startup Sequence
 
 1. Load `config/generator.yaml` and `config/system.yaml`.
-2. Broadcast `schema.request` — all running tools re-announce their schemas.
+2. Broadcast `tool.schema.request` — all running tools re-announce their schemas.
 3. Sleep 0.5s to let tool schemas queue up before the first query arrives.
 4. Publish initial `generator.status` (token_count=0, all tool names registered so far).
 5. Enter the main receive loop.
@@ -70,16 +74,16 @@ return (answer, thinking, tool_call_log, prompt_tokens)
 
 ---
 
-## Tool Execution — _execute_tool()
+## Tool Execution — ToolDispatcher
 
-Tool calls are synchronous within the generation loop. The pattern avoids a race between publishing the request and subscribing to the result:
+Tool calls are delegated to `ToolDispatcher`, a synchronous bus participant that handles the ZMQ round-trip on behalf of the generator:
 
-1. Open a short-lived `ZmqSubscriber` for `tool.result.<name>` **before** publishing the request.
-2. Publish `tool.request.<name>` with the tool arguments.
-3. Poll with timeout (`tool_timeout` seconds, default 20s) for a response whose `correlation_id` matches.
-4. Return the result string, or a `[tool timeout: ...]` error string on expiry.
+1. `ToolDispatcher` opens a short-lived `ZmqSubscriber` for `tool.result.<name>` **before** publishing the call.
+2. Publishes `tool.call.<name>` with the tool arguments.
+3. Polls with timeout (`tool_timeout` seconds, default 120s) for a response whose `correlation_id` matches.
+4. Returns the result string, or a `[tool timeout: ...]` error string on expiry.
 
-The tool name is normalized via `_normalize_tool_name()` before dispatch — this catches Gemma hallucinating variant spellings (e.g. `"search_web"` → `"web_search"`).
+The tool name is normalized before dispatch to catch Gemma hallucinating variant spellings (e.g. `"search_web"` → `"web_search"`).
 
 ---
 
@@ -101,17 +105,11 @@ Attachments (images, PDFs, text files) are prepended to the user message content
 
 ---
 
-## Compaction — _handle_compaction()
+## Compaction
 
-Triggered by `compaction.request`. Rejected if the generator is not IDLE.
+Compaction is handled by `ModelService` (a separate bus participant, `src/local/services/model_service.py`). The generator is not involved.
 
-1. Fetch session history and current token count from ConversationService.
-2. Build a text summary of all user/assistant turns (tool turns omitted).
-3. Call `ollama.chat()` non-streaming with a summarization system prompt (separate from the normal model call — no tools, no streaming).
-4. Walk the history backwards to collect the last `compaction_tail_turns` verbatim user+assistant pairs.
-5. Replace messages: `[{"role": "assistant", "content": "[SUMMARY] ..."}]` + tail pairs.
-6. Estimate post-compaction tokens from character count (`total_chars // 4`).
-7. Publish `compaction.result` with tokens_before, tokens_after, and the summary text.
+`ModelService` watches `response.generation` token counts and auto-publishes `compaction.request` when the threshold in `config/compaction.yaml` is crossed. On `compaction.request`, it reads session history from `ConversationService`, summarizes via a non-streaming Ollama call, replaces the messages array with summary + tail turns, and publishes `compaction.result`.
 
 ---
 
@@ -144,11 +142,14 @@ All settings in `config/generator.yaml`.
 
 | Key | Default | Description |
 |---|---|---|
-| `model` | `gemma4:e4b` | Ollama model tag |
+| `models.default` | `gemma4:e2b` | Model for standard text queries |
+| `models.vision` | `gemma4:e4b` | Auto-selected for queries with image attachments |
+| `models.quality` | `gemma4:31b-mlx` | High-capability model for quality-requested responses |
 | `num_ctx` | `128000` | Context window size (always set explicitly) |
 | `temperature` | `0.1` | Required for reliable tool calling |
 | `max_tool_iterations` | `5` | Max tool call rounds per generation turn |
-| `tool_timeout` | `20` | Seconds to wait for a tool result |
+| `tool_timeout` | `120` | Seconds to wait for a tool result |
 | `max_attachment_chars` | `32000` | Truncation limit per text attachment |
-| `compaction_tail_turns` | `4` | Verbatim turn pairs kept after compaction |
 | `system_prompt` | see config | Injected as `{"role": "system", ...}` at message array start |
+
+Compaction settings are in `config/compaction.yaml` (handled by `ModelService`).

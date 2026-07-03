@@ -15,7 +15,7 @@ turns:
 expected_bus_events:
   present:
     - "response.generation"
-    - "tool.request.web_search"
+    - "tool.call.web_search"
     - "tool.result.web_search"
   absent: []
 

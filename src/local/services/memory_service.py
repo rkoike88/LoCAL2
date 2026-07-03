@@ -99,6 +99,7 @@ class MemoryService:
         answer: str,
         metadata: Optional[dict[str, Any]] = None,
         query_id: Optional[str] = None,
+        summary: Optional[str] = None,
     ) -> str:
         """Write a Q+A pair as an episodic engram.
 
@@ -111,11 +112,14 @@ class MemoryService:
             query_id: When provided, used as the ChromaDB document ID so
                 CriticAgent can later annotate the same record via
                 ``update_engram_score()``. Falls back to a random UUID.
+            summary: LLM-generated summary of the exchange. When provided,
+                used as the stored document (what gets embedded and injected).
+                Falls back to raw ``"{query}\\n{answer}"`` when absent.
 
         Returns:
             The engram ID (``query_id`` if supplied, otherwise a UUID).
         """
-        content = f"{query}\n{answer}"
+        content = summary if summary else f"{query}\n{answer}"
         embedding = self._embed_document(content)
         doc_id = query_id or str(uuid.uuid4())
         meta: dict[str, Any] = {

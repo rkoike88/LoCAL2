@@ -45,45 +45,51 @@ When asked to describe or diagnose a problem, give a direct concise answer first
 | Suffix | LLM? | Triggered by | Output destination |
 |---|---|---|---|
 | `*Agent` | Yes | System (bus event) | Bus subject (not Gemma) |
-| `*Tool` | No | Gemma (`tool.request.*`) | Back to Gemma via `tool.result.*` |
-| `*AgentTool` | Yes | Gemma (`tool.request.*`) | Back to Gemma via `tool.result.*` |
+| `*Tool` | No | Gemma (`tool.call.*`) | Back to Gemma via `tool.result.*` |
+| `*AgentTool` | Yes | Gemma (`tool.call.*`) | Back to Gemma via `tool.result.*` |
 
 ## Key Participants
 
 | Participant | Role |
 |---|---|
 | `generator_agent.py` | Core LLM agent: receives `query.received`, maintains conversation history, natively orchestrates tool calls, publishes `response.generation` |
+| `tool_dispatcher.py` | Synchronous bus bridge: receives Gemma's `tool.call.*` requests, routes to the right tool, returns `tool.result.*` to the generator |
 | `web_search_tool.py` | Executes `web_search` tool call — configurable provider (SearXNG / Brave / Tavily); publishes tool schema on startup |
 | `web_fetch_tool.py` | Executes `web_fetch` tool call — httpx + BeautifulSoup extraction; Gemma decides which URL to fetch after web_search |
 | `search_memory_tool.py` | Executes `search_memory` tool call — semantic search over episodic ChromaDB store |
 | `datetime_tool.py` | Executes `get_datetime` tool call — stdlib only; returns `"Tuesday 2026-06-03 09:17:42 PDT (UTC-7)"` |
 | `location_tool.py` | Executes `get_location` tool call — live IP geolocation via ipinfo.io (5-min TTL); `config/location.yaml` overrides |
 | `semantic_scholar_tool.py` | Executes `search_papers` tool call — Semantic Scholar Graph API, 1 req/sec rate limiter, arXiv URL fallback |
-| `search_library_tool.py` | Executes `search_library` tool call — topic-scoped RAG over `collective.documents` ChromaDB collection |
+| `search_library_tool.py` | Low-level RAG search over `collective.documents` ChromaDB collection — called by `LibraryAgentTool`, not directly by Gemma |
+| `library_agent_tool.py` | Executes `consult_librarian` tool call — LLM-powered librarian agent; interprets Gemma's instruction, calls `search_library` internally, returns synthesized answer with sources |
 | `critic_agent.py` | System-triggered post-generation observer; Prometheus absolute grading (1–5); fires on `response.generation`; publishes `critique.result` |
-| `critic_agent_tool.py` | Gemma-callable pairwise comparison; Prometheus pairwise ranking; fires on `tool.request.critic_comparison`; result returns to Gemma context |
-| `memory_service.py` | Episodic memory store (ChromaDB); auto-ingests every Q&A turn; annotated with critic scores, user sentiment, pairwise winners |
+| `memory_service.py` | Episodic memory store (ChromaDB); auto-ingests every Q&A turn; annotated with critic scores, user sentiment |
+| `model_service.py` | Watches `response.generation` token counts; auto-triggers compaction when threshold crossed; executes compaction on `compaction.request` |
 | `document_service.py` | RAG document store (ChromaDB `collective.documents`); chunking, embedding, search |
-| `reward_service.py` | Routes `user.feedback` → `reward.event` to producing agents — Phase 4 |
+| `reward_service.py` | Routes `user.feedback` → `reward.event` to producing agents |
 
 ## Bus Subjects
 
 - `query.received` — new user query arrives
-- `response.generation` — generator publishes final answer
+- `response.generation` — generator publishes final answer (includes `model` field: which model produced this turn)
 - `tool.schema` — tool publishes its JSON schema on startup; GeneratorAgent maintains live registry
-- `tool.request.web_search` / `tool.result.web_search` — web search execution
-- `tool.request.web_fetch` / `tool.result.web_fetch` — URL fetch + extraction
-- `tool.request.search_memory` / `tool.result.search_memory` — episodic memory semantic search
-- `tool.request.get_datetime` / `tool.result.get_datetime` — current date/time
-- `tool.request.get_location` / `tool.result.get_location` — current location via IP geolocation
-- `tool.request.search_papers` / `tool.result.search_papers` — Semantic Scholar academic search
-- `tool.request.search_library` / `tool.result.search_library` — topic-scoped RAG library search
+- `tool.schema.request` — GeneratorAgent/UI broadcasts on startup; tools re-announce their schemas
+- `tool.call.web_search` / `tool.result.web_search` — web search execution
+- `tool.call.web_fetch` / `tool.result.web_fetch` — URL fetch + extraction
+- `tool.call.search_memory` / `tool.result.search_memory` — episodic memory semantic search
+- `tool.call.get_datetime` / `tool.result.get_datetime` — current date/time
+- `tool.call.get_location` / `tool.result.get_location` — current location via IP geolocation
+- `tool.call.search_papers` / `tool.result.search_papers` — Semantic Scholar academic search
+- `tool.call.search_library` / `tool.result.search_library` — RAG library search (internal to LibraryAgentTool)
+- `tool.call.consult_librarian` / `tool.result.consult_librarian` — LLM-powered library agent (Gemma-facing)
 - `tool.activity.*` — per-tool activity log entry (one per subject, displayed in ToolWindow)
-- `tool.request.critic_comparison` / `tool.result.critic_comparison` — Prometheus pairwise (Gemma-callable)
+- `library.collection.created` / `library.ingest.started` / `library.ingest.complete` — document ingestion lifecycle events
 - `critique.result` — Prometheus absolute grade (1–5); system-triggered after every generation
 - `answer.dialog` — conversation turn appended for history tracking
+- `compaction.request` / `compaction.result` — context compaction trigger and outcome
 - `user.feedback` — user thumbs up/down signal
 - `reward.event` — targeted reward to producing agent
+- `agent.transition` / `tool.transition` — state machine transitions (observability)
 
 ## Architecture Invariants
 

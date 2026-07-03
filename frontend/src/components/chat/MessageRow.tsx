@@ -56,6 +56,7 @@ export function MessageRow({ msg, sessionId }: Props) {
         feedback={msg.critique?.feedback}
         groundedness={msg.groundedness}
         model={msg.model}
+        persona={msg.persona}
         queryId={msg.id}
         sessionId={sessionId}
       />

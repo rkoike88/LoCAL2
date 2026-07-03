@@ -2,7 +2,7 @@ id: generator
 max_attachment_chars: 32000
 max_tool_iterations: 5
 models:
-  default: gemma4:31b-mlx
+  default: gemma4:e4b-mlx
   quality: gemma4:31b-mlx
   vision: gemma4:e4b
 num_ctx: 128000

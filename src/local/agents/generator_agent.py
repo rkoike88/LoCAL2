@@ -23,10 +23,11 @@ from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.messages import (
     AnswerDialog, GenerationThinking,
-    GeneratorStatus, QueryReceived, ResponseGeneration, ToolSchemaRequest,
+    GeneratorStatus, MemoryContext, ResponseGeneration, ToolSchemaRequest,
+    UserContext, UserContextRequest, UserContextUpdated,
 )
 from local.protocol.subjects import (
-    CONFIG_RELOAD, QUERY_RECEIVED, TOOL_SCHEMA,
+    CONFIG_RELOAD, MEMORY_CONTEXT, TOOL_SCHEMA, USER_CONTEXT, USER_CONTEXT_UPDATED,
 )
 from local.protocol.types import Attachment
 from local.services.conversation_service import ConversationService
@@ -79,10 +80,11 @@ class GeneratorAgent(BaseAgent):
         self._instance_id: str = sys_cfg.get("instance_id") or socket.gethostname()
         self._token_count: int = 0
         self._active_persona: dict[str, str] = {}  # session_id -> active persona name
+        self._user_context: list[dict] = []        # [{fact, reason}] — bootstrapped from pinned store
         self._conv = conversation_service or ConversationService()
         self._tool_dispatcher = tool_dispatcher or ToolDispatcher(self._tool_timeout)
         self._sm = GeneratorStateMachine()
-        self._pub, self._sub = make_participant_bus([QUERY_RECEIVED, TOOL_SCHEMA, CONFIG_RELOAD])
+        self._pub, self._sub = make_participant_bus([MEMORY_CONTEXT, TOOL_SCHEMA, CONFIG_RELOAD, USER_CONTEXT, USER_CONTEXT_UPDATED])
 
     # ------------------------------------------------------------------
     # Main loop
@@ -94,7 +96,8 @@ class GeneratorAgent(BaseAgent):
             self._model, self._options["num_ctx"], self._options["temperature"],
         )
         self._request_schemas()
-        time.sleep(0.5)  # startup window: let tool schema responses queue up
+        self._pub.publish(UserContextRequest(), sender_id=self.id)
+        time.sleep(0.5)  # startup window: let tool schema and user.context responses queue up
         self._publish_status()
         while True:
             try:
@@ -105,13 +108,21 @@ class GeneratorAgent(BaseAgent):
             self._dispatch(envelope)
 
     def _dispatch(self, envelope: MessageEnvelope) -> None:
-        if envelope.subject == QUERY_RECEIVED:
+        if envelope.subject == MEMORY_CONTEXT:
             try:
                 self._handle_query(envelope)
             except Exception as exc:
                 logger.error("GeneratorAgent: unhandled error: %s", exc, exc_info=True)
                 if self._sm.state != GeneratorState.IDLE:
                     self._sm.reset()
+        elif envelope.subject == USER_CONTEXT:
+            msg = UserContext.from_envelope(envelope)
+            self._user_context = msg.facts
+            logger.info("GeneratorAgent: bootstrapped %d pinned facts", len(self._user_context))
+        elif envelope.subject == USER_CONTEXT_UPDATED:
+            msg = UserContextUpdated.from_envelope(envelope)
+            self._user_context.append({"fact": msg.fact, "reason": msg.reason})
+            logger.info("GeneratorAgent: added pinned fact %r", msg.fact[:60])
         elif envelope.subject == TOOL_SCHEMA:
             self._register_tool_schema(envelope.payload.get("schema", {}))
         elif envelope.subject == CONFIG_RELOAD:
@@ -122,11 +133,12 @@ class GeneratorAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     def _handle_query(self, envelope: MessageEnvelope) -> None:
-        msg = QueryReceived.from_envelope(envelope)
+        msg = MemoryContext.from_envelope(envelope)
         query: str = msg.query
         session_id: str | None = msg.session_id or None
         original_query_id: str = msg.query_id or str(uuid.uuid4())
         attachments: list = msg.attachments
+        capsules: list = msg.capsules
 
         query_id = original_query_id
         correlation_id = envelope.correlation_id or query_id
@@ -137,7 +149,12 @@ class GeneratorAgent(BaseAgent):
 
         self._do_transition(GeneratorAction.RECEIVE)
 
-        messages = self._build_messages(query, session_id, attachments)
+        self._conv.write_context_biscuit(query_id, {
+            "capsules": capsules,
+            "pinned_facts": list(self._user_context),
+            "persona": self._active_persona.get(session_id or ""),
+        }, session_id=session_id or "")
+        messages = self._build_messages(query, session_id, attachments, capsules=capsules)
         initial_len = len(messages)
         self._do_transition(GeneratorAction.START_GENERATION)
 
@@ -195,6 +212,7 @@ class GeneratorAgent(BaseAgent):
         query: str,
         session_id: str | None,
         attachments: list[dict] | None = None,
+        capsules: list | None = None,
     ) -> list[dict]:
         """Build the messages array for ``ollama.chat()`` from history + new query.
 
@@ -218,6 +236,12 @@ class GeneratorAgent(BaseAgent):
         active_persona = self._active_persona.get(session_id or "")
         persona_clause = f" Your current persona is {active_persona}." if active_persona else ""
         system_text = self._system_prompt.replace("{persona_clause}", persona_clause)
+        if self._user_context:
+            facts_text = "\n".join(f"- {f['fact']}" for f in self._user_context)
+            system_text += f"\n\n[Things to always remember about the user:]\n{facts_text}"
+        if capsules:
+            summaries = "\n".join(f"- {c['content']}" for c in capsules)
+            system_text += f"\n\n[Relevant prior sessions:]\n{summaries}"
         if system_text:
             messages.append({"role": "system", "content": system_text})
         messages.extend(history)

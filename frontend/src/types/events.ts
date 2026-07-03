@@ -96,6 +96,12 @@ export interface LibraryIngestedEvent {
   error: string;
 }
 
+export interface ContextUpdatedEvent {
+  type: "context_updated";
+  fact: string;
+  reason: string;
+}
+
 export type GatewayEvent =
   | ThinkingChunkEvent
   | ToolStartEvent
@@ -104,7 +110,8 @@ export type GatewayEvent =
   | ResponseEvent
   | CritiqueEvent
   | LibraryIngestStartedEvent
-  | LibraryIngestedEvent;
+  | LibraryIngestedEvent
+  | ContextUpdatedEvent;
 
 // A processed file attachment ready to send to the generator.
 export interface Attachment {
@@ -112,6 +119,17 @@ export interface Attachment {
   name: string;
   data?: string;
   error?: string;
+}
+
+export interface PinnedFact {
+  fact: string;
+  reason: string;
+}
+
+export interface ContextBiscuit {
+  capsules: Array<{ content: string; score: number }>;
+  pinned_facts: PinnedFact[];
+  persona?: string;
 }
 
 // A fully resolved message in the chat history.
@@ -128,6 +146,7 @@ export interface ChatMessage {
   attachments?: Attachment[];
   model?: string;
   persona?: string;
+  context_biscuit?: ContextBiscuit;
 }
 
 // An in-progress assistant turn while streaming.

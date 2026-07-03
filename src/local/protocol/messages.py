@@ -28,11 +28,15 @@ from local.protocol.subjects import (
     LIBRARY_COLLECTION_CREATED,
     LIBRARY_INGEST_COMPLETE,
     LIBRARY_INGEST_STARTED,
+    MEMORY_CONTEXT,
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
     REWARD_EVENT,
     TOOL_SCHEMA,
     TOOL_SCHEMA_REQUEST,
+    USER_CONTEXT,
+    USER_CONTEXT_REQUEST,
+    USER_CONTEXT_UPDATED,
     USER_FEEDBACK,
 )
 
@@ -161,6 +165,40 @@ class AnswerDialog(BusMessage):
             answer=p.get("answer", ""),
             session_id=p.get("session_id", ""),
             query_id=p.get("query_id", ""),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Memory context relay (Phase 23b)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class MemoryContext(BusMessage):
+    """Published by MemoryAgent after searching episodic memory for query.received.
+
+    GeneratorAgent subscribes to this instead of query.received so that
+    retrieved capsules are available before generation starts. Always published
+    (capsules=[] when nothing meets the confidence threshold), so the generator
+    is never starved if the search returns nothing.
+    """
+    subject:      ClassVar[str] = MEMORY_CONTEXT
+    message_type: ClassVar[str] = "memory_context"
+
+    query:       str
+    session_id:  str
+    query_id:    str
+    capsules:    list   # list of {content, score, metadata} from search_episodic
+    attachments: list = field(default_factory=list)
+
+    @classmethod
+    def from_envelope(cls, envelope: MessageEnvelope) -> "MemoryContext":
+        p = envelope.payload
+        return cls(
+            query=p.get("query", ""),
+            session_id=p.get("session_id", ""),
+            query_id=p.get("query_id", ""),
+            capsules=p.get("capsules") or [],
+            attachments=p.get("attachments") or [],
         )
 
 
@@ -596,3 +634,55 @@ class LibraryIngestComplete(BusMessage):
             chunk_count=p.get("chunk_count", 0),
             error=p.get("error", ""),
         )
+
+
+# ---------------------------------------------------------------------------
+# User context — pinned facts (Phase 23c)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class UserContextRequest(BusMessage):
+    """Published by GeneratorAgent on startup to bootstrap its pinned-facts cache."""
+    subject:      ClassVar[str] = USER_CONTEXT_REQUEST
+    message_type: ClassVar[str] = "user_context_request"
+
+    @classmethod
+    def from_envelope(cls, envelope: MessageEnvelope) -> "UserContextRequest":
+        return cls()
+
+    def to_envelope(self, sender_id: str, correlation_id: str = "", session_id: str = "") -> MessageEnvelope:
+        return MessageEnvelope.create(
+            message_type=self.message_type,
+            subject=self.subject,
+            sender_id=sender_id,
+            payload={},
+            correlation_id=correlation_id or str(uuid.uuid4()),
+        )
+
+
+@dataclass
+class UserContext(BusMessage):
+    """Published by MemoryAgent in response to UserContextRequest."""
+    subject:      ClassVar[str] = USER_CONTEXT
+    message_type: ClassVar[str] = "user_context"
+
+    facts: list  # list of {fact: str, reason: str}
+
+    @classmethod
+    def from_envelope(cls, envelope: MessageEnvelope) -> "UserContext":
+        return cls(facts=envelope.payload.get("facts") or [])
+
+
+@dataclass
+class UserContextUpdated(BusMessage):
+    """Published by RememberThisTool when a new fact is pinned."""
+    subject:      ClassVar[str] = USER_CONTEXT_UPDATED
+    message_type: ClassVar[str] = "user_context_updated"
+
+    fact:   str
+    reason: str = ""
+
+    @classmethod
+    def from_envelope(cls, envelope: MessageEnvelope) -> "UserContextUpdated":
+        p = envelope.payload
+        return cls(fact=p.get("fact", ""), reason=p.get("reason", ""))

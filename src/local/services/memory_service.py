@@ -313,6 +313,58 @@ class MemoryService:
                 winner == respondent, qid,
             )
 
+    # ------------------------------------------------------------------
+    # Pinned fact store — always-injected user context
+    # ------------------------------------------------------------------
+
+    def write_pinned(self, fact: str, reason: str = "") -> str:
+        """Upsert a pinned fact.
+
+        Uses a content-hash ID so identical facts don't accumulate as
+        duplicates. Existing fact with same ID is silently replaced.
+
+        Args:
+            fact: The fact text to store and embed.
+            reason: Optional human-readable rationale (stored in metadata).
+
+        Returns:
+            The ChromaDB document ID for this fact.
+        """
+        import hashlib
+        doc_id = "pinned:" + hashlib.sha256(fact.encode()).hexdigest()[:16]
+        embedding = self._embed_document(fact)
+        self._collection.upsert(
+            ids=[doc_id],
+            documents=[fact],
+            embeddings=[embedding],
+            metadatas=[{"type": "pinned", "fact": fact, "reason": reason, "timestamp": time.time()}],
+        )
+        logger.debug("MemoryService: upserted pinned fact %s", doc_id)
+        return doc_id
+
+    def list_pinned(self) -> list[dict[str, Any]]:
+        """Return all pinned facts, newest first.
+
+        Returns:
+            List of dicts with keys ``fact`` (str) and ``reason`` (str).
+        """
+        result = self._collection.get(
+            where={"type": "pinned"},
+            include=["metadatas", "documents"],
+        )
+        ids   = result.get("ids") or []
+        docs  = result.get("documents") or []
+        metas = result.get("metadatas") or []
+        items = sorted(
+            zip(ids, docs, metas),
+            key=lambda x: x[2].get("timestamp", 0),
+            reverse=True,
+        )
+        return [
+            {"fact": doc, "reason": meta.get("reason", "")}
+            for _, doc, meta in items
+        ]
+
     def update_engram_sentiment(self, query_id: str, sentiment: str) -> None:
         """Merge ``user_sentiment`` into an existing engram's metadata.
 

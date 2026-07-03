@@ -297,7 +297,8 @@ async def get_session(session_id: str) -> JSONResponse:
         else:
             i += 1
 
-    return JSONResponse({"session_id": session_id, "messages": enriched})
+    context_log = _get_conv().get_context_log(session_id)
+    return JSONResponse({"session_id": session_id, "messages": enriched, "context_log": context_log})
 
 
 @app.delete("/api/sessions/{session_id}")

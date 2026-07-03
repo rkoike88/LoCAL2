@@ -18,8 +18,8 @@ from local.agents.memory_agent_states import MemoryAgentState
 from local.agents.memory_agent_transitions import MemoryAgentStateMachine
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
-from local.protocol.messages import CritiqueResult, ResponseGeneration
-from local.protocol.subjects import CRITIQUE, RESPONSE_GENERATION  # used in make_participant_bus subscription
+from local.protocol.messages import CritiqueResult, MemoryContext, QueryReceived, ResponseGeneration, UserContext
+from local.protocol.subjects import CRITIQUE, MEMORY_CONTEXT, QUERY_RECEIVED, RESPONSE_GENERATION, USER_CONTEXT_REQUEST
 from local.services.memory_service import MemoryService
 from local.services.ollama_backend import OllamaBackend
 from local.transport.bus_config import make_participant_bus
@@ -56,18 +56,69 @@ class MemoryAgent(BaseAgent):
         """
         cfg = get_config("memory")
         model = cfg["model"]
+        retrieval_cfg = cfg.get("retrieval") or {}
         self._classify_prompt: str = (cfg.get("classify_prompt") or "").strip()
         self._summarize_prompt: str = (cfg.get("summarize_prompt") or "").strip()
+        self._min_similarity: float = retrieval_cfg.get("min_similarity", 0.85)
+        self._max_results: int = retrieval_cfg.get("max_results", 7)
         self._memory = memory_service or MemoryService()
         self._llm = llm or OllamaBackend(model=model, agent_name=self.id)
-        self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION, CRITIQUE])
+        self._pub, self._sub = make_participant_bus([QUERY_RECEIVED, RESPONSE_GENERATION, CRITIQUE, USER_CONTEXT_REQUEST])
         self._sm = MemoryAgentStateMachine()
 
     def _dispatch(self, envelope: MessageEnvelope) -> None:
-        if envelope.subject == RESPONSE_GENERATION:
+        if envelope.subject == QUERY_RECEIVED:
+            self._handle_query_received(envelope)
+        elif envelope.subject == USER_CONTEXT_REQUEST:
+            self._handle_user_context_request(envelope)
+        elif envelope.subject == RESPONSE_GENERATION:
             self._handle_generation(envelope)
         elif envelope.subject == CRITIQUE:
             self._handle_critique(envelope)
+
+    def _handle_user_context_request(self, envelope: MessageEnvelope) -> None:
+        """Respond to GeneratorAgent startup bootstrap with all pinned facts."""
+        facts = self._memory.list_pinned()
+        self._pub.publish(
+            UserContext(facts=facts),
+            sender_id=self.id,
+            correlation_id=envelope.correlation_id,
+        )
+        logger.info("MemoryAgent: sent user.context with %d pinned facts", len(facts))
+
+    def _handle_query_received(self, envelope: MessageEnvelope) -> None:
+        """Relay: search episodic memory and publish memory.context before generation.
+
+        Always publishes, even when capsules is empty, so the generator is never
+        starved. Wraps everything in try/except so a Chroma error doesn't block
+        the hot path.
+        """
+        msg = QueryReceived.from_envelope(envelope)
+        query, session_id, query_id = msg.query, msg.session_id, msg.query_id
+
+        capsules: list = []
+        self._do_transition(MemoryAgentAction.START_RETRIEVE)
+        try:
+            candidates = self._memory.search_episodic(query, n=self._max_results)
+            capsules = [c for c in candidates if c["score"] >= self._min_similarity]
+            logger.info("MemoryAgent: relay capsules=%d (of %d candidates)", len(capsules), len(candidates))
+        except Exception as exc:
+            logger.error("MemoryAgent: retrieval failed (publishing empty context): %s", exc)
+        finally:
+            self._do_transition(MemoryAgentAction.COMPLETE)
+
+        self._pub.publish(
+            MemoryContext(
+                query=query,
+                session_id=session_id,
+                query_id=query_id,
+                capsules=capsules,
+                attachments=msg.attachments,
+            ),
+            sender_id=self.id,
+            correlation_id=envelope.correlation_id,
+            session_id=session_id,
+        )
 
     def _handle_generation(self, envelope) -> None:
         msg = ResponseGeneration.from_envelope(envelope)

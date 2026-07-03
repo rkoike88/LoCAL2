@@ -59,6 +59,16 @@ TOOL_CALL_PERSONA    = "tool.call.persona"
 TOOL_RESULT_PERSONA  = "tool.result.persona"
 TOOL_ACTIVITY_PERSONA = "tool.activity.persona"
 
+TOOL_CALL_REMEMBER_THIS     = "tool.call.remember_this"
+TOOL_RESULT_REMEMBER_THIS   = "tool.result.remember_this"
+TOOL_ACTIVITY_REMEMBER_THIS = "tool.activity.remember_this"
+
+# Phase 23 — structured context relay
+MEMORY_CONTEXT       = "memory.context"
+USER_CONTEXT_REQUEST = "user.context.request"
+USER_CONTEXT         = "user.context"
+USER_CONTEXT_UPDATED = "user.context.updated"
+
 # Phase 21d — library agent tool
 TOOL_CALL_CONSULT_LIBRARIAN   = "tool.call.consult_librarian"
 TOOL_RESULT_CONSULT_LIBRARIAN = "tool.result.consult_librarian"

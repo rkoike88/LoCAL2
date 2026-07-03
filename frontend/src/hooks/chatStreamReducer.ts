@@ -188,6 +188,15 @@ export function chatStreamReducer(
       };
     }
 
+    case "context_updated": {
+      const notice: ChatMessage = {
+        id: `ctx-${Date.now()}`,
+        role: "notice",
+        content: `Remembered: ${action.fact}${action.reason ? ` (${action.reason})` : ""}`,
+      };
+      return { ...state, messages: [...state.messages, notice] };
+    }
+
     case "clear_toast":
       return { ...state, toast: null };
 

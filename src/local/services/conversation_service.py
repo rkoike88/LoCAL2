@@ -58,6 +58,7 @@ class ConversationService:
                 Defaults to ``.conversation_history.json`` in the working dir.
         """
         self._sessions: OrderedDict[str, dict] = OrderedDict()
+        self._biscuits: dict[str, dict[str, dict]] = {}  # session_id → {query_id → biscuit}
         # ":memory:" sentinel disables disk I/O (useful in tests)
         raw = persist_path or _DEFAULT_PERSIST_PATH
         self._persist_path: Path | None = None if raw == ":memory:" else Path(raw)
@@ -218,3 +219,27 @@ class ConversationService:
         if session_id:
             self._sessions.pop(session_id, None)
             self._save()
+
+    # ------------------------------------------------------------------
+    # Context biscuit — per-turn provenance (capsules, persona)
+    # ------------------------------------------------------------------
+
+    def write_context_biscuit(self, query_id: str, biscuit: dict, session_id: str = "") -> None:
+        """Store context metadata for a query turn.
+
+        In-memory only (ephemeral across restarts) — used for UI transparency.
+
+        Args:
+            query_id: The query's ID, matches ResponseGeneration.query_id.
+            biscuit: Dict with keys ``capsules`` (list) and ``persona`` (str|None).
+            session_id: Session the turn belongs to. Falls back to ``""`` bucket.
+        """
+        self._biscuits.setdefault(session_id, {})[query_id] = biscuit
+
+    def get_context_biscuit(self, query_id: str, session_id: str = "") -> dict | None:
+        """Return the context biscuit for query_id within session_id, or None."""
+        return self._biscuits.get(session_id, {}).get(query_id)
+
+    def get_context_log(self, session_id: str) -> dict[str, dict]:
+        """Return all context biscuits for a session, keyed by query_id."""
+        return dict(self._biscuits.get(session_id, {}))

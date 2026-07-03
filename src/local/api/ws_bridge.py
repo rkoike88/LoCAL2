@@ -17,6 +17,7 @@ from local.protocol.subjects import (
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
     TOOL_CALL_CONSULT_LIBRARIAN,
+    TOOL_CALL_REMEMBER_THIS,
     TOOL_TRANSITION,
     TOOL_CALL_GET_DATETIME,
     TOOL_CALL_GET_LOCATION,
@@ -26,6 +27,7 @@ from local.protocol.subjects import (
     TOOL_CALL_WEB_FETCH,
     TOOL_CALL_WEB_SEARCH,
     TOOL_RESULT_CONSULT_LIBRARIAN,
+    TOOL_RESULT_REMEMBER_THIS,
     TOOL_RESULT_GET_DATETIME,
     TOOL_RESULT_GET_LOCATION,
     TOOL_RESULT_SEARCH_DOCUMENTS,
@@ -33,6 +35,7 @@ from local.protocol.subjects import (
     TOOL_RESULT_SEARCH_PAPERS,
     TOOL_RESULT_WEB_FETCH,
     TOOL_RESULT_WEB_SEARCH,
+    USER_CONTEXT_UPDATED,
 )
 
 # All subjects the chat WebSocket endpoint subscribes to.
@@ -55,11 +58,14 @@ CHAT_OBSERVE = [
     TOOL_RESULT_SEARCH_DOCUMENTS,
     TOOL_CALL_CONSULT_LIBRARIAN,
     TOOL_RESULT_CONSULT_LIBRARIAN,
+    TOOL_CALL_REMEMBER_THIS,
+    TOOL_RESULT_REMEMBER_THIS,
     LIBRARY_INGEST_COMPLETE,
     TOOL_TRANSITION,
     RESPONSE_GENERATION,
     ANSWER_DIALOG,
     CRITIQUE,
+    USER_CONTEXT_UPDATED,
 ]
 
 _TOOL_CALL_PREFIX = "tool.call."
@@ -156,6 +162,13 @@ def translate(envelope: MessageEnvelope) -> dict | None:
             "collection": payload.get("collection", ""),
             "chunks": payload.get("chunk_count", 0),
             "error": error,
+        }
+
+    if subject == USER_CONTEXT_UPDATED:
+        return {
+            "type": "context_updated",
+            "fact": payload.get("fact", ""),
+            "reason": payload.get("reason", ""),
         }
 
     return None

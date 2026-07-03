@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { postFeedback } from "../../api/client";
+import type { ContextBiscuit } from "../../types/events";
 
 const GROUND_CONFIG: Record<string, { label: string; className: string; title: string }> = {
   grounded: { label: "⊙ grounded", className: "text-teal-400",  title: "Answer drew on retrieved memory or library sources" },
@@ -23,11 +24,18 @@ interface Props {
   persona?: string;
   queryId: string;
   sessionId: string;
+  contextBiscuit?: ContextBiscuit;
 }
 
-export function CritiqueBar({ score, feedback, groundedness, model, persona, queryId, sessionId }: Props) {
+export function CritiqueBar({ score, feedback, groundedness, model, persona, queryId, sessionId, contextBiscuit }: Props) {
   const [sentiment, setSentiment] = useState<"positive" | "negative" | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [biscuitOpen, setBiscuitOpen] = useState(false);
+
+  const hasBiscuit = contextBiscuit && (
+    contextBiscuit.capsules.length > 0 ||
+    contextBiscuit.pinned_facts.length > 0
+  );
 
   async function sendFeedback(s: "positive" | "negative") {
     setSentiment(s);
@@ -64,6 +72,15 @@ export function CritiqueBar({ score, feedback, groundedness, model, persona, que
             ● {score}/5{hasFeedback ? (feedbackOpen ? "  ◈ feedback ▼" : "  ◈ feedback ▶") : ""}
           </button>
         ) : null}
+        {hasBiscuit && (
+          <button
+            className="text-xs text-indigo-400 hover:opacity-70 bg-transparent border-none p-0 cursor-pointer"
+            onClick={() => setBiscuitOpen((v) => !v)}
+            title="Show context that conditioned this response"
+          >
+            ◈ context {biscuitOpen ? "▼" : "▶"}
+          </button>
+        )}
         <div className="flex gap-1 ml-auto">
           <button
             onClick={() => sendFeedback("positive")}
@@ -84,6 +101,28 @@ export function CritiqueBar({ score, feedback, groundedness, model, persona, que
       {feedbackOpen && feedback && (
         <div className="mt-2 text-xs text-gray-400 font-mono whitespace-pre-wrap border-l-2 border-surface-3 pl-3">
           {feedback}
+        </div>
+      )}
+      {biscuitOpen && contextBiscuit && (
+        <div className="mt-2 text-xs font-mono border-l-2 border-indigo-900 pl-3 space-y-2">
+          {contextBiscuit.pinned_facts.length > 0 && (
+            <div>
+              <div className="text-indigo-400 mb-1">pinned facts</div>
+              {contextBiscuit.pinned_facts.map((f, i) => (
+                <div key={i} className="text-gray-400">— {f.fact}</div>
+              ))}
+            </div>
+          )}
+          {contextBiscuit.capsules.length > 0 && (
+            <div>
+              <div className="text-indigo-400 mb-1">retrieved sessions</div>
+              {contextBiscuit.capsules.map((c, i) => (
+                <div key={i} className="text-gray-500">
+                  <span className="text-indigo-700">[{c.score.toFixed(2)}]</span> {c.content}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -15,10 +15,12 @@ export interface RawSessionMessage {
   critic_feedback?: string;
   thinking?: string;
   tool_calls?: Array<{ tool: string; args: Record<string, unknown>; result: string }> | null;
+  query_id?: string;
 }
 
 export interface SessionDetail {
   messages: RawSessionMessage[];
+  context_log?: Record<string, unknown>;
 }
 
 export async function getModels(): Promise<string[]> {

@@ -59,6 +59,7 @@ export function MessageRow({ msg, sessionId }: Props) {
         persona={msg.persona}
         queryId={msg.id}
         sessionId={sessionId}
+        contextBiscuit={msg.context_biscuit}
       />
     </div>
   );

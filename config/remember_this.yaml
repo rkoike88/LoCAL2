@@ -1,0 +1,24 @@
+id: remember_this_tool
+
+schema:
+  type: function
+  function:
+    name: remember_this
+    description: |
+      Store a fact permanently so it is available in all future sessions.
+      Call this when the user explicitly asks you to remember something, or
+      when they state a personal preference, standing instruction, or fact
+      about themselves that should persist ("I prefer...", "always do...",
+      "my name is...", "remember that..."). Do NOT call for information that
+      is only relevant to the current conversation.
+    parameters:
+      type: object
+      properties:
+        fact:
+          type: string
+          description: The fact or preference to store, in one clear sentence.
+        reason:
+          type: string
+          description: Brief note on why this should be remembered (optional).
+      required:
+        - fact

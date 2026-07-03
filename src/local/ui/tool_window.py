@@ -316,6 +316,7 @@ class ToolWindow(BaseObservabilityWindow):
         "search_papers":      "semantic_scholar",
         "consult_librarian":  "librarian",
         "persona":            "personas",
+        "remember_this":      "remember_this",
     }
 
     def __init__(self, tool_name: str, publisher=None, on_lib_click=None, lib_tooltip: str = "Open") -> None:

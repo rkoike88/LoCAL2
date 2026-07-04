@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "local2"
-version = "0.2.9"
+version = "0.3.5"
 description = "LoCAL2 — Loosely Coupled Agent Language model, second generation"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -35,6 +35,7 @@ local2 = "local.cli:main"
 
 [tool.hatch.build]
 artifacts = ["src/local/api/static/**"]
+exclude = ["mlx_env", "mlx_env_new", "turboquant-mlx"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/local"]

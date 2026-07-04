@@ -5,6 +5,7 @@ from local.agents.critic_states import CriticState
 TRANSITIONS: dict[tuple[CriticState, CriticAction], CriticState] = {
     (CriticState.IDLE,            CriticAction.RECEIVE):        CriticState.RECEIVING,
     (CriticState.RECEIVING,       CriticAction.START_GRADE):    CriticState.GRADING,
+    (CriticState.RECEIVING,       CriticAction.PUBLISH):        CriticState.PUBLISHING,  # gatekeeper bypass
     (CriticState.GRADING,         CriticAction.PUBLISH):        CriticState.PUBLISHING,
     (CriticState.GRADING,         CriticAction.FAIL):           CriticState.ERROR,
     (CriticState.PUBLISHING,      CriticAction.RESET):          CriticState.IDLE,

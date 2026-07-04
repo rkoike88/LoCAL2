@@ -74,6 +74,7 @@ class GeneratorAgent(BaseAgent):
             "temperature": temperature if temperature is not None else cfg["temperature"],
         }
         self._system_prompt: str = cfg.get("system_prompt") or ""
+        self._post_tool_prefill: str = cfg.get("post_tool_think_prefill", "")
         self._max_tool_iters: int = cfg["max_tool_iterations"]
         self._tool_timeout: float = cfg["tool_timeout"]
         self._tool_schemas: list = cfg.get("tools") or []
@@ -312,9 +313,15 @@ class GeneratorAgent(BaseAgent):
             iter_tool_calls = None
             last_chunk = None
 
+            # For post-tool rounds, prefill the thinking channel so Gemma reasons
+            # before synthesizing the answer rather than jumping straight to prose.
+            call_messages = messages
+            if tool_call_log and self._post_tool_prefill:
+                call_messages = messages + [{"role": "assistant", "content": self._post_tool_prefill}]
+
             for chunk in ollama.chat(
                 model=model or self._model,
-                messages=messages,
+                messages=call_messages,
                 tools=self._tool_schemas or None,
                 think=True,
                 stream=True,

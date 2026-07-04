@@ -18,8 +18,8 @@ from local.agents.critic_states import CriticState
 from local.agents.critic_transitions import CriticStateMachine
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
-from local.protocol.messages import CritiqueResult, ResponseGeneration
-from local.protocol.subjects import RESPONSE_GENERATION
+from local.protocol.messages import CriticSkipped, CritiqueResult, ResponseGeneration
+from local.protocol.subjects import CRITIC_SKIPPED, RESPONSE_GENERATION
 from local.services.ollama_backend import OllamaBackend
 from local.transport.bus_config import make_participant_bus
 
@@ -37,27 +37,34 @@ class CriticAgent(BaseAgent):
 
     CONFIG_NAME = "critic"
 
-    def __init__(self, llm: OllamaBackend | None = None) -> None:
+    def __init__(self, llm: OllamaBackend | None = None, gatekeeper: OllamaBackend | None = None) -> None:
         """Initialize the CriticAgent.
 
         Config keys read from ``config/critic.yaml``: ``model``, ``rubric``,
-        ``grade_prompt``, ``pairwise_prompt``, ``pairwise_buffer_max``,
-        ``num_ctx``, ``temperature``, ``grade_timeout``.
+        ``grade_prompt``, ``gatekeeper_model``, ``gatekeeper_prompt``,
+        ``gatekeeper_timeout``, ``num_ctx``, ``temperature``, ``grade_timeout``.
 
         Args:
-            llm: Injected for testing; defaults to an ``OllamaBackend`` built
-                from config.
+            llm: Injected for testing; defaults to Prometheus ``OllamaBackend`` from config.
+            gatekeeper: Injected for testing; defaults to gatekeeper ``OllamaBackend`` from config.
         """
         cfg = get_config("critic")
         model: str = cfg["model"]
         self._rubric: str = cfg.get("rubric") or ""
         self._grade_prompt: str = (cfg.get("grade_prompt") or "").strip()
+        self._gatekeeper_prompt: str = (cfg.get("gatekeeper_prompt") or "").strip()
+        self._gatekeeper_skip_feedback: str = cfg["gatekeeper_skip_feedback"]
         self._options: dict = {
             "num_ctx": cfg["num_ctx"],
             "temperature": cfg["temperature"],
         }
         timeout: int = cfg["grade_timeout"]
         self._llm = llm or OllamaBackend(model=model, agent_name=self.id, timeout=timeout)
+        self._gatekeeper = gatekeeper or OllamaBackend(
+            model=cfg["gatekeeper_model"],
+            agent_name=f"{self.id}.gatekeeper",
+            timeout=cfg["gatekeeper_timeout"],
+        )
         self._pub, self._sub = make_participant_bus([RESPONSE_GENERATION])
         self._sm = CriticStateMachine()
 
@@ -78,12 +85,24 @@ class CriticAgent(BaseAgent):
         if not msg.query or not msg.answer or msg.error:
             return
 
-        if msg.tool_calls:
-            logger.debug("CriticAgent: skipping grade — tool calls present")
+        self._do_transition(CriticAction.RECEIVE)
+
+        # -- Gatekeeper: skip if response relies on live/retrieved data -------
+        if self._is_live_data(msg.query, msg.answer):
+            logger.debug("CriticAgent: gatekeeper skipped grade — live/retrieved data")
+            self._do_transition(CriticAction.PUBLISH)
+            self._pub.publish(
+                CriticSkipped(
+                    reason=self._gatekeeper_skip_feedback,
+                    query=msg.query,
+                    session_id=msg.session_id, query_id=msg.query_id,
+                ),
+                sender_id=self.id, correlation_id=correlation_id, session_id=msg.session_id,
+            )
+            self._do_transition(CriticAction.RESET)
             return
 
         # -- Absolute grade --------------------------------------------------
-        self._do_transition(CriticAction.RECEIVE)
         self._do_transition(CriticAction.START_GRADE)
 
         score, feedback = self._grade(msg.query, msg.answer)
@@ -103,6 +122,26 @@ class CriticAgent(BaseAgent):
         )
 
         self._do_transition(CriticAction.RESET)
+
+    def _is_live_data(self, query: str, answer: str) -> bool:
+        """Return True if the response relies on live or retrieved data.
+
+        Uses a fast gatekeeper model (e2b) to classify whether the response
+        makes claims based on data retrieved at query time rather than training
+        knowledge. On any failure, returns False (fail open — let Prometheus grade).
+        """
+        if not self._gatekeeper_prompt:
+            return False
+        try:
+            prompt = self._gatekeeper_prompt.format(query=query, answer=answer)
+            text, _ = self._gatekeeper.chat(
+                [{"role": "user", "content": prompt}],
+                think=True,
+            )
+            return text.strip().upper().startswith("YES")
+        except Exception as exc:
+            logger.warning("CriticAgent: gatekeeper failed, proceeding to grade: %s", exc)
+            return False
 
     def _grade(self, query: str, answer: str) -> tuple[int | None, str]:
         """Call Prometheus absolute grading. Returns (score_or_None, feedback_text)."""

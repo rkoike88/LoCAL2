@@ -160,6 +160,16 @@ export function chatStreamReducer(
         ),
       };
 
+    case "critic_skipped":
+      return {
+        ...state,
+        messages: state.messages.map((m) =>
+          m.id === action.query_id
+            ? { ...m, criticSkipped: action.reason }
+            : m
+        ),
+      };
+
     // any -> idle
     case "load_history":
       return { ...initialChatStreamState, messages: action.messages };

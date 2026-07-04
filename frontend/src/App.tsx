@@ -79,7 +79,8 @@ export default function App() {
     const id = randomUUID();
     setActiveSessionId(id);
     loadHistory([]);
-  }, [loadHistory]);
+    fetchSessions();
+  }, [loadHistory, fetchSessions]);
 
   async function handleDeleteSession(id: string) {
     await deleteSession(id);

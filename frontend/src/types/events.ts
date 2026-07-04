@@ -84,6 +84,12 @@ export interface CritiqueEvent {
   query_id: string;
 }
 
+export interface CriticSkippedEvent {
+  type: "critic_skipped";
+  reason: string;
+  query_id: string;
+}
+
 export interface LibraryIngestStartedEvent {
   type: "library_ingest_started";
   filename: string;
@@ -118,6 +124,7 @@ export type GatewayEvent =
   | ToolTransitionEvent
   | ResponseEvent
   | CritiqueEvent
+  | CriticSkippedEvent
   | LibraryIngestStartedEvent
   | LibraryIngestedEvent
   | ContextUpdatedEvent
@@ -150,6 +157,7 @@ export interface ChatMessage {
   thinking?: string;
   tool_calls?: ToolCall[];
   critique?: { score: number | null; feedback: string };
+  criticSkipped?: string;
   groundedness?: "grounded" | "web" | "knowledge";
   sources?: RetrievalSource[];
   prompt_tokens?: number;

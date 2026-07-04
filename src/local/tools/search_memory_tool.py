@@ -68,7 +68,17 @@ class SearchMemoryTool(BaseTool):
         for i, c in enumerate(candidates, 1):
             critic_score = c["metadata"].get("critic_score")
             critic_feedback = c["metadata"].get("critic_feedback", "")
-            suffix = f" [quality: {critic_score}/5]" if critic_score is not None else ""
+            if critic_score is not None:
+                score_int = int(critic_score)
+                if score_int >= 4:
+                    label = f"[GOOD EXAMPLE — rated {score_int}/5]"
+                elif score_int <= 2:
+                    label = f"[AVOID — rated {score_int}/5 — do not repeat this approach]"
+                else:
+                    label = f"[MIXED — rated {score_int}/5]"
+                suffix = f" {label}"
+            else:
+                suffix = ""
             entry = f"{i}.{suffix} {c['content']}"
             if critic_feedback:
                 entry += f"\n   [critique: {critic_feedback}]"

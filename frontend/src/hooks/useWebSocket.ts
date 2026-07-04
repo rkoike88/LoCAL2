@@ -25,9 +25,6 @@ export function useWebSocket(url: string): UseWebSocketResult {
   const wsRef = useRef<WebSocket | null>(null);
   const handlersRef = useRef<Set<(data: unknown) => void>>(new Set());
   const [readyState, setReadyState] = useState<WsReadyState>("connecting");
-  // openUrlRef tracks which URL the currently-open socket belongs to.
-  // sendJson checks this so a stale open socket can't send to the wrong session.
-  const openUrlRef              = useRef<string | null>(null);
   const closedIntentionallyRef  = useRef(false);
   const reconnectTimerRef       = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef    = useRef(0);
@@ -35,7 +32,6 @@ export function useWebSocket(url: string): UseWebSocketResult {
   useEffect(() => {
     closedIntentionallyRef.current = false;
     reconnectAttemptsRef.current = 0;
-    openUrlRef.current = null;
 
     function connect() {
       setReadyState("connecting");
@@ -44,13 +40,11 @@ export function useWebSocket(url: string): UseWebSocketResult {
 
       ws.onopen = () => {
         reconnectAttemptsRef.current = 0;
-        openUrlRef.current = url;
         setReadyState("open");
       };
 
       ws.onclose = () => {
         wsRef.current = null;
-        openUrlRef.current = null;
         setReadyState("closed");
         if (closedIntentionallyRef.current) return;
         // Exponential backoff: 1s, 2s, 4s, 8s … capped at 30s.
@@ -93,12 +87,10 @@ export function useWebSocket(url: string): UseWebSocketResult {
 
   const sendJson = useCallback((data: unknown) => {
     const ws = wsRef.current;
-    // Guard: only send if this socket is open AND it was opened for the current URL.
-    // Prevents a stale open socket (old session) from sending on behalf of a new session.
-    if (ws?.readyState === WebSocket.OPEN && openUrlRef.current === url) {
+    if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(data));
     }
-  }, [url]);
+  }, []);
 
   const onMessage = useCallback((handler: (data: unknown) => void) => {
     handlersRef.current.add(handler);

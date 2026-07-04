@@ -19,6 +19,7 @@ const SCORE_COLOR: Record<number, string> = {
 interface Props {
   score: number | null;
   feedback?: string;
+  criticSkipped?: string;
   groundedness?: string;
   model?: string;
   persona?: string;
@@ -27,7 +28,7 @@ interface Props {
   contextBiscuit?: ContextBiscuit;
 }
 
-export function CritiqueBar({ score, feedback, groundedness, model, persona, queryId, sessionId, contextBiscuit }: Props) {
+export function CritiqueBar({ score, feedback, criticSkipped, groundedness, model, persona, queryId, sessionId, contextBiscuit }: Props) {
   const [sentiment, setSentiment] = useState<"positive" | "negative" | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [biscuitOpen, setBiscuitOpen] = useState(false);
@@ -71,6 +72,14 @@ export function CritiqueBar({ score, feedback, groundedness, model, persona, que
           >
             ● {score}/5{hasFeedback ? (feedbackOpen ? "  ◈ feedback ▼" : "  ◈ feedback ▶") : ""}
           </button>
+        ) : criticSkipped ? (
+          <button
+            className="text-xs text-gray-500 hover:opacity-70 cursor-pointer bg-transparent border-none p-0"
+            onClick={() => setFeedbackOpen((v) => !v)}
+            title="Toggle gatekeeper note"
+          >
+            ● —{feedbackOpen ? "  ◈ skip ▼" : "  ◈ skip ▶"}
+          </button>
         ) : null}
         {hasBiscuit && (
           <button
@@ -98,9 +107,9 @@ export function CritiqueBar({ score, feedback, groundedness, model, persona, que
           </button>
         </div>
       </div>
-      {feedbackOpen && feedback && (
+      {feedbackOpen && (feedback || criticSkipped) && (
         <div className="mt-2 text-xs text-gray-400 font-mono whitespace-pre-wrap border-l-2 border-surface-3 pl-3">
-          {feedback}
+          {feedback || criticSkipped}
         </div>
       )}
       {biscuitOpen && contextBiscuit && (

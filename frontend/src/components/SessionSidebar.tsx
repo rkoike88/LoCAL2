@@ -106,9 +106,18 @@ export function SessionSidebar({
       {/* Session list — only shown when open */}
       {open && (
         <nav className="flex-1 overflow-y-auto py-2 px-1 space-y-0.5">
+          {/* Show a placeholder when the active session hasn't been saved yet */}
+          {!sessions.some((s) => s.session_id === activeSessionId) && (
+            <div className="flex items-start gap-1 px-2 py-2 rounded-lg bg-surface-3 text-white">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs truncate leading-snug italic text-gray-400">New session</p>
+                <p className="text-[10px] text-gray-600 mt-0.5">unsaved</p>
+              </div>
+            </div>
+          )}
           {filtered.length === 0 && (
             <p className="text-gray-600 text-xs px-3 py-2">
-              {query ? "No matches" : "No sessions yet"}
+              {query ? "No matches" : ""}
             </p>
           )}
           {filtered.map((s) => {

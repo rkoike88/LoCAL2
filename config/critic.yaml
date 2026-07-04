@@ -4,13 +4,24 @@ temperature: 0.0
 num_ctx: 32000
 grade_timeout: 30          # seconds; Prometheus can be slow on first call
 
+gatekeeper_model: "gemma4:e2b"
+gatekeeper_timeout: 30
+gatekeeper_skip_feedback: "[gatekeeper: response relies on live or retrieved data — Prometheus cannot evaluate accuracy]"
+
+gatekeeper_prompt: |
+  A response was generated to answer this question: {query}
+
+  Response: {answer}
+
+  Does this response make claims based on live data, current prices, or recent events that were retrieved at query time rather than known from training? Answer YES or NO only.
+
 rubric: |
-  [Is the response accurate, helpful, and well-reasoned?]
-  Score 1: The response is incorrect, harmful, or completely unhelpful.
-  Score 2: The response is mostly wrong or missing important information.
-  Score 3: The response is partially correct but incomplete or unclear.
-  Score 4: The response is mostly correct but has minor gaps or omissions a careful reader would notice.
-  Score 5: The response is accurate, complete, and clearly explained with no notable omissions or missing context.
+  [Is the response realistic, accurate, and genuinely helpful?]
+  Score 1: The response presents an unrealistic or harmful outcome as achievable, is factually wrong, or would mislead the user into a bad decision — even if a disclaimer is present.
+  Score 2: The response significantly overstates what is realistically achievable, or gives detailed guidance toward an outcome that is unlikely to work in practice.
+  Score 3: The response is partially realistic but unclear, incomplete, or fails to adequately convey how difficult or unlikely the goal actually is.
+  Score 4: The response is largely realistic and accurate, with only minor optimism or gaps a careful reader would notice.
+  Score 5: The response is accurate, grounded in what is realistically achievable, complete, and clearly explained with no important omissions.
 
 grade_prompt: |
   ###Task Description:

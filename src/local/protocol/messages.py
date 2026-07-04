@@ -23,6 +23,7 @@ from local.protocol.subjects import (
     COMPACTION_RESULT,
     CONFIG_RELOAD,
     CRITIQUE,
+    CRITIC_SKIPPED,
     GENERATION_THINKING,
     GENERATOR_STATUS,
     LIBRARY_COLLECTION_CREATED,
@@ -402,6 +403,27 @@ class CritiqueResult(BusMessage):
             feedback=p.get("feedback", ""),
             query=p.get("query", ""),
             answer=p.get("answer", ""),
+            session_id=p.get("session_id", ""),
+            query_id=p.get("query_id", ""),
+        )
+
+
+@dataclass
+class CriticSkipped(BusMessage):
+    subject:      ClassVar[str] = CRITIC_SKIPPED
+    message_type: ClassVar[str] = "critic_skipped"
+
+    reason:     str
+    query:      str
+    session_id: str
+    query_id:   str
+
+    @classmethod
+    def from_envelope(cls, envelope: MessageEnvelope) -> "CriticSkipped":
+        p = envelope.payload
+        return cls(
+            reason=p.get("reason", ""),
+            query=p.get("query", ""),
             session_id=p.get("session_id", ""),
             query_id=p.get("query_id", ""),
         )

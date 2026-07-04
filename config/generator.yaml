@@ -1,6 +1,7 @@
 id: generator
 max_attachment_chars: 32000
 max_tool_iterations: 5
+post_tool_think_prefill: "<|channel>thought\n"
 models:
   default: gemma4:e4b-mlx
   quality: gemma4:31b-mlx

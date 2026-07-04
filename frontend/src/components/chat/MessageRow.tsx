@@ -54,6 +54,7 @@ export function MessageRow({ msg, sessionId }: Props) {
       <CritiqueBar
         score={msg.critique?.score ?? null}
         feedback={msg.critique?.feedback}
+        criticSkipped={msg.criticSkipped}
         groundedness={msg.groundedness}
         model={msg.model}
         persona={msg.persona}

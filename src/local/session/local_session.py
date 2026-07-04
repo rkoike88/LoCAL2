@@ -20,6 +20,7 @@ from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     ANSWER_DIALOG,
     CRITIQUE,
+    CRITIC_SKIPPED,
     GENERATION_THINKING,
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
@@ -62,11 +63,10 @@ OBSERVE = [
     RESPONSE_GENERATION,
     ANSWER_DIALOG,
     CRITIQUE,
+    CRITIC_SKIPPED,
 ]
 
-# Short trail for tool-use responses (no critique expected).
-_TRAIL_SECONDS = 2.0
-# Extended trail for knowledge responses — waits for Prometheus to finish grading.
+# Extended trail — waits for Prometheus or gatekeeper to finish.
 _CRITIQUE_TRAIL_SECONDS = 90.0
 
 
@@ -127,14 +127,12 @@ class LoCALSession:
                     continue
                 yield msg
                 if msg.subject == RESPONSE_GENERATION:
-                    used_tools = bool(msg.payload.get("tool_calls"))
-                    trail_secs = _TRAIL_SECONDS if used_tools else _CRITIQUE_TRAIL_SECONDS
-                    trail_deadline = time.time() + trail_secs
+                    trail_deadline = time.time() + _CRITIQUE_TRAIL_SECONDS
                     while time.time() < trail_deadline:
                         trail = sub.receive_with_timeout(200)
                         if trail is not None and trail.correlation_id == query_id:
                             yield trail
-                            if trail.subject == CRITIQUE:
+                            if trail.subject in (CRITIQUE, CRITIC_SKIPPED):
                                 return
                     return
         finally:

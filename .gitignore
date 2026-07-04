@@ -3,6 +3,8 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+mlx_env/
+mlx_env_new/
 *.egg-info/
 dist/
 build/
@@ -14,3 +16,9 @@ chroma_db/
 .conversation_history.json
 .DS_Store
 generator_agent_flowchart.png
+
+# Local dev artifacts
+.claude/
+.vscode/
+results_*.json
+turboquant-mlx/

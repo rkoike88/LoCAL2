@@ -54,6 +54,7 @@ export function useSessions(): UseSessionsResult {
                 ? { score: m.critic_score, feedback: m.critic_feedback ?? "" }
                 : undefined,
             context_biscuit: biscuit,
+            engram_id: m.engram_id ?? undefined,
           };
         });
     } catch {

@@ -9,9 +9,11 @@ import { ToolBlock } from "./ToolBlock";
 interface Props {
   msg: ChatMessage;
   sessionId: string;
+  selected?: boolean;
+  onToggle?: (engramId: string) => void;
 }
 
-export function MessageRow({ msg, sessionId }: Props) {
+export function MessageRow({ msg, sessionId, selected, onToggle }: Props) {
   if (msg.role === "notice") {
     return (
       <div className="flex items-center gap-3 py-1">
@@ -32,36 +34,51 @@ export function MessageRow({ msg, sessionId }: Props) {
     );
   }
 
+  const canSelect = Boolean(msg.engram_id && onToggle);
+
   return (
-    <div className="space-y-2 max-w-2xl">
-      {msg.thinking && <ThinkingBlock text={msg.thinking} streaming={false} />}
-      <ToolBlock calls={msg.tool_calls} />
-      {msg.sources && <SourcesStrip sources={msg.sources} />}
-      <div className="prose prose-invert prose-sm max-w-none">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={{
-            a: ({ href, children }) => (
-              <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent underline hover:opacity-80">
-                {children}
-              </a>
-            ),
-          }}
-        >
-          {msg.content}
-        </ReactMarkdown>
+    <div className="flex items-start gap-2">
+      {canSelect ? (
+        <input
+          type="checkbox"
+          checked={selected ?? false}
+          onChange={() => onToggle!(msg.engram_id!)}
+          className="mt-1 shrink-0 accent-red-500 cursor-pointer"
+          title="Select to remove from memory"
+        />
+      ) : (
+        <div className="w-4 shrink-0" />
+      )}
+      <div className="space-y-2 min-w-0 flex-1 max-w-2xl">
+        {msg.thinking && <ThinkingBlock text={msg.thinking} streaming={false} />}
+        <ToolBlock calls={msg.tool_calls} />
+        {msg.sources && <SourcesStrip sources={msg.sources} />}
+        <div className="prose prose-invert prose-sm max-w-none">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              a: ({ href, children }) => (
+                <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent underline hover:opacity-80">
+                  {children}
+                </a>
+              ),
+            }}
+          >
+            {msg.content}
+          </ReactMarkdown>
+        </div>
+        <CritiqueBar
+          score={msg.critique?.score ?? null}
+          feedback={msg.critique?.feedback}
+          criticSkipped={msg.criticSkipped}
+          groundedness={msg.groundedness}
+          model={msg.model}
+          persona={msg.persona}
+          queryId={msg.id}
+          sessionId={sessionId}
+          contextBiscuit={msg.context_biscuit}
+        />
       </div>
-      <CritiqueBar
-        score={msg.critique?.score ?? null}
-        feedback={msg.critique?.feedback}
-        criticSkipped={msg.criticSkipped}
-        groundedness={msg.groundedness}
-        model={msg.model}
-        persona={msg.persona}
-        queryId={msg.id}
-        sessionId={sessionId}
-        contextBiscuit={msg.context_biscuit}
-      />
     </div>
   );
 }

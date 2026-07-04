@@ -17,8 +17,8 @@ gatekeeper_prompt: |
 
 rubric: |
   [Is the response realistic, accurate, and genuinely helpful?]
-  Score 1: The response presents an unrealistic or harmful outcome as achievable, is factually wrong, or would mislead the user into a bad decision — even if a disclaimer is present.
-  Score 2: The response significantly overstates what is realistically achievable, or gives detailed guidance toward an outcome that is unlikely to work in practice.
+  Score 1: The response presents an unrealistic or harmful outcome as achievable, is factually wrong, or would mislead the user into a bad decision — even if a disclaimer is present. A detailed step-by-step plan for a goal that fails for the vast majority of people in the stated conditions scores 1: the structure creates false confidence and the detail makes the infeasibility less visible, not more.
+  Score 2: The response significantly overstates what is realistically achievable for a typical person in the stated conditions, or is overly optimistic without adequately conveying how difficult or unlikely success actually is.
   Score 3: The response is partially realistic but unclear, incomplete, or fails to adequately convey how difficult or unlikely the goal actually is.
   Score 4: The response is largely realistic and accurate, with only minor optimism or gaps a careful reader would notice.
   Score 5: The response is accurate, grounded in what is realistically achievable, complete, and clearly explained with no important omissions.

@@ -16,6 +16,7 @@ export interface RawSessionMessage {
   thinking?: string;
   tool_calls?: Array<{ tool: string; args: Record<string, unknown>; result: string }> | null;
   query_id?: string;
+  engram_id?: string | null;
 }
 
 export interface SessionDetail {
@@ -69,6 +70,10 @@ export async function getSession(id: string): Promise<SessionDetail> {
 
 export async function deleteSession(id: string): Promise<void> {
   await fetch(`/api/sessions/${id}`, { method: "DELETE" });
+}
+
+export async function deleteEngram(engramId: string): Promise<void> {
+  await fetch(`/api/memory/${engramId}`, { method: "DELETE" });
 }
 
 export async function compactSession(sessionId: string): Promise<void> {

@@ -19,6 +19,7 @@ try:
         QHeaderView,
         QLabel,
         QLineEdit,
+        QMessageBox,
         QPushButton,
         QSplitter,
         QTableWidget,
@@ -71,8 +72,8 @@ _ROLE_STYLE: dict[str, tuple[str, str]] = {
 
 
 class MemoryWindow(QWidget):
-    _EPISODIC_COLS = ["Query", "Critic\nScore", "User\nScore", "Age", "Resp", "Winner", ""]
-    _SEARCH_COLS   = ["Query", "Sim", "Critic\nScore", "User\nScore", "Age", "Resp", "Winner", ""]
+    _EPISODIC_COLS = ["Query", "Critic\nScore", "User\nScore", "Age", "Resp", "Winner"]
+    _SEARCH_COLS   = ["Query", "Sim", "Critic\nScore", "User\nScore", "Age", "Resp", "Winner"]
     _CONTEXT_COLS  = ["#", "Role", "Preview"]
 
     def __init__(self, memory_service=None, conversation_service=None, session_id_getter=None) -> None:
@@ -128,6 +129,11 @@ class MemoryWindow(QWidget):
         self._refresh_btn.setObjectName("memRefreshBtn")
         self._refresh_btn.clicked.connect(self._refresh)
 
+        self._delete_btn = QPushButton("Delete selected")
+        self._delete_btn.setObjectName("memDeleteBtn")
+        self._delete_btn.setEnabled(False)
+        self._delete_btn.clicked.connect(self._confirm_delete_selected)
+
         row = QHBoxLayout()
         row.setContentsMargins(10, 6, 10, 6)
         row.setSpacing(6)
@@ -135,6 +141,7 @@ class MemoryWindow(QWidget):
         row.addWidget(self._browse_btn)
         row.addWidget(self._search_btn)
         row.addWidget(self._context_btn)
+        row.addWidget(self._delete_btn)
         row.addWidget(self._refresh_btn)
 
         header = QWidget()
@@ -188,6 +195,7 @@ class MemoryWindow(QWidget):
         self._table.setEditTriggers(QTableWidget.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
         self._table.itemSelectionChanged.connect(self._on_row_selected)
+        self._table.itemChanged.connect(self._on_item_changed)
 
         self._detail = QTextEdit()
         self._detail.setObjectName("memDetail")
@@ -251,18 +259,9 @@ class MemoryWindow(QWidget):
         hdr.setDefaultAlignment(Qt.AlignVCenter | Qt.AlignLeft)
         hdr.setMinimumSectionSize(30)
         self._table.verticalHeader().setDefaultSectionSize(26)
-        # If the last column is the delete-button column (empty header),
-        # stretch the second-to-last and fix the last.
-        if cols and cols[-1] == "":
-            for i in range(len(cols) - 2):
-                hdr.setSectionResizeMode(i, QHeaderView.ResizeToContents)
-            hdr.setSectionResizeMode(len(cols) - 2, QHeaderView.Stretch)
-            hdr.setSectionResizeMode(len(cols) - 1, QHeaderView.Fixed)
-            self._table.setColumnWidth(len(cols) - 1, 30)
-        else:
-            for i in range(len(cols) - 1):
-                hdr.setSectionResizeMode(i, QHeaderView.ResizeToContents)
-            hdr.setSectionResizeMode(len(cols) - 1, QHeaderView.Stretch)
+        for i in range(len(cols) - 1):
+            hdr.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(len(cols) - 1, QHeaderView.Stretch)
 
     # ------------------------------------------------------------------
     # Data loading
@@ -390,8 +389,10 @@ class MemoryWindow(QWidget):
     # ------------------------------------------------------------------
 
     def _populate_episodic(self, rows: list) -> None:
+        self._table.itemChanged.disconnect(self._on_item_changed)
         self._table.setRowCount(0)
         self._detail.clear()
+        self._delete_btn.setEnabled(False)
 
         # Normalize raw composite scores to 0–1 for display in search mode.
         in_search = self._mode == _MODE_SEARCH
@@ -443,26 +444,51 @@ class MemoryWindow(QWidget):
                     parts.append(critique_feedback)
                 detail = content + "\n\n" + "\n".join(parts)
 
-            # Query is always col 0; attach detail and session_id there.
-            self._table.item(r, 0).setData(Qt.UserRole, detail)
-            self._table.item(r, 0).setData(Qt.UserRole + 1, meta.get("session_id", ""))
-
+            # Query col: attach detail, session_id, engram_id; make checkable.
+            q_item = self._table.item(r, 0)
+            q_item.setData(Qt.UserRole, detail)
+            q_item.setData(Qt.UserRole + 1, meta.get("session_id", ""))
+            q_item.setData(Qt.UserRole + 2, engram_id)
             if engram_id and self._memory:
-                del_btn = QPushButton("✕")
-                del_btn.setObjectName("memDelBtn")
-                del_btn.setFixedSize(22, 22)
-                del_btn.setToolTip("Delete this memory")
-                del_btn.clicked.connect(
-                    lambda _=False, eid=engram_id: self._delete_engram(eid)
-                )
-                del_col = len(row_vals)
-                self._table.setCellWidget(r, del_col, del_btn)
+                q_item.setFlags(q_item.flags() | Qt.ItemIsUserCheckable)
+                q_item.setCheckState(Qt.Unchecked)
             self._table.setRowHeight(r, 26)
 
-    def _delete_engram(self, engram_id: str) -> None:
-        if not self._memory:
+        self._table.itemChanged.connect(self._on_item_changed)
+
+    def _on_item_changed(self, item: QTableWidgetItem) -> None:
+        if item.column() != 0:
             return
-        self._memory.delete_episodic(engram_id)
+        checked = any(
+            self._table.item(r, 0).checkState() == Qt.Checked
+            for r in range(self._table.rowCount())
+            if self._table.item(r, 0)
+        )
+        self._delete_btn.setEnabled(checked)
+
+    def _confirm_delete_selected(self) -> None:
+        ids = [
+            self._table.item(r, 0).data(Qt.UserRole + 2)
+            for r in range(self._table.rowCount())
+            if self._table.item(r, 0)
+            and self._table.item(r, 0).checkState() == Qt.Checked
+            and self._table.item(r, 0).data(Qt.UserRole + 2)
+        ]
+        if not ids:
+            return
+        n = len(ids)
+        reply = QMessageBox.question(
+            self,
+            "Remove from memory",
+            f"Remove {n} engram{'s' if n > 1 else ''} from memory?\nThis cannot be undone.",
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        for eid in ids:
+            self._memory.delete_episodic(eid)
+        self._delete_btn.setEnabled(False)
         self._refresh()
 
     def _on_row_selected(self) -> None:
@@ -563,6 +589,12 @@ class MemoryWindow(QWidget):
                 border-radius: 4px; padding: 3px 10px; font-size: 12px;
             }
             QPushButton#memGoBtn:hover, QPushButton#memRefreshBtn:hover { background: #1e3448; }
+            QPushButton#memDeleteBtn {
+                background: #2a1a1a; color: #e06c75; border: 1px solid #5a2a2a;
+                border-radius: 4px; padding: 3px 10px; font-size: 12px;
+            }
+            QPushButton#memDeleteBtn:hover { background: #3a1a1a; }
+            QPushButton#memDeleteBtn:disabled { color: #444; border-color: #333; background: #1a1a1a; }
             QPushButton#memModeBtn {
                 background: #1a1a1a; color: #888; border: 1px solid #333;
                 border-radius: 4px; padding: 3px 10px; font-size: 12px;

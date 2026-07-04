@@ -277,12 +277,14 @@ async def get_session(session_id: str) -> JSONResponse:
                     pending_calls.extend(_collect_calls(h))
                 j += 1
 
-            score, feedback, thinking = None, "", ""
+            score, feedback, thinking, engram_id = None, "", "", None
             if engram_idx < len(engrams):
-                meta = engrams[engram_idx].get("metadata") or {}
+                engram = engrams[engram_idx]
+                meta = engram.get("metadata") or {}
                 score = meta.get("critic_score")
                 feedback = meta.get("critic_feedback") or ""
                 thinking = meta.get("thinking") or ""
+                engram_id = engram.get("id")
                 engram_idx += 1
             enriched.append({
                 "role": "assistant",
@@ -292,6 +294,7 @@ async def get_session(session_id: str) -> JSONResponse:
                 "critic_feedback": feedback,
                 "thinking": thinking,
                 "tool_calls": tool_calls_out if tool_calls_out else None,
+                "engram_id": engram_id,
             })
             i = j
         else:
@@ -299,6 +302,14 @@ async def get_session(session_id: str) -> JSONResponse:
 
     context_log = _get_conv().get_context_log(session_id)
     return JSONResponse({"session_id": session_id, "messages": enriched, "context_log": context_log})
+
+
+@app.delete("/api/memory/{engram_id}")
+async def delete_engram(engram_id: str) -> JSONResponse:
+    if not _memory_service:
+        raise HTTPException(status_code=503, detail="Memory service unavailable")
+    _memory_service.delete_episodic(engram_id)
+    return JSONResponse({"deleted": engram_id})
 
 
 @app.delete("/api/sessions/{session_id}")

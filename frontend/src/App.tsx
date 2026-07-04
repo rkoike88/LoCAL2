@@ -7,6 +7,7 @@ import { useAutoScroll } from "./hooks/useAutoScroll";
 import { useChatStream } from "./hooks/useChatStream";
 import { useGeneratorSettings } from "./hooks/useGeneratorSettings";
 import { useSessions } from "./hooks/useSessions";
+import { deleteEngram } from "./api/client";
 import type { Attachment } from "./types/events";
 import { randomUUID } from "./utils/uuid";
 
@@ -26,6 +27,8 @@ function generatorStateLabel(state: string): string {
 export default function App() {
   const [activeSessionId, setActiveSessionId] = useState<string>(() => randomUUID());
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [selectedEngrams, setSelectedEngrams] = useState<Set<string>>(new Set());
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const { sessions, fetchSessions, loadSession, deleteSession } = useSessions();
 
   const { messages, streaming, isStreaming, sendQuery, loadHistory, tokenCount, toast, clearToast, generatorState } =
@@ -87,6 +90,22 @@ export default function App() {
     if (id === activeSessionId) handleNewChat();
   }
 
+  function handleToggleEngram(engramId: string) {
+    setSelectedEngrams((prev) => {
+      const next = new Set(prev);
+      if (next.has(engramId)) next.delete(engramId); else next.add(engramId);
+      return next;
+    });
+    setConfirmingDelete(false);
+  }
+
+  async function handleConfirmDelete() {
+    await Promise.all([...selectedEngrams].map(deleteEngram));
+    loadHistory(messages.filter((m) => !m.engram_id || !selectedEngrams.has(m.engram_id)));
+    setSelectedEngrams(new Set());
+    setConfirmingDelete(false);
+  }
+
   return (
     <div className="flex h-screen overflow-hidden">
       <SessionSidebar
@@ -130,13 +149,38 @@ export default function App() {
           </div>
         </header>
 
+        {/* Selection action bar */}
+        {selectedEngrams.size > 0 && (
+          <div className="shrink-0 px-6 py-2 border-b border-surface-3 flex items-center gap-3 bg-surface-1">
+            <span className="text-xs text-gray-400">{selectedEngrams.size} engram{selectedEngrams.size > 1 ? "s" : ""} selected</span>
+            {confirmingDelete ? (
+              <>
+                <span className="text-xs text-red-400">Remove from memory? This cannot be undone.</span>
+                <button onClick={handleConfirmDelete} className="text-xs text-red-400 hover:text-red-300 transition-colors">Confirm</button>
+                <button onClick={() => setConfirmingDelete(false)} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Cancel</button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => setConfirmingDelete(true)} className="text-xs text-red-500 hover:text-red-400 transition-colors">Delete selected</button>
+                <button onClick={() => setSelectedEngrams(new Set())} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Clear</button>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Message list */}
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
           {messages.length === 0 && !isStreaming && (
             <p className="text-gray-600 text-sm text-center mt-24">Start a conversation</p>
           )}
           {messages.map((msg) => (
-            <MessageRow key={msg.id} msg={msg} sessionId={activeSessionId} />
+            <MessageRow
+              key={msg.id}
+              msg={msg}
+              sessionId={activeSessionId}
+              selected={!!msg.engram_id && selectedEngrams.has(msg.engram_id)}
+              onToggle={handleToggleEngram}
+            />
           ))}
 
           {/* In-progress streaming turn */}

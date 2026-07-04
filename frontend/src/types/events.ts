@@ -165,6 +165,7 @@ export interface ChatMessage {
   model?: string;
   persona?: string;
   context_biscuit?: ContextBiscuit;
+  engram_id?: string;
 }
 
 // An in-progress assistant turn while streaming.

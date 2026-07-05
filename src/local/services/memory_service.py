@@ -259,8 +259,8 @@ class MemoryService:
         self._collection.delete(ids=[engram_id])
         logger.debug("MemoryService: deleted engram %s", engram_id)
 
-    def update_engram_score(self, query_id: str, score: int, feedback: str = "") -> None:
-        """Merge ``critic_score`` and ``critic_feedback`` into an existing engram's metadata.
+    def update_engram_score(self, query_id: str, score: int, feedback: str = "", rubric_name: str = "", rubric_text: str = "") -> None:
+        """Merge critic metadata into an existing engram.
 
         Reads the existing metadata first to avoid wiping ``type``,
         ``query``, ``timestamp``, ``intent``, or ``entities`` — ChromaDB
@@ -269,11 +269,8 @@ class MemoryService:
         Args:
             query_id: The engram ID returned by ``write_episodic()``.
             score: Absolute critic score (1–5).
-            feedback: Prometheus natural language feedback; stored as
-                ``critic_feedback`` for XAI audit trail.
-
-        Note:
-            Logs a warning and returns cleanly if the engram is not found.
+            feedback: Prometheus natural language feedback.
+            rubric_name: Rubric used (realistic/style/clarity).
         """
         result = self._collection.get(ids=[query_id])
         if not result.get("ids"):
@@ -283,8 +280,12 @@ class MemoryService:
         merged = {**existing_meta, "critic_score": score}
         if feedback:
             merged["critic_feedback"] = feedback
+        if rubric_name:
+            merged["critic_rubric"] = rubric_name
+        if rubric_text:
+            merged["critic_rubric_text"] = rubric_text
         self._collection.update(ids=[query_id], metadatas=[merged])
-        logger.debug("MemoryService: updated critic_score=%d on engram %s", score, query_id)
+        logger.debug("MemoryService: updated critic_score=%d rubric=%s on engram %s", score, rubric_name, query_id)
 
     def annotate_pairwise(self, query_id_a: str, query_id_b: str, winner: str) -> None:
         """Write ``pairwise_winner`` (bool) to both engrams.

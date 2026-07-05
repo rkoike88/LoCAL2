@@ -12,7 +12,7 @@ All tools follow the same bus contract:
 
 1. On startup, publish JSON schema on `tool.schema`.
 2. Subscribe to `tool.call.<name>` and `tool.schema.request`.
-3. On `tool.schema.request`, re-announce schema (supports late-joining generators and UI).
+3. On `tool.schema.request`, re-announce schema (supports late-joining generators, UI, and CriticAgent).
 4. On `tool.call.<name>`, execute, publish `tool.result.<name>` + `tool.activity.<name>`.
 
 The `function.name` in the schema **must** match the `tool.call.<name>` subject suffix exactly. A mismatch causes the dispatcher to publish to the right subject but the tool to never subscribe — silent timeout.
@@ -20,6 +20,25 @@ The `function.name` in the schema **must** match the `tool.call.<name>` subject 
 Schema descriptions carry "when to call" guidance. This is the correct place for trigger conditions (e.g. "call for any question about the current time"). It does not belong in the system prompt.
 
 Config hot-reload: when the UI saves a tool's YAML settings, it publishes `config.reload`. The tool invalidates its config cache and re-announces its schema.
+
+### Critique rubric declaration
+
+Each tool declares how its responses should be evaluated by the CriticAgent. Two fields in the tool's YAML config are included in every `tool.schema` announcement:
+
+| Field | Type | Description |
+|---|---|---|
+| `critique_rubric_name` | string | Rubric to use: `realistic`, `style`, or `clarity` |
+| `critique_priority` | int | Priority when multiple tools are called; highest wins |
+
+When the critic receives `response.generation`, it scans `tool_calls`, looks up each tool's rubric in its registry, and grades using the highest-priority tool's rubric. See [critic-participant.md](critic-participant.md) for the full rubric definitions.
+
+| Tool | Rubric | Priority |
+|---|---|---|
+| `web_search`, `web_fetch` | style | 10 |
+| `get_datetime`, `get_location` | style | 8 |
+| `search_papers` | style | 7 |
+| `search_memory`, `consult_librarian` | realistic | 5 |
+| `remember_this` | clarity | 1 |
 
 ---
 

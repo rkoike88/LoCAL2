@@ -155,17 +155,7 @@ export function chatStreamReducer(
         ...state,
         messages: state.messages.map((m) =>
           m.id === action.query_id
-            ? { ...m, critique: { score: action.score, feedback: action.feedback } }
-            : m
-        ),
-      };
-
-    case "critic_skipped":
-      return {
-        ...state,
-        messages: state.messages.map((m) =>
-          m.id === action.query_id
-            ? { ...m, criticSkipped: action.reason }
+            ? { ...m, critique: { score: action.score, feedback: action.feedback, rubric_name: action.rubric_name ?? "", rubric_text: action.rubric_text ?? "" } }
             : m
         ),
       };

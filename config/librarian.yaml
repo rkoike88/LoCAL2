@@ -1,4 +1,6 @@
 id: search_library_tool
+critique_rubric_name: "realistic"
+critique_priority: 5
 model: gemma4:e4b
 temperature: 0.0
 num_ctx_categorise: 512

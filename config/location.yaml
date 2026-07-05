@@ -1,4 +1,6 @@
 id: location_tool
+critique_rubric_name: "style"
+critique_priority: 8
 # Static location override — leave blank to use live IP geolocation.
 # Set city/state/country here to pin a specific location (e.g. a server or privacy preference).
 #

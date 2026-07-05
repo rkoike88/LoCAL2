@@ -20,34 +20,44 @@ const RECONNECT_MAX_MS  = 30_000;
  * - Exposes sendJson for outbound messages and onMessage for subscribing to
  *   inbound messages. Multiple onMessage subscribers are supported; each
  *   returns an unsubscribe function.
+ * - sendJson queues the message if the socket is still connecting and flushes
+ *   it on open, so a query sent immediately after New Chat is not lost.
  */
 export function useWebSocket(url: string): UseWebSocketResult {
-  const wsRef = useRef<WebSocket | null>(null);
-  const handlersRef = useRef<Set<(data: unknown) => void>>(new Set());
+  const handlersRef    = useRef<Set<(data: unknown) => void>>(new Set());
   const [readyState, setReadyState] = useState<WsReadyState>("connecting");
-  const closedIntentionallyRef  = useRef(false);
-  const reconnectTimerRef       = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectAttemptsRef    = useRef(0);
+  // openSocketRef holds the socket only while it is verified open.
+  // sendJson uses this as the single source of truth — avoids races between
+  // wsRef and openUrlRef getting out of sync during URL transitions.
+  const openSocketRef  = useRef<WebSocket | null>(null);
+  const pendingRef     = useRef<unknown[]>([]);
+  const reconnectTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptsRef = useRef(0);
 
   useEffect(() => {
-    closedIntentionallyRef.current = false;
+    let intentionallyClosed = false;
     reconnectAttemptsRef.current = 0;
+    openSocketRef.current = null;
+    pendingRef.current = [];
 
     function connect() {
       setReadyState("connecting");
       const ws = new WebSocket(url);
-      wsRef.current = ws;
 
       ws.onopen = () => {
         reconnectAttemptsRef.current = 0;
+        openSocketRef.current = ws;
         setReadyState("open");
+        for (const msg of pendingRef.current) {
+          ws.send(JSON.stringify(msg));
+        }
+        pendingRef.current = [];
       };
 
       ws.onclose = () => {
-        wsRef.current = null;
+        openSocketRef.current = null;
         setReadyState("closed");
-        if (closedIntentionallyRef.current) return;
-        // Exponential backoff: 1s, 2s, 4s, 8s … capped at 30s.
+        if (intentionallyClosed) return;
         const delay = Math.min(
           RECONNECT_BASE_MS * 2 ** reconnectAttemptsRef.current,
           RECONNECT_MAX_MS,
@@ -74,21 +84,23 @@ export function useWebSocket(url: string): UseWebSocketResult {
     connect();
 
     return () => {
-      closedIntentionallyRef.current = true;
+      intentionallyClosed = true;
+      openSocketRef.current = null;
+      pendingRef.current = [];
       if (reconnectTimerRef.current !== null) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
       }
-      wsRef.current?.close();
-      wsRef.current = null;
       setReadyState("closed");
     };
   }, [url]);
 
   const sendJson = useCallback((data: unknown) => {
-    const ws = wsRef.current;
-    if (ws?.readyState === WebSocket.OPEN) {
+    const ws = openSocketRef.current;
+    if (ws) {
       ws.send(JSON.stringify(data));
+    } else {
+      pendingRef.current.push(data);
     }
   }, []);
 

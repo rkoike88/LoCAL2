@@ -4,17 +4,7 @@ temperature: 0.0
 num_ctx: 32000
 grade_timeout: 30          # seconds; Prometheus can be slow on first call
 
-gatekeeper_model: "gemma4:e2b"
-gatekeeper_timeout: 30
-gatekeeper_skip_feedback: "[gatekeeper: response relies on live or retrieved data — Prometheus cannot evaluate accuracy]"
-
-gatekeeper_prompt: |
-  A response was generated to answer this question: {query}
-
-  Response: {answer}
-
-  Does this response make claims based on live data, current prices, or recent events that were retrieved at query time rather than known from training? Answer YES or NO only.
-
+# Default rubric (used when no tool called, or no tool has a declared rubric)
 rubric: |
   [Is the response realistic, accurate, and genuinely helpful?]
   Score 1: The response presents an unrealistic or harmful outcome as achievable, is factually wrong, or would mislead the user into a bad decision — even if a disclaimer is present. A detailed step-by-step plan for a goal that fails for the vast majority of people in the stated conditions scores 1: the structure creates false confidence and the detail makes the infeasibility less visible, not more.
@@ -22,6 +12,23 @@ rubric: |
   Score 3: The response is partially realistic but unclear, incomplete, or fails to adequately convey how difficult or unlikely the goal actually is.
   Score 4: The response is largely realistic and accurate, with only minor optimism or gaps a careful reader would notice.
   Score 5: The response is accurate, grounded in what is realistically achievable, complete, and clearly explained with no important omissions.
+
+style_rubric: |
+  [Is the response well-formatted, comprehensive, and maximally useful given the retrieved data?]
+  Do not evaluate factual accuracy — the response drew on live retrieved data that Prometheus cannot verify.
+  Score 1: Poorly formatted, incomplete, or fails to address the question using the retrieved information.
+  Score 2: Addresses the question but poorly structured or missing key aspects of the retrieved data.
+  Score 3: Acceptable — uses the retrieved data but with minor formatting issues or gaps in coverage.
+  Score 4: Well-formatted and comprehensive, with only minor gaps a careful reader would notice.
+  Score 5: Exceptionally well-formatted, covers the retrieved data thoroughly, and is maximally useful.
+
+clarity_rubric: |
+  [Did the assistant clearly confirm the action taken?]
+  Score 1: No confirmation provided, or response is misleading about what happened.
+  Score 2: Vague confirmation — it is unclear what was saved, stored, or done.
+  Score 3: Confirms the action but without enough detail to give the user confidence.
+  Score 4: Clear confirmation with most relevant details about what was done.
+  Score 5: Specific, unambiguous confirmation that gives the user full confidence the action succeeded.
 
 grade_prompt: |
   ###Task Description:
@@ -41,4 +48,3 @@ grade_prompt: |
   {rubric}
 
   ###Feedback:
-

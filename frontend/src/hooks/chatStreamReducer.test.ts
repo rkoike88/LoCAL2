@@ -24,7 +24,7 @@ describe("chatStreamReducer", () => {
       // response finalises the turn
       { type: "response", query_id: "q1", answer: "Here is my answer", thinking: "", tool_calls: [], session_id: "s1", prompt_tokens: 100 },
       // critique arrives after response (status should still be idle)
-      { type: "critique", query_id: "q1", score: 4, feedback: "Good" },
+      { type: "critique", query_id: "q1", score: 4, feedback: "Good", rubric_name: "", rubric_text: "" },
       // history load resets everything
       { type: "load_history", messages: [] },
     ];

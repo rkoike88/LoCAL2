@@ -184,6 +184,7 @@ class GeneratorAgent(BaseAgent):
                     self._active_persona[session_id] = name
 
         new_messages = [clean_for_history(m) for m in messages[initial_len - 1:]]
+        logger.debug("GeneratorAgent: append_messages session_id=%s n=%d", session_id, len(new_messages))
         self._conv.append_messages(session_id, new_messages)
         self._conv.set_token_count(session_id, prompt_tokens)
         self._token_count = prompt_tokens

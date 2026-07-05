@@ -1,4 +1,6 @@
 id: web_fetch_tool
+critique_rubric_name: "style"
+critique_priority: 10
 max_chars: 12000
 timeout: 15
 

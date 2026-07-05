@@ -147,6 +147,7 @@ async def ws_chat(websocket: WebSocket, session_id: str) -> None:
                 continue
             attachments: list = data.get("attachments") or []
 
+            logger.debug("ws_chat: query received session_id=%s query=%r", session_id, query[:60])
             session = LoCALSession(publisher, session_id=session_id)
             queue: asyncio.Queue = asyncio.Queue()
 
@@ -277,13 +278,15 @@ async def get_session(session_id: str) -> JSONResponse:
                     pending_calls.extend(_collect_calls(h))
                 j += 1
 
-            score, feedback, thinking, engram_id = None, "", "", None
+            score, feedback, thinking, engram_id, rubric_name = None, "", "", None, ""
             if engram_idx < len(engrams):
                 engram = engrams[engram_idx]
                 meta = engram.get("metadata") or {}
                 score = meta.get("critic_score")
                 feedback = meta.get("critic_feedback") or ""
                 thinking = meta.get("thinking") or ""
+                rubric_name = meta.get("critic_rubric") or ""
+                rubric_text = meta.get("critic_rubric_text") or ""
                 engram_id = engram.get("id")
                 engram_idx += 1
             enriched.append({
@@ -292,6 +295,8 @@ async def get_session(session_id: str) -> JSONResponse:
                 "groundedness": _derive_groundedness(tool_names),
                 "critic_score": score,
                 "critic_feedback": feedback,
+                "critic_rubric_name": rubric_name,
+                "critic_rubric_text": rubric_text,
                 "thinking": thinking,
                 "tool_calls": tool_calls_out if tool_calls_out else None,
                 "engram_id": engram_id,

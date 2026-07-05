@@ -39,8 +39,7 @@ TOOL_ACTIVITY_SEARCH_DOCUMENTS = "tool.activity.search_library"
 CONFIG_RELOAD = "config.reload"
 
 # Phase 2+
-CRITIQUE       = "critique.result"
-CRITIC_SKIPPED = "critic.skipped"
+CRITIQUE      = "critique.result"
 USER_FEEDBACK = "user.feedback"
 REWARD_EVENT = "reward.event"
 

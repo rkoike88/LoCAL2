@@ -19,7 +19,8 @@ const SCORE_COLOR: Record<number, string> = {
 interface Props {
   score: number | null;
   feedback?: string;
-  criticSkipped?: string;
+  rubricName?: string;
+  rubricText?: string;
   groundedness?: string;
   model?: string;
   persona?: string;
@@ -28,7 +29,7 @@ interface Props {
   contextBiscuit?: ContextBiscuit;
 }
 
-export function CritiqueBar({ score, feedback, criticSkipped, groundedness, model, persona, queryId, sessionId, contextBiscuit }: Props) {
+export function CritiqueBar({ score, feedback, rubricName, rubricText, groundedness, model, persona, queryId, sessionId, contextBiscuit }: Props) {
   const [sentiment, setSentiment] = useState<"positive" | "negative" | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [biscuitOpen, setBiscuitOpen] = useState(false);
@@ -45,6 +46,7 @@ export function CritiqueBar({ score, feedback, criticSkipped, groundedness, mode
 
   const ground = groundedness ? GROUND_CONFIG[groundedness] : null;
   const hasFeedback = Boolean(feedback);
+  const showRubric = Boolean(rubricName);
 
   return (
     <div className="pt-1">
@@ -70,15 +72,7 @@ export function CritiqueBar({ score, feedback, criticSkipped, groundedness, mode
             onClick={() => hasFeedback && setFeedbackOpen((v) => !v)}
             title={hasFeedback ? "Toggle Prometheus feedback" : undefined}
           >
-            ● {score}/5{hasFeedback ? (feedbackOpen ? "  ◈ feedback ▼" : "  ◈ feedback ▶") : ""}
-          </button>
-        ) : criticSkipped ? (
-          <button
-            className="text-xs text-gray-500 hover:opacity-70 cursor-pointer bg-transparent border-none p-0"
-            onClick={() => setFeedbackOpen((v) => !v)}
-            title="Toggle gatekeeper note"
-          >
-            ● —{feedbackOpen ? "  ◈ skip ▼" : "  ◈ skip ▶"}
+            ● {score}/5{showRubric ? `  ◈ ${rubricName}` : ""}{hasFeedback ? (feedbackOpen ? "  ◈ feedback ▼" : "  ◈ feedback ▶") : ""}
           </button>
         ) : null}
         {hasBiscuit && (
@@ -107,9 +101,17 @@ export function CritiqueBar({ score, feedback, criticSkipped, groundedness, mode
           </button>
         </div>
       </div>
-      {feedbackOpen && (feedback || criticSkipped) && (
-        <div className="mt-2 text-xs text-gray-400 font-mono whitespace-pre-wrap border-l-2 border-surface-3 pl-3">
-          {feedback || criticSkipped}
+      {feedbackOpen && (rubricText || feedback) && (
+        <div className="mt-2 text-xs font-mono border-l-2 border-surface-3 pl-3 space-y-2">
+          {rubricText && (
+            <div className="text-gray-600 whitespace-pre-wrap">{rubricText}</div>
+          )}
+          {rubricText && feedback && (
+            <div className="border-t border-surface-3" />
+          )}
+          {feedback && (
+            <div className="text-gray-400 whitespace-pre-wrap">{feedback}</div>
+          )}
         </div>
       )}
       {biscuitOpen && contextBiscuit && (

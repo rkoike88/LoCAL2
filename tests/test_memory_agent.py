@@ -157,7 +157,7 @@ class TestHandleCritique:
     def test_calls_update_engram_score_with_correct_args(self):
         agent, mock_memory, _ = _make_agent()
         agent._handle_critique(_make_critique_envelope("qid-42", score=4))
-        mock_memory.update_engram_score.assert_called_once_with("qid-42", 4, "Good answer.")
+        mock_memory.update_engram_score.assert_called_once_with("qid-42", 4, "Good answer.", rubric_name="", rubric_text="")
 
     def test_skips_when_score_is_none(self):
         agent, mock_memory, _ = _make_agent()

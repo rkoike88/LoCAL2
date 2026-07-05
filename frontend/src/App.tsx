@@ -80,10 +80,10 @@ export default function App() {
 
   const handleNewChat = useCallback(() => {
     const id = randomUUID();
-    setActiveSessionId(id);
+setActiveSessionId(id);
     loadHistory([]);
     fetchSessions();
-  }, [loadHistory, fetchSessions]);
+  }, [loadHistory, fetchSessions, activeSessionId]);
 
   async function handleDeleteSession(id: string) {
     await deleteSession(id);

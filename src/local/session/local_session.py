@@ -20,7 +20,6 @@ from local.protocol.envelope import MessageEnvelope
 from local.protocol.subjects import (
     ANSWER_DIALOG,
     CRITIQUE,
-    CRITIC_SKIPPED,
     GENERATION_THINKING,
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
@@ -63,10 +62,9 @@ OBSERVE = [
     RESPONSE_GENERATION,
     ANSWER_DIALOG,
     CRITIQUE,
-    CRITIC_SKIPPED,
 ]
 
-# Extended trail — waits for Prometheus or gatekeeper to finish.
+# Extended trail — waits for Prometheus to finish.
 _CRITIQUE_TRAIL_SECONDS = 90.0
 
 
@@ -132,7 +130,7 @@ class LoCALSession:
                         trail = sub.receive_with_timeout(200)
                         if trail is not None and trail.correlation_id == query_id:
                             yield trail
-                            if trail.subject in (CRITIQUE, CRITIC_SKIPPED):
+                            if trail.subject == CRITIQUE:
                                 return
                     return
         finally:

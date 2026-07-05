@@ -70,7 +70,8 @@ export function MessageRow({ msg, sessionId, selected, onToggle }: Props) {
         <CritiqueBar
           score={msg.critique?.score ?? null}
           feedback={msg.critique?.feedback}
-          criticSkipped={msg.criticSkipped}
+          rubricName={msg.critique?.rubric_name}
+          rubricText={msg.critique?.rubric_text}
           groundedness={msg.groundedness}
           model={msg.model}
           persona={msg.persona}

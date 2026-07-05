@@ -94,7 +94,15 @@ class BaseTool(Participant):
         )
 
     def _announce_schema(self) -> None:
-        self._pub.publish(ToolSchema(schema=self._build_schema()), sender_id=self.id)
+        cfg = get_config(self.CONFIG_NAME) or {} if self.CONFIG_NAME else {}
+        self._pub.publish(
+            ToolSchema(
+                schema=self._build_schema(),
+                critique_rubric_name=cfg.get("critique_rubric_name") or "",
+                critique_priority=cfg.get("critique_priority") or 0,
+            ),
+            sender_id=self.id,
+        )
 
     def _publish_activity(self, event_type: str, data: dict, correlation_id: str | None) -> None:
         self._pub.publish(

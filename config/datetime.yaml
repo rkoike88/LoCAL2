@@ -1,4 +1,6 @@
 id: datetime_tool
+critique_rubric_name: "style"
+critique_priority: 8
 
 schema:
   type: function

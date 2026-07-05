@@ -65,7 +65,7 @@ export function useChatStream(
       if (attachments?.length) payload.attachments = attachments;
       sendJson(payload);
     },
-    [readyState, sendJson]
+    [readyState, sendJson, sessionId, wsUrl]
   );
 
   const loadHistory = useCallback((msgs: ChatMessage[]) => {

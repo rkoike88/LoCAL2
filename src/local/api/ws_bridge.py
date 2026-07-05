@@ -12,7 +12,6 @@ from local.protocol.subjects import (
     AGENT_TRANSITION,
     ANSWER_DIALOG,
     CRITIQUE,
-    CRITIC_SKIPPED,
     GENERATION_THINKING,
     LIBRARY_INGEST_COMPLETE,
     LIBRARY_INGEST_STARTED,
@@ -72,7 +71,6 @@ CHAT_OBSERVE = [
     RESPONSE_GENERATION,
     ANSWER_DIALOG,
     CRITIQUE,
-    CRITIC_SKIPPED,
     USER_CONTEXT_UPDATED,
 ]
 
@@ -143,13 +141,8 @@ def translate(envelope: MessageEnvelope) -> dict | None:
             "type": "critique",
             "score": payload.get("score"),
             "feedback": payload.get("feedback", ""),
-            "query_id": payload.get("query_id") or query_id,
-        }
-
-    if subject == CRITIC_SKIPPED:
-        return {
-            "type": "critic_skipped",
-            "reason": payload.get("reason", ""),
+            "rubric_name": payload.get("rubric_name", ""),
+            "rubric_text": payload.get("rubric_text", ""),
             "query_id": payload.get("query_id") or query_id,
         }
 

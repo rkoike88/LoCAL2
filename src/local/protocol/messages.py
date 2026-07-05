@@ -23,7 +23,6 @@ from local.protocol.subjects import (
     COMPACTION_RESULT,
     CONFIG_RELOAD,
     CRITIQUE,
-    CRITIC_SKIPPED,
     GENERATION_THINKING,
     GENERATOR_STATUS,
     LIBRARY_COLLECTION_CREATED,
@@ -216,11 +215,18 @@ class ToolSchema(BusMessage):
     subject:      ClassVar[str] = TOOL_SCHEMA
     message_type: ClassVar[str] = "tool_schema"
 
-    schema: dict = field(default_factory=dict)
+    schema:               dict = field(default_factory=dict)
+    critique_rubric_name: str  = ""
+    critique_priority:    int  = 0
 
     @classmethod
     def from_envelope(cls, envelope: MessageEnvelope) -> "ToolSchema":
-        return cls(schema=envelope.payload.get("schema") or {})
+        p = envelope.payload
+        return cls(
+            schema=p.get("schema") or {},
+            critique_rubric_name=p.get("critique_rubric_name") or "",
+            critique_priority=p.get("critique_priority") or 0,
+        )
 
 
 @dataclass
@@ -388,12 +394,14 @@ class CritiqueResult(BusMessage):
     subject:      ClassVar[str] = CRITIQUE
     message_type: ClassVar[str] = "critique"
 
-    score:      Any     # int 1-5 or None
-    feedback:   str
-    query:      str
-    answer:     str
-    session_id: str
-    query_id:   str
+    score:       Any    # int 1-5 or None
+    feedback:    str
+    query:       str
+    answer:      str
+    session_id:  str
+    query_id:    str
+    rubric_name: str = ""
+    rubric_text: str = ""
 
     @classmethod
     def from_envelope(cls, envelope: MessageEnvelope) -> "CritiqueResult":
@@ -405,27 +413,8 @@ class CritiqueResult(BusMessage):
             answer=p.get("answer", ""),
             session_id=p.get("session_id", ""),
             query_id=p.get("query_id", ""),
-        )
-
-
-@dataclass
-class CriticSkipped(BusMessage):
-    subject:      ClassVar[str] = CRITIC_SKIPPED
-    message_type: ClassVar[str] = "critic_skipped"
-
-    reason:     str
-    query:      str
-    session_id: str
-    query_id:   str
-
-    @classmethod
-    def from_envelope(cls, envelope: MessageEnvelope) -> "CriticSkipped":
-        p = envelope.payload
-        return cls(
-            reason=p.get("reason", ""),
-            query=p.get("query", ""),
-            session_id=p.get("session_id", ""),
-            query_id=p.get("query_id", ""),
+            rubric_name=p.get("rubric_name", ""),
+            rubric_text=p.get("rubric_text", ""),
         )
 
 

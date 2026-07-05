@@ -53,8 +53,8 @@ The proxy binds to `0.0.0.0` on ports 5570 (frontend) and 5571 (backend). Partic
 
 | Subject constant | String | Publisher | Subscribers |
 |---|---|---|---|
-| `TOOL_SCHEMA` | `tool.schema` | All tools (on startup + re-announce) | GeneratorAgent, MonitorApp |
-| `TOOL_SCHEMA_REQUEST` | `tool.schema.request` | GeneratorAgent, MonitorApp | All tools |
+| `TOOL_SCHEMA` | `tool.schema` | All tools (on startup + re-announce) | GeneratorAgent, CriticAgent, MonitorApp |
+| `TOOL_SCHEMA_REQUEST` | `tool.schema.request` | GeneratorAgent, CriticAgent, MonitorApp | All tools |
 
 ### Tool call / result pairs
 
@@ -158,12 +158,16 @@ Published by `LibraryAgentTool` and `DocumentService` during document ingestion.
 ### critique.result
 ```json
 {
-  "score":    4,
-  "feedback": "Accurate and concise. Minor: could add context.",
-  "query_id": "uuid",
-  "query":    "What is the capital of France?"
+  "score":       4,
+  "feedback":    "Accurate and concise. Minor: could add context.",
+  "rubric_name": "realistic",
+  "rubric_text": "[Is the response realistic, accurate, and genuinely helpful?]\nScore 1: ...\nScore 5: ...",
+  "query_id":    "uuid",
+  "query":       "What is the capital of France?"
 }
 ```
+
+`rubric_name` is the label shown in the UI (`realistic`, `style`, or `clarity`). `rubric_text` is the full rubric injected into the Prometheus prompt — surfaced in the feedback panel so the user can see exactly what criteria were applied.
 
 ### generator.status
 ```json

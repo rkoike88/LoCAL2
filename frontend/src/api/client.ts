@@ -13,6 +13,8 @@ export interface RawSessionMessage {
   groundedness?: string;
   critic_score?: number | null;
   critic_feedback?: string;
+  critic_rubric_name?: string;
+  critic_rubric_text?: string;
   thinking?: string;
   tool_calls?: Array<{ tool: string; args: Record<string, unknown>; result: string }> | null;
   query_id?: string;

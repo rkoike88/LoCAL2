@@ -1,4 +1,6 @@
 id: search_memory_tool
+critique_rubric_name: "realistic"
+critique_priority: 5
 
 # Critic score weighting: each point above/below 3 adjusts the retrieval score by this amount.
 # Score 5 → +0.1 boost, score 1 → -0.1 penalty, unscored engrams → no adjustment.

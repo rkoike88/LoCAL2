@@ -51,7 +51,7 @@ export function useSessions(): UseSessionsResult {
             persona: derivePersona(m.tool_calls ?? undefined) || undefined,
             critique:
               m.critic_score != null
-                ? { score: m.critic_score, feedback: m.critic_feedback ?? "" }
+                ? { score: m.critic_score, feedback: m.critic_feedback ?? "", rubric_name: m.critic_rubric_name ?? "", rubric_text: m.critic_rubric_text ?? "" }
                 : undefined,
             context_biscuit: biscuit,
             engram_id: m.engram_id ?? undefined,

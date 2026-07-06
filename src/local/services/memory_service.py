@@ -132,6 +132,7 @@ class MemoryService:
             entities = metadata.get("entities", [])
             respondent_id = metadata.get("respondent_id", "A")
             session_id = metadata.get("session_id", "")
+            user_id = metadata.get("user_id", "")
             if intent:
                 meta["intent"] = intent
             if entities:
@@ -139,6 +140,9 @@ class MemoryService:
             meta["respondent_id"] = respondent_id
             if session_id:
                 meta["session_id"] = session_id
+            # Pre-existing engrams without user_id won't match filtered queries — desired behavior.
+            if user_id:
+                meta["user_id"] = user_id
             thinking = metadata.get("thinking", "")
             if thinking:
                 meta["thinking"] = thinking
@@ -155,6 +159,7 @@ class MemoryService:
         self,
         query: str,
         n: Optional[int] = None,
+        user_id: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         """Return the top-n most relevant episodic engrams by meaning.
 
@@ -169,6 +174,8 @@ class MemoryService:
             query: Natural-language search text; embedded with the
                 ``"search_query:"`` nomic prefix.
             n: Max results to return. Defaults to ``config n_results``.
+            user_id: When provided, restricts results to engrams owned by this
+                user. Omit (or pass None/empty) for unfiltered search.
 
         Returns:
             List of dicts with keys ``content``, ``metadata``, ``score``,
@@ -177,11 +184,14 @@ class MemoryService:
         n = n or self._n_results
         fetch_n = n * 3
         query_embedding = self._embed_query(query)
+        where_clause: dict = {"type": "episodic"} if not user_id else {
+            "$and": [{"type": {"$eq": "episodic"}}, {"user_id": {"$eq": user_id}}]
+        }
         try:
             result = self._collection.query(
                 query_embeddings=[query_embedding],
                 n_results=fetch_n,
-                where={"type": "episodic"},
+                where=where_clause,
             )
         except Exception as exc:
             logger.warning("MemoryService: search_episodic failed: %s", exc)

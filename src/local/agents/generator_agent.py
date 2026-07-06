@@ -140,6 +140,7 @@ class GeneratorAgent(BaseAgent):
         original_query_id: str = msg.query_id or str(uuid.uuid4())
         attachments: list = msg.attachments
         capsules: list = msg.capsules
+        user_id: str = msg.user_id or "default"
 
         query_id = original_query_id
         correlation_id = envelope.correlation_id or query_id
@@ -185,7 +186,7 @@ class GeneratorAgent(BaseAgent):
 
         new_messages = [clean_for_history(m) for m in messages[initial_len - 1:]]
         logger.debug("GeneratorAgent: append_messages session_id=%s n=%d", session_id, len(new_messages))
-        self._conv.append_messages(session_id, new_messages)
+        self._conv.append_messages(session_id, new_messages, user_id=user_id)
         self._conv.set_token_count(session_id, prompt_tokens)
         self._token_count = prompt_tokens
         self._do_transition(GeneratorAction.PUBLISH)
@@ -196,15 +197,16 @@ class GeneratorAgent(BaseAgent):
                 tool_calls=tool_call_log, session_id=session_id or "",
                 query_id=query_id, prompt_tokens=prompt_tokens, model=active_model,
                 capsules=capsules, pinned_facts=list(self._user_context),
+                user_id=user_id,
             ),
-            sender_id=self.id, correlation_id=correlation_id, session_id=session_id or "",
+            sender_id=self.id, correlation_id=correlation_id, session_id=session_id or "", user_id=user_id,
         )
         self._pub.publish(
             AnswerDialog(
                 query=query, answer=answer,
-                session_id=session_id or "", query_id=query_id,
+                session_id=session_id or "", query_id=query_id, user_id=user_id,
             ),
-            sender_id=self.id, correlation_id=correlation_id, session_id=session_id or "",
+            sender_id=self.id, correlation_id=correlation_id, session_id=session_id or "", user_id=user_id,
         )
 
         self._active_model = self._model

@@ -21,6 +21,7 @@ import os
 import time
 from collections import OrderedDict
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -104,12 +105,13 @@ class ConversationService:
         except Exception as exc:
             logger.warning("ConversationService: could not save history: %s", exc)
 
-    def _ensure_session(self, session_id: str) -> dict:
+    def _ensure_session(self, session_id: str, user_id: str = "default") -> dict:
         if session_id not in self._sessions:
             if len(self._sessions) >= _MAX_SESSIONS:
                 self._sessions.popitem(last=False)
             self._sessions[session_id] = {
                 "messages": [],
+                "user_id": user_id,
                 "started_at": time.time(),
                 "last_active": time.time(),
                 "title": "",
@@ -131,11 +133,11 @@ class ConversationService:
         self._sessions.move_to_end(session_id)
         return [dict(msg) for msg in entry["messages"]]
 
-    def append_turn(self, session_id: str | None, user: str, assistant: str) -> None:
+    def append_turn(self, session_id: str | None, user: str, assistant: str, user_id: str = "default") -> None:
         """Append a user+assistant exchange to session history."""
         if not session_id:
             return
-        entry = self._ensure_session(session_id)
+        entry = self._ensure_session(session_id, user_id)
         msgs = entry["messages"]
         msgs.append({"role": "user", "content": user})
         msgs.append({"role": "assistant", "content": assistant})
@@ -148,11 +150,11 @@ class ConversationService:
         self._sessions.move_to_end(session_id)
         self._save()
 
-    def append_messages(self, session_id: str | None, messages: list[dict]) -> None:
+    def append_messages(self, session_id: str | None, messages: list[dict], user_id: str = "default") -> None:
         """Append a pre-cleaned list of messages (user/assistant/tool) to session history."""
         if not session_id or not messages:
             return
-        entry = self._ensure_session(session_id)
+        entry = self._ensure_session(session_id, user_id)
         msgs = entry["messages"]
         msgs.extend(messages)
         max_entries = _MAX_TURNS_PER_SESSION * 2
@@ -164,13 +166,18 @@ class ConversationService:
         self._sessions.move_to_end(session_id)
         self._save()
 
-    def list_sessions(self) -> list[dict]:
+    def list_sessions(self, user_id: Optional[str] = None) -> list[dict]:
         """Return session metadata sorted by last_active descending.
 
         Each item: {session_id, title, message_count, started_at, last_active}
+
+        Args:
+            user_id: When provided, return only sessions owned by this user.
         """
         result = []
         for sid, entry in self._sessions.items():
+            if user_id and entry.get("user_id", "default") != user_id:
+                continue
             result.append({
                 "session_id": sid,
                 "title": entry.get("title") or "(no title)",

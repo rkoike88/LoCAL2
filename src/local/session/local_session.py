@@ -79,8 +79,10 @@ class LoCALSession:
         self,
         publisher: ZmqPublisher,
         session_id: Optional[str] = None,
+        user_id: str = "default",
     ) -> None:
         self.session_id: str = session_id or str(uuid.uuid4())
+        self.user_id: str = user_id
         self._publisher = publisher
 
     def stream(
@@ -102,6 +104,7 @@ class LoCALSession:
             "query": query,
             "session_id": self.session_id,
             "query_id": query_id,
+            "user_id": self.user_id,
         }
         if attachments:
             payload["attachments"] = attachments
@@ -111,7 +114,7 @@ class LoCALSession:
             sender_id="local-session",
             payload=payload,
             correlation_id=query_id,
-            metadata={"session_id": self.session_id},
+            metadata={"session_id": self.session_id, "user_id": self.user_id},
         )
         sub = ZmqSubscriber(PROXY_BACKEND_ADDR, subscriptions=OBSERVE, bind=False)
         self._publisher.publish(envelope)

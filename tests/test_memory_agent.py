@@ -25,6 +25,7 @@ def _make_envelope(query: str, answer: str, error: bool = False, query_id: str =
     env = MagicMock()
     env.subject = "response.generation"
     env.payload = {"query": query, "answer": answer, "error": error, "query_id": query_id}
+    env.metadata = {}
     return env
 
 

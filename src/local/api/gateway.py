@@ -146,9 +146,10 @@ async def ws_chat(websocket: WebSocket, session_id: str) -> None:
             if not query:
                 continue
             attachments: list = data.get("attachments") or []
+            user_id: str = data.get("user_id", "default")
 
-            logger.debug("ws_chat: query received session_id=%s query=%r", session_id, query[:60])
-            session = LoCALSession(publisher, session_id=session_id)
+            logger.debug("ws_chat: query received session_id=%s user_id=%s query=%r", session_id, user_id, query[:60])
+            session = LoCALSession(publisher, session_id=session_id, user_id=user_id)
             queue: asyncio.Queue = asyncio.Queue()
 
             def _stream() -> None:
@@ -223,8 +224,8 @@ async def ws_bus(websocket: WebSocket, session_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 @app.get("/api/sessions")
-async def list_sessions_endpoint() -> JSONResponse:
-    return JSONResponse(_get_conv().list_sessions())
+async def list_sessions_endpoint(user_id: Optional[str] = None) -> JSONResponse:
+    return JSONResponse(_get_conv().list_sessions(user_id=user_id))
 
 
 @app.get("/api/sessions/{session_id}")

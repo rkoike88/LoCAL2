@@ -56,7 +56,7 @@ class BusMessage:
     subject: ClassVar[str]
     message_type: ClassVar[str]
 
-    def to_envelope(self, sender_id: str, correlation_id: str = "", session_id: str = "") -> MessageEnvelope:
+    def to_envelope(self, sender_id: str, correlation_id: str = "", session_id: str = "", user_id: str = "") -> MessageEnvelope:
         subject = self.subject if isinstance(self.subject, str) else type(self).subject
         return MessageEnvelope.create(
             message_type=type(self).message_type,
@@ -64,7 +64,7 @@ class BusMessage:
             sender_id=sender_id,
             payload=asdict(self),  # type: ignore[arg-type]
             correlation_id=correlation_id or str(uuid.uuid4()),
-            metadata={"session_id": session_id},
+            metadata={"session_id": session_id, "user_id": user_id or "default"},
         )
 
     @classmethod
@@ -85,6 +85,7 @@ class QueryReceived(BusMessage):
     session_id:  str
     query_id:    str
     attachments: list = field(default_factory=list)
+    user_id:     str = "default"
 
     @classmethod
     def from_envelope(cls, envelope: MessageEnvelope) -> "QueryReceived":
@@ -94,6 +95,7 @@ class QueryReceived(BusMessage):
             session_id=p.get("session_id", ""),
             query_id=p.get("query_id", ""),
             attachments=p.get("attachments") or [],
+            user_id=p.get("user_id") or envelope.metadata.get("user_id", "default"),
         )
 
 
@@ -132,6 +134,7 @@ class ResponseGeneration(BusMessage):
     model:         str = ""
     capsules:      list = field(default_factory=list)
     pinned_facts:  list = field(default_factory=list)
+    user_id:       str = "default"
 
     @classmethod
     def from_envelope(cls, envelope: MessageEnvelope) -> "ResponseGeneration":
@@ -148,6 +151,7 @@ class ResponseGeneration(BusMessage):
             model=p.get("model", ""),
             capsules=p.get("capsules") or [],
             pinned_facts=p.get("pinned_facts") or [],
+            user_id=p.get("user_id") or envelope.metadata.get("user_id", "default"),
         )
 
 
@@ -160,6 +164,7 @@ class AnswerDialog(BusMessage):
     answer:     str
     session_id: str
     query_id:   str
+    user_id:    str = "default"
 
     @classmethod
     def from_envelope(cls, envelope: MessageEnvelope) -> "AnswerDialog":
@@ -169,6 +174,7 @@ class AnswerDialog(BusMessage):
             answer=p.get("answer", ""),
             session_id=p.get("session_id", ""),
             query_id=p.get("query_id", ""),
+            user_id=p.get("user_id") or envelope.metadata.get("user_id", "default"),
         )
 
 
@@ -193,6 +199,7 @@ class MemoryContext(BusMessage):
     query_id:    str
     capsules:    list   # list of {content, score, metadata} from search_episodic
     attachments: list = field(default_factory=list)
+    user_id:     str = "default"
 
     @classmethod
     def from_envelope(cls, envelope: MessageEnvelope) -> "MemoryContext":
@@ -203,6 +210,7 @@ class MemoryContext(BusMessage):
             query_id=p.get("query_id", ""),
             capsules=p.get("capsules") or [],
             attachments=p.get("attachments") or [],
+            user_id=p.get("user_id") or envelope.metadata.get("user_id", "default"),
         )
 
 

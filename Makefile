@@ -1,4 +1,4 @@
-.PHONY: dist install dev test clean
+.PHONY: dist install dev test clean harness
 
 # Build the React frontend and copy the output into the Python package data
 # directory so that 'pip install local2' serves the bundled UI.
@@ -19,6 +19,10 @@ dev: install
 # Run the test suite
 test:
 	PYTHONPATH=src python -m pytest tests/ -q
+
+# Start the comparison harness (requires LoCAL2 already running on port 3000)
+harness:
+	python -m harness.server
 
 # Remove build artifacts and Python caches
 clean:

@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LoCAL2 Harness</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:       #111;
+    --surface1: #181818;
+    --surface2: #1e1e1e;
+    --surface3: #2a2a2a;
+    --text:     #ccc;
+    --muted:    #666;
+    --accent:   #7ec8a4;
+    --red:      #e06c75;
+    --blue:     #9dbde8;
+    --gold:     #c8a47e;
+    --border:   #2a2a2a;
+  }
+  body { font-family: 'Menlo', monospace; background: var(--bg); color: var(--text);
+         font-size: 13px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* --- Header --- */
+  header { display: flex; align-items: center; gap: 12px; padding: 8px 16px;
+           border-bottom: 1px solid var(--border); background: var(--surface1); flex-shrink: 0; }
+  header h1 { color: var(--accent); font-size: 14px; }
+  .run-info { color: var(--muted); font-size: 11px; }
+  .spacer { flex: 1; }
+  button { background: var(--surface3); color: var(--text); border: 1px solid var(--border);
+           padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: inherit;
+           font-size: 12px; transition: background 0.15s; }
+  button:hover { background: #333; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.primary { background: var(--accent); color: #111; border-color: var(--accent); font-weight: bold; }
+  button.primary:hover { background: #6ab893; }
+  #tab-compare { color: var(--accent); border-bottom: 2px solid var(--accent); }
+  #tab-history { color: var(--muted); border-bottom: 2px solid transparent; }
+
+  /* --- Tabs --- */
+  .tab-bar { display: flex; gap: 0; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .tab { padding: 6px 18px; cursor: pointer; font-size: 12px; color: var(--muted);
+         border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* --- Main area --- */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #view-compare { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #view-history { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 16px; }
+
+  /* --- Input bar --- */
+  .input-bar { display: flex; gap: 8px; padding: 10px 16px;
+               border-bottom: 1px solid var(--border); flex-shrink: 0; background: var(--surface1); }
+  .input-bar textarea { flex: 1; background: var(--surface2); color: var(--text);
+                        border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+                        font-family: inherit; font-size: 12px; resize: none; outline: none;
+                        max-height: 80px; }
+  .input-bar textarea:disabled { opacity: 0.5; }
+
+  /* --- Panels --- */
+  .panels { flex: 1; display: flex; overflow: hidden; }
+  .panel { flex: 1; display: flex; flex-direction: column; border-right: 1px solid var(--border); overflow: hidden; }
+  .panel:last-child { border-right: none; }
+  .panel-header { padding: 6px 12px; background: var(--surface1); border-bottom: 1px solid var(--border);
+                  font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .panel-header .label { color: var(--accent); font-weight: bold; }
+  .panel-header .model { color: var(--muted); }
+  .panel-content { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+  /* --- Messages --- */
+  .msg { padding: 8px 10px; border-radius: 6px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+  .msg.user { background: var(--surface2); color: var(--blue); font-size: 12px; }
+  .msg.assistant { background: var(--surface1); color: var(--text); font-size: 12px; }
+  .msg.assistant.streaming::after { content: '▌'; animation: blink 0.8s step-start infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .msg.tool-call { background: var(--surface2); border-left: 2px solid var(--gold);
+                   color: var(--gold); font-size: 11px; padding: 5px 10px; }
+  .msg.tool-result { background: var(--surface2); border-left: 2px solid var(--muted);
+                     color: var(--muted); font-size: 11px; padding: 5px 10px; }
+  .critic-bar { font-size: 11px; color: var(--muted); padding: 4px 10px;
+                background: var(--surface2); border-radius: 4px; }
+  .critic-bar .score { color: var(--accent); }
+
+  /* --- Verdict panel --- */
+  .verdict-panel { flex-shrink: 0; padding: 10px 16px; border-top: 1px solid var(--border);
+                   background: var(--surface1); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .verdict-panel.hidden { display: none; }
+  .verdict-label { color: var(--muted); font-size: 11px; }
+  .verdict-btns { display: flex; gap: 6px; }
+  .verdict-btns button { padding: 4px 14px; }
+  .verdict-btns button.selected { background: var(--accent); color: #111; border-color: var(--accent); }
+  #verdict-rationale { flex: 1; min-width: 200px; background: var(--surface2); color: var(--text);
+                       border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px;
+                       font-family: inherit; font-size: 12px; outline: none; }
+  #verdict-save { color: var(--accent); }
+
+  /* --- History view --- */
+  #history-view { flex: 1; overflow-y: auto; }
+  .run-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+              padding: 10px 14px; margin-bottom: 8px; cursor: pointer; }
+  .run-card:hover { border-color: var(--accent); }
+  .run-card h3 { color: var(--accent); font-size: 12px; }
+  .run-card .meta { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .turn-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-shrink: 0; }
+  .aggregate { background: var(--surface2); padding: 10px 14px; border-radius: 6px;
+               margin-bottom: 12px; font-size: 12px; }
+  .aggregate span { color: var(--accent); }
+
+  /* --- Status --- */
+  .status { color: var(--muted); font-size: 11px; padding: 0 4px; }
+  .status.streaming { color: var(--gold); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>LoCAL2 Harness</h1>
+  <span class="run-info" id="run-info">no run</span>
+  <div class="spacer"></div>
+  <button class="primary" id="btn-new">New Comparison</button>
+</header>
+
+<div class="tab-bar">
+  <div class="tab active" id="tab-compare" onclick="showTab('compare')">Compare</div>
+  <div class="tab" id="tab-history" onclick="showTab('history')">History</div>
+</div>
+
+<div class="main">
+
+  <!-- Compare view -->
+  <div id="view-compare">
+    <div class="input-bar">
+      <textarea id="input" placeholder="Message both arms…" rows="2" disabled
+                onkeydown="handleKey(event)"></textarea>
+      <button id="btn-send" onclick="sendQuery()" disabled>Send</button>
+      <span class="status" id="status"></span>
+    </div>
+    <div class="panels">
+      <div class="panel" id="panel-a">
+        <div class="panel-header">
+          <span class="label">A — LoCAL2</span>
+          <span class="model" id="a-model"></span>
+        </div>
+        <div class="panel-content" id="a-content"></div>
+      </div>
+      <div class="panel" id="panel-b">
+        <div class="panel-header">
+          <span class="label">B — Naked model</span>
+          <span class="model" id="b-model"></span>
+        </div>
+        <div class="panel-content" id="b-content"></div>
+      </div>
+    </div>
+    <div class="verdict-panel hidden" id="verdict-panel">
+      <span class="verdict-label">Pairwise:</span>
+      <div class="verdict-btns">
+        <button id="vbtn-a" onclick="selectVerdict('a_better')">A better</button>
+        <button id="vbtn-tie" onclick="selectVerdict('tie')">Tie</button>
+        <button id="vbtn-b" onclick="selectVerdict('b_better')">B better</button>
+      </div>
+      <input id="verdict-rationale" placeholder="Rationale (optional)…" />
+      <button id="verdict-save" onclick="saveVerdict()">Save</button>
+    </div>
+  </div>
+
+  <!-- History view -->
+  <div id="view-history" style="display:none">
+    <div id="history-view"></div>
+  </div>
+
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+let runId = null;
+let sessionId = null;
+let turnIdx = 0;
+let currentItemId = null;
+
+let wsA = null;
+let wsB = null;
+
+let aDone = false;
+let bDone = false;
+let aFull = "";
+let bFull = "";
+let bToolCalls = [];
+let aCriticScore = null;
+
+let selectedVerdict = null;
+
+// Streaming elements
+let aStreamEl = null;
+let bStreamEl = null;
+
+// ---------------------------------------------------------------------------
+// Tab switching
+// ---------------------------------------------------------------------------
+function showTab(name) {
+  document.getElementById('view-compare').style.display = name === 'compare' ? '' : 'none';
+  document.getElementById('view-history').style.display = name === 'history' ? '' : 'none';
+  document.getElementById('tab-compare').classList.toggle('active', name === 'compare');
+  document.getElementById('tab-history').classList.toggle('active', name === 'history');
+  if (name === 'history') loadHistory();
+}
+
+// ---------------------------------------------------------------------------
+// New Comparison
+// ---------------------------------------------------------------------------
+document.getElementById('btn-new').addEventListener('click', newComparison);
+
+async function newComparison() {
+  // Create run in backend
+  const res = await fetch('/api/runs', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+  const data = await res.json();
+  runId = data.run_id;
+  sessionId = crypto.randomUUID();
+  turnIdx = 0;
+  currentItemId = null;
+  selectedVerdict = null;
+  aCriticScore = null;
+
+  document.getElementById('run-info').textContent = `run: ${runId}  arm_b: ${data.arm_b_model}`;
+  document.getElementById('b-model').textContent = data.arm_b_model;
+  document.getElementById('a-content').innerHTML = '';
+  document.getElementById('b-content').innerHTML = '';
+  document.getElementById('verdict-panel').classList.add('hidden');
+  document.getElementById('input').disabled = false;
+  document.getElementById('btn-send').disabled = false;
+  document.getElementById('input').focus();
+
+  setStatus('');
+
+  // Connect WebSockets
+  closeWS();
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  wsA = new WebSocket(`${proto}://${location.host}/arm_a/${sessionId}`);
+  wsB = new WebSocket(`${proto}://${location.host}/arm_b/${sessionId}`);
+
+  wsA.onmessage = (e) => handleAEvent(JSON.parse(e.data));
+  wsB.onmessage = (e) => handleBEvent(JSON.parse(e.data));
+  wsA.onerror = () => setStatus('arm_a error');
+  wsB.onerror = () => setStatus('arm_b error');
+}
+
+function closeWS() {
+  if (wsA) { wsA.close(); wsA = null; }
+  if (wsB) { wsB.close(); wsB = null; }
+}
+
+// ---------------------------------------------------------------------------
+// Send query
+// ---------------------------------------------------------------------------
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuery(); }
+}
+
+function sendQuery() {
+  const q = document.getElementById('input').value.trim();
+  if (!q || !wsA || !wsB) return;
+
+  // Reset turn state
+  aDone = false;
+  bDone = false;
+  aFull = "";
+  bFull = "";
+  bToolCalls = [];
+  aCriticScore = null;
+  selectedVerdict = null;
+  currentItemId = null;
+
+  document.getElementById('input').value = '';
+  document.getElementById('verdict-panel').classList.add('hidden');
+  clearVerdictButtons();
+
+  // Show query in both panels
+  appendMsg('a-content', 'user', q);
+  appendMsg('b-content', 'user', q);
+
+  // Create streaming placeholders
+  aStreamEl = appendMsg('a-content', 'assistant streaming', '');
+  bStreamEl = appendMsg('b-content', 'assistant streaming', '');
+
+  setStatus('streaming…', true);
+  document.getElementById('btn-send').disabled = true;
+  document.getElementById('input').disabled = true;
+
+  // Send to both arms
+  wsA.send(JSON.stringify({ query: q, run_id: runId }));
+  wsB.send(JSON.stringify({ query: q, run_id: runId }));
+
+  turnIdx++;
+}
+
+// ---------------------------------------------------------------------------
+// Arm A events (LoCAL2 format)
+// ---------------------------------------------------------------------------
+function handleAEvent(ev) {
+  switch (ev.type) {
+    case 'thinking':
+      // skip thinking display for now
+      break;
+    case 'tool_call':
+      finaliseStreamEl('a');
+      appendMsg('a-content', 'tool-call', `→ ${ev.tool}(${JSON.stringify(ev.args || {})})`);
+      aStreamEl = appendMsg('a-content', 'assistant streaming', '');
+      break;
+    case 'tool_result':
+      appendMsg('a-content', 'tool-result', `← ${ev.tool}: ${(ev.result || '').slice(0, 200)}…`);
+      break;
+    case 'chunk':
+      if (aStreamEl) { aStreamEl.textContent += ev.content || ''; aStreamEl.scrollIntoView({block:'nearest'}); }
+      break;
+    case 'response':
+      aFull = ev.content || '';
+      if (aStreamEl) { aStreamEl.textContent = aFull; aStreamEl.classList.remove('streaming'); }
+      aDone = true;
+      checkBothDone();
+      break;
+    case 'critique':
+      aCriticScore = ev.score;
+      const criEl = document.createElement('div');
+      criEl.className = 'critic-bar';
+      criEl.innerHTML = `critic: <span class="score">● ${ev.score}/5</span>  <span style="color:var(--muted)">${ev.rubric_name || 'realistic'}</span>`;
+      document.getElementById('a-content').appendChild(criEl);
+      if (currentItemId) updateItemCritic(currentItemId, ev.score);
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Arm B events (harness format)
+// ---------------------------------------------------------------------------
+function handleBEvent(ev) {
+  switch (ev.type) {
+    case 'token':
+      if (bStreamEl) { bStreamEl.textContent += ev.content || ''; bStreamEl.scrollIntoView({block:'nearest'}); }
+      break;
+    case 'tool_call':
+      finaliseStreamEl('b');
+      appendMsg('b-content', 'tool-call', `→ ${ev.tool}(${JSON.stringify(ev.args || {})})`);
+      bStreamEl = appendMsg('b-content', 'assistant streaming', '');
+      break;
+    case 'tool_result':
+      appendMsg('b-content', 'tool-result', `← ${ev.tool}: ${(ev.result || '').slice(0, 200)}…`);
+      break;
+    case 'done':
+      bFull = ev.content || '';
+      bToolCalls = ev.tool_calls || [];
+      if (bStreamEl) { bStreamEl.textContent = bFull; bStreamEl.classList.remove('streaming'); }
+      bDone = true;
+      checkBothDone();
+      break;
+    case 'error':
+      if (bStreamEl) { bStreamEl.textContent = `[error: ${ev.content}]`; bStreamEl.classList.remove('streaming'); }
+      bDone = true;
+      checkBothDone();
+      break;
+  }
+}
+
+function finaliseStreamEl(arm) {
+  const el = arm === 'a' ? aStreamEl : bStreamEl;
+  if (el) el.classList.remove('streaming');
+  if (arm === 'a') aStreamEl = null;
+  else bStreamEl = null;
+}
+
+// ---------------------------------------------------------------------------
+// Both done → log item, show verdict panel
+// ---------------------------------------------------------------------------
+async function checkBothDone() {
+  if (!aDone || !bDone) return;
+
+  setStatus('');
+  document.getElementById('btn-send').disabled = false;
+  document.getElementById('input').disabled = false;
+
+  // Log item
+  const res = await fetch('/api/items', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      run_id: runId,
+      session_id: sessionId,
+      turn_idx: turnIdx,
+      prompt: document.querySelector('#a-content .msg.user:last-of-type')?.textContent || '',
+      arm_a_output: aFull,
+      arm_b_output: bFull,
+      arm_a_critic_score: aCriticScore,
+      arm_b_tool_calls: bToolCalls,
+    }),
+  });
+  const data = await res.json();
+  currentItemId = data.item_id;
+
+  document.getElementById('verdict-panel').classList.remove('hidden');
+}
+
+async function updateItemCritic(itemId, score) {
+  // Re-upsert with critic score filled in
+  await fetch('/api/items', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      run_id: runId, session_id: sessionId, turn_idx: turnIdx,
+      prompt: '', arm_a_output: aFull, arm_b_output: bFull,
+      arm_a_critic_score: score, arm_b_tool_calls: bToolCalls,
+      item_id: itemId,
+    }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Verdict
+// ---------------------------------------------------------------------------
+function selectVerdict(v) {
+  selectedVerdict = v;
+  document.getElementById('vbtn-a').classList.toggle('selected', v === 'a_better');
+  document.getElementById('vbtn-tie').classList.toggle('selected', v === 'tie');
+  document.getElementById('vbtn-b').classList.toggle('selected', v === 'b_better');
+}
+
+function clearVerdictButtons() {
+  ['vbtn-a','vbtn-tie','vbtn-b'].forEach(id => document.getElementById(id).classList.remove('selected'));
+  document.getElementById('verdict-rationale').value = '';
+}
+
+async function saveVerdict() {
+  if (!selectedVerdict || !currentItemId) return;
+  const rationale = document.getElementById('verdict-rationale').value.trim();
+  await fetch('/api/judgments', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      run_id: runId, item_id: currentItemId,
+      verdict: selectedVerdict, rationale,
+    }),
+  });
+  const btn = document.getElementById('verdict-save');
+  btn.textContent = '✓ saved';
+  setTimeout(() => { btn.textContent = 'Save'; }, 1500);
+}
+
+// ---------------------------------------------------------------------------
+// History view
+// ---------------------------------------------------------------------------
+async function loadHistory() {
+  const runs = await fetch('/api/runs').then(r => r.json());
+  const el = document.getElementById('history-view');
+  el.innerHTML = '';
+
+  if (!runs.length) {
+    el.innerHTML = '<p style="color:var(--muted);margin-top:24px;text-align:center">No runs yet.</p>';
+    return;
+  }
+
+  for (const run of runs) {
+    const card = document.createElement('div');
+    card.className = 'run-card';
+    const agg = await fetch(`/api/aggregate/${run.run_id}`).then(r => r.json());
+    card.innerHTML = `
+      <h3>Run ${run.run_id} — ${run.arm_b_model}</h3>
+      <div class="meta">
+        ${new Date(run.created_at * 1000).toLocaleString()}
+        &nbsp;·&nbsp; ${agg.judged}/${agg.total_items} judged
+        &nbsp;·&nbsp; A: ${agg.a_wins} | tie: ${agg.ties} | B: ${agg.b_wins}
+        ${agg.a_win_rate != null ? `&nbsp;·&nbsp; A win-rate: ${(agg.a_win_rate*100).toFixed(0)}%` : ''}
+      </div>
+    `;
+    card.addEventListener('click', () => loadRunDetail(run.run_id));
+    el.appendChild(card);
+  }
+}
+
+async function loadRunDetail(rid) {
+  const [runData, judgments] = await Promise.all([
+    fetch(`/api/runs/${rid}`).then(r => r.json()),
+    fetch(`/api/judgments/${rid}`).then(r => r.json()),
+  ]);
+  const items = runData.items;
+  if (!items.length) return;
+
+  const judgmentMap = {};
+  judgments.forEach(j => { judgmentMap[j.item_id] = j; });
+
+  showTab('compare');
+
+  // Set up as read-only historical view
+  runId = rid;
+  document.getElementById('run-info').textContent = `run: ${rid} (history)`;
+  document.getElementById('input').disabled = true;
+  document.getElementById('btn-send').disabled = true;
+
+  let idx = 0;
+  function showTurn(i) {
+    const item = items[i];
+    const judgment = judgmentMap[item.item_id];
+
+    document.getElementById('a-content').innerHTML = '';
+    document.getElementById('b-content').innerHTML = '';
+
+    appendMsg('a-content', 'user', item.prompt);
+    appendMsg('b-content', 'user', item.prompt);
+    appendMsg('a-content', 'assistant', item.arm_a_output);
+    appendMsg('b-content', 'assistant', item.arm_b_output);
+
+    if (item.arm_a_critic_score != null) {
+      const criEl = document.createElement('div');
+      criEl.className = 'critic-bar';
+      criEl.innerHTML = `critic: <span class="score">● ${item.arm_a_critic_score}/5</span>`;
+      document.getElementById('a-content').appendChild(criEl);
+    }
+
+    // Show verdict
+    currentItemId = item.item_id;
+    runId = rid;
+    document.getElementById('verdict-panel').classList.remove('hidden');
+    clearVerdictButtons();
+    if (judgment) selectVerdict(judgment.verdict);
+    document.getElementById('verdict-rationale').value = judgment?.rationale || '';
+
+    // Turn nav
+    const nav = document.getElementById('turn-nav') || (() => {
+      const n = document.createElement('div');
+      n.id = 'turn-nav';
+      n.className = 'turn-nav';
+      document.querySelector('.input-bar').appendChild(n);
+      return n;
+    })();
+    nav.innerHTML = `
+      <button onclick="showTurn(${i-1})" ${i===0?'disabled':''}>← prev</button>
+      <span style="color:var(--muted)">turn ${i+1}/${items.length}</span>
+      <button onclick="showTurn(${i+1})" ${i===items.length-1?'disabled':''}>next →</button>
+    `;
+  }
+
+  window.showTurn = showTurn;
+  showTurn(0);
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function appendMsg(containerId, cls, text) {
+  const el = document.createElement('div');
+  el.className = `msg ${cls}`;
+  el.textContent = text;
+  document.getElementById(containerId).appendChild(el);
+  el.scrollIntoView({ block: 'nearest' });
+  return el;
+}
+
+function setStatus(msg, streaming = false) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status' + (streaming ? ' streaming' : '');
+}
+</script>
+</body>
+</html>

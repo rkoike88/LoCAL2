@@ -61,6 +61,7 @@ class MemoryAgent(BaseAgent):
         self._summarize_prompt: str = (cfg.get("summarize_prompt") or "").strip()
         self._min_similarity: float = retrieval_cfg.get("min_similarity", 0.85)
         self._max_results: int = retrieval_cfg.get("max_results", 7)
+        self._write_enabled: bool = cfg.get("write_enabled", True)
         self._memory = memory_service or MemoryService()
         self._llm = llm or OllamaBackend(model=model, agent_name=self.id)
         self._pub, self._sub = make_participant_bus([QUERY_RECEIVED, RESPONSE_GENERATION, CRITIQUE, USER_CONTEXT_REQUEST])
@@ -94,15 +95,16 @@ class MemoryAgent(BaseAgent):
         the hot path.
         """
         msg = QueryReceived.from_envelope(envelope)
-        query, session_id, query_id = msg.query, msg.session_id, msg.query_id
+        query, session_id, query_id, user_id = msg.query, msg.session_id, msg.query_id, msg.user_id
 
         capsules: list = []
         self._do_transition(MemoryAgentAction.START_RETRIEVE)
         try:
-            candidates = self._memory.search_episodic(query, n=self._max_results)
+            filter_user = user_id if user_id and user_id != "default" else None
+            candidates = self._memory.search_episodic(query, n=self._max_results, user_id=filter_user)
             capsules = [c for c in candidates if c["score"] >= self._min_similarity]
             top_scores = [round(c["score"], 3) for c in candidates[:3]]
-            logger.info("MemoryAgent: relay capsules=%d (of %d candidates) top_scores=%s", len(capsules), len(candidates), top_scores)
+            logger.info("MemoryAgent: relay capsules=%d (of %d candidates) top_scores=%s user_id=%s", len(capsules), len(candidates), top_scores, user_id)
         except Exception as exc:
             logger.error("MemoryAgent: retrieval failed (publishing empty context): %s", exc)
         finally:
@@ -115,6 +117,7 @@ class MemoryAgent(BaseAgent):
                 query_id=query_id,
                 capsules=capsules,
                 attachments=msg.attachments,
+                user_id=user_id,
             ),
             sender_id=self.id,
             correlation_id=envelope.correlation_id,
@@ -126,6 +129,9 @@ class MemoryAgent(BaseAgent):
 
         if not msg.query or not msg.answer or msg.error:
             return
+        if not self._write_enabled:
+            logger.debug("MemoryAgent: write_enabled=false — skipping ingest")
+            return
 
         query, answer, query_id, session_id = msg.query, msg.answer, msg.query_id, msg.session_id
         thinking = msg.thinking or ""
@@ -135,6 +141,8 @@ class MemoryAgent(BaseAgent):
             classification = self._classify(query, answer)
             if session_id:
                 classification["session_id"] = session_id
+            if msg.user_id and msg.user_id != "default":
+                classification["user_id"] = msg.user_id
             if thinking:
                 classification["thinking"] = thinking
             summary = self._summarize(query, answer)

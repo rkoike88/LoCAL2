@@ -106,6 +106,11 @@
   .aggregate { background: var(--surface2); padding: 10px 14px; border-radius: 6px;
                margin-bottom: 12px; font-size: 12px; }
   .aggregate span { color: var(--accent); }
+  .history-banner { display: flex; align-items: center; gap: 12px; padding: 6px 16px;
+                    border-bottom: 1px solid var(--border); background: var(--surface1);
+                    flex-shrink: 0; flex-wrap: wrap; }
+  .hb-stat { font-size: 11px; color: var(--muted); }
+  .hb-stat .hl { color: var(--accent); }
 
   /* --- Status --- */
   .status { color: var(--muted); font-size: 11px; padding: 0 4px; }
@@ -135,6 +140,13 @@
                 onkeydown="handleKey(event)"></textarea>
       <button id="btn-send" onclick="sendQuery()" disabled>Send</button>
       <span class="status" id="status"></span>
+    </div>
+    <div class="history-banner" id="history-banner" style="display:none">
+      <button onclick="exitHistory()">← Runs</button>
+      <span id="hb-run-info" class="run-info"></span>
+      <span id="hb-aggregate" class="hb-stat"></span>
+      <div style="flex:1"></div>
+      <div id="hb-turn-nav" class="turn-nav" style="margin:0"></div>
     </div>
     <div class="panels">
       <div class="panel" id="panel-a">
@@ -191,6 +203,7 @@ let bToolCalls = [];
 let aCriticScore = null;
 
 let selectedVerdict = null;
+let currentQuery = '';
 
 // Streaming elements
 let aStreamEl = null;
@@ -213,6 +226,10 @@ function showTab(name) {
 document.getElementById('btn-new').addEventListener('click', newComparison);
 
 async function newComparison() {
+  showTab('compare');
+  document.querySelector('.input-bar').style.display = '';
+  document.getElementById('history-banner').style.display = 'none';
+
   // Create run in backend
   const res = await fetch('/api/runs', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
   const data = await res.json();
@@ -272,6 +289,7 @@ function sendQuery() {
   selectedVerdict = null;
   currentItemId = null;
 
+  currentQuery = q;
   document.getElementById('input').value = '';
   document.getElementById('verdict-panel').classList.add('hidden');
   clearVerdictButtons();
@@ -300,10 +318,10 @@ function sendQuery() {
 // ---------------------------------------------------------------------------
 function handleAEvent(ev) {
   switch (ev.type) {
-    case 'thinking':
+    case 'thinking_chunk':
       // skip thinking display for now
       break;
-    case 'tool_call':
+    case 'tool_start':
       finaliseStreamEl('a');
       appendMsg('a-content', 'tool-call', `→ ${ev.tool}(${JSON.stringify(ev.args || {})})`);
       aStreamEl = appendMsg('a-content', 'assistant streaming', '');
@@ -311,11 +329,8 @@ function handleAEvent(ev) {
     case 'tool_result':
       appendMsg('a-content', 'tool-result', `← ${ev.tool}: ${(ev.result || '').slice(0, 200)}…`);
       break;
-    case 'chunk':
-      if (aStreamEl) { aStreamEl.textContent += ev.content || ''; aStreamEl.scrollIntoView({block:'nearest'}); }
-      break;
     case 'response':
-      aFull = ev.content || '';
+      aFull = ev.answer || '';
       if (aStreamEl) { aStreamEl.textContent = aFull; aStreamEl.classList.remove('streaming'); }
       aDone = true;
       checkBothDone();
@@ -387,7 +402,7 @@ async function checkBothDone() {
       run_id: runId,
       session_id: sessionId,
       turn_idx: turnIdx,
-      prompt: document.querySelector('#a-content .msg.user:last-of-type')?.textContent || '',
+      prompt: currentQuery,
       arm_a_output: aFull,
       arm_b_output: bFull,
       arm_a_critic_score: aCriticScore,
@@ -477,9 +492,10 @@ async function loadHistory() {
 }
 
 async function loadRunDetail(rid) {
-  const [runData, judgments] = await Promise.all([
+  const [runData, judgments, agg] = await Promise.all([
     fetch(`/api/runs/${rid}`).then(r => r.json()),
     fetch(`/api/judgments/${rid}`).then(r => r.json()),
+    fetch(`/api/aggregate/${rid}`).then(r => r.json()),
   ]);
   const items = runData.items;
   if (!items.length) return;
@@ -487,16 +503,19 @@ async function loadRunDetail(rid) {
   const judgmentMap = {};
   judgments.forEach(j => { judgmentMap[j.item_id] = j; });
 
+  // Switch to compare tab in history-review mode
   showTab('compare');
+  document.querySelector('.input-bar').style.display = 'none';
+  document.getElementById('history-banner').style.display = 'flex';
 
-  // Set up as read-only historical view
   runId = rid;
-  document.getElementById('run-info').textContent = `run: ${rid} (history)`;
-  document.getElementById('input').disabled = true;
-  document.getElementById('btn-send').disabled = true;
+  document.getElementById('hb-run-info').textContent = `run: ${rid}  ·  ${runData.arm_b_model || ''}`;
+  const winRate = agg.a_win_rate != null ? `  ·  A win-rate: <span class="hl">${(agg.a_win_rate*100).toFixed(0)}%</span>` : '';
+  document.getElementById('hb-aggregate').innerHTML =
+    `${agg.judged}/${agg.total_items} judged  ·  ` +
+    `A: <span class="hl">${agg.a_wins}</span>  tie: ${agg.ties}  B: <span class="hl">${agg.b_wins}</span>${winRate}`;
 
-  let idx = 0;
-  function showTurn(i) {
+  function showHistoryTurn(i) {
     const item = items[i];
     const judgment = judgmentMap[item.item_id];
 
@@ -515,31 +534,30 @@ async function loadRunDetail(rid) {
       document.getElementById('a-content').appendChild(criEl);
     }
 
-    // Show verdict
     currentItemId = item.item_id;
-    runId = rid;
     document.getElementById('verdict-panel').classList.remove('hidden');
     clearVerdictButtons();
     if (judgment) selectVerdict(judgment.verdict);
     document.getElementById('verdict-rationale').value = judgment?.rationale || '';
 
-    // Turn nav
-    const nav = document.getElementById('turn-nav') || (() => {
-      const n = document.createElement('div');
-      n.id = 'turn-nav';
-      n.className = 'turn-nav';
-      document.querySelector('.input-bar').appendChild(n);
-      return n;
-    })();
-    nav.innerHTML = `
-      <button onclick="showTurn(${i-1})" ${i===0?'disabled':''}>← prev</button>
+    document.getElementById('hb-turn-nav').innerHTML = `
+      <button onclick="_showHistoryTurn(${i-1})" ${i===0?'disabled':''}>← prev</button>
       <span style="color:var(--muted)">turn ${i+1}/${items.length}</span>
-      <button onclick="showTurn(${i+1})" ${i===items.length-1?'disabled':''}>next →</button>
+      <button onclick="_showHistoryTurn(${i+1})" ${i===items.length-1?'disabled':''}>next →</button>
     `;
   }
 
-  window.showTurn = showTurn;
-  showTurn(0);
+  window._showHistoryTurn = showHistoryTurn;
+  showHistoryTurn(0);
+}
+
+function exitHistory() {
+  document.querySelector('.input-bar').style.display = '';
+  document.getElementById('history-banner').style.display = 'none';
+  document.getElementById('verdict-panel').classList.add('hidden');
+  document.getElementById('a-content').innerHTML = '';
+  document.getElementById('b-content').innerHTML = '';
+  showTab('history');
 }
 
 // ---------------------------------------------------------------------------

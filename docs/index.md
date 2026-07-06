@@ -2,6 +2,9 @@
 
 LoCAL2 (Loosely-Coupled Agent Language model, v2) — a bus-based personal AI assistant where Gemma is the orchestrator.
 
+- **[README](../README.md)** — project overview, feature list, architecture summary
+- **[Getting Started](../GETTING_STARTED.md)** — installation, quick start, configuration
+
 ---
 
 ## Architecture

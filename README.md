@@ -1,397 +1,288 @@
 # LoCAL2
 
-Loosely Coupled Agent Language model — Second Generation.
+Privacy-first local AI assistant. Gemma 4 runs entirely on-device via [Ollama](https://ollama.com) — no queries, documents, or memory ever leave the machine.
 
-LLM-native tool calling with Gemma 4 as the orchestrator. Web search, memory recall, and feedback loops augment Gemma's native reasoning — the model decides when to use them.
+Gemma is the orchestrator. It receives the raw user query and the full conversation history, then decides natively whether to search the web, recall episodic memory, fetch a URL, consult the document library, or answer directly. LoCAL2 provides the tools, memory infrastructure, quality-scoring loop, and observability layer — not the orchestration.
 
-**Reference hardware:** Mac Mini M4 Pro, 64GB unified memory. Tool calling and thinking tokens work best with sufficient VRAM/unified memory; performance on lower-spec hardware will vary.
-
----
-
-## Quick start (macOS)
-
-```bash
-brew install ollama pipx     # one-time prerequisites
-pipx install local2
-local2 setup                 # pulls required models, writes initial config
-local2                       # opens the web UI at http://localhost:8000
-```
+**→ [Getting Started](GETTING_STARTED.md) · [Architecture Reference](docs/architecture/local2-design.md) · [Docs Index](docs/)**
 
 ---
 
-## Windows Installation Guide
+## Core design ideas
 
-This guide walks through installation step by step. No prior experience with Python, Docker, or the command line is assumed.
+**LLM-native tool calling.** There is no orchestration layer between the user and the model. No query rewriting, no task decomposition pipeline, no routing rules. Gemma sees the raw input and full conversation history, and decides what tools to call.
 
-**What you'll install:**
+**ZMQ pub/sub bus.** Every participant — agents, tools, services, the web gateway — communicates exclusively through a ZeroMQ XPUB/XSUB proxy. No direct function calls across components. Tools publish their JSON schemas on startup; the generator picks them up without restart. New tools added while the system is running are discovered automatically.
 
-| Software | Purpose | Size |
-|---|---|---|
-| Python | Runs LoCAL2 | ~25 MB |
-| Ollama | Runs the AI models locally — nothing is sent to the cloud | ~50 MB |
-| AI models | The brains (downloaded once, stored on your machine) | ~11 GB |
-| Docker Desktop | Runs private web search (optional) | ~500 MB |
-| LoCAL2 | The AI assistant | ~50 MB |
+**Episodic memory with critic scoring.** Every Q&A turn is stored as a ChromaDB engram. CriticAgent (Prometheus-7b) grades each response 1–5 on a context-sensitive rubric. Retrieval is score-weighted — high-quality answers float up in future recall, poor ones sink. User thumbs-up/down annotates engrams as sentiment signal.
 
-**Estimated time:** 20–30 minutes, plus download time for the AI models.
+**Full observability.** Thinking tokens, tool calls, memory retrievals, state machine transitions, and token counts are first-class visible artifacts in the UI — not stripped or discarded.
 
-**Minimum hardware:** 16 GB RAM, Windows 10 version 2004 or newer (or Windows 11). 8 GB RAM will work but will be slower.
+**Private web search.** SearXNG runs locally in Docker. Searches are not logged or tracked by any third party.
 
 ---
 
-### Step 1 — Install Python
+## Features
 
-1. Open your web browser and go to **https://www.python.org/downloads/**
-2. Click the large yellow **"Download Python 3.x.x"** button (any version 3.11 or newer is fine).
-3. Open the downloaded file (it will be named something like `python-3.x.x-amd64.exe`).
-4. **Before clicking anything else:** at the bottom of the first screen, check the box that says **"Add Python to PATH"**. This step is easy to miss and causes problems if skipped.
-5. Click **"Install Now"** and wait for it to finish.
-6. Click **Close**.
-
-**Verify it worked:** Press the Windows key, type `cmd`, press Enter. A black window opens — this is the Command Prompt. Type the following and press Enter:
-
-```
-python --version
-```
-
-You should see something like `Python 3.12.4`. If you see an error instead, go back and reinstall Python, making sure to check "Add Python to PATH."
-
----
-
-### Step 2 — Install Ollama
-
-Ollama runs the AI models on your computer. No data leaves your machine.
-
-1. Go to **https://ollama.com**
-2. Click **"Download"** at the top of the page, then click **"Download for Windows"**.
-3. Open the downloaded file (`OllamaSetup.exe`) and follow the prompts.
-4. When installation finishes, a small llama icon will appear in the system tray — the row of small icons in the bottom-right corner of your screen, near the clock. This means Ollama is running.
-
-**Verify it worked:** In Command Prompt, type:
-
-```
-ollama --version
-```
-
-You should see a version number like `ollama version 0.x.x`.
-
----
-
-### Step 3 — Download the AI models
-
-LoCAL2 uses three AI models. You download them once — they are stored permanently on your machine.
-
-Open Command Prompt (Windows key → type `cmd` → Enter) and run each of these commands, pressing Enter after each one and waiting for it to finish before running the next:
-
-**Default text model (~5 GB):**
-```
-ollama pull gemma4:e2b
-```
-
-**Vision + memory model (~10 GB — for image queries; also pulled by `local2 setup`):**
-```
-ollama pull gemma4:e4b
-```
-
-**Memory indexing model (~274 MB — downloads quickly):**
-```
-ollama pull nomic-embed-text
-```
-
-**Response quality evaluator (~4.1 GB — optional but recommended):**
-```
-ollama pull prometheus-7b:latest
-```
-
-Each command shows a progress bar. Wait for it to say `success` before moving on. If your internet connection drops partway through, just run the same command again — it will resume where it left off.
-
-> You can skip `prometheus-7b` for now. LoCAL2 will still work fully — you just won't see quality scores on responses. You can always pull it later.
-
----
-
-### Step 4 — Install Docker Desktop (for web search)
-
-Docker Desktop lets LoCAL2 run its own private web search engine (SearXNG) on your machine. Your searches are not logged or tracked. **Skip this step if you don't need web search — LoCAL2 works fine without it.**
-
-1. Go to **https://www.docker.com/products/docker-desktop/**
-2. Click **"Download for Windows"**.
-3. Open the downloaded file (`Docker Desktop Installer.exe`).
-4. When asked about WSL 2, leave the checkbox checked and click OK. WSL 2 is a Windows feature that Docker needs — it will be installed automatically.
-5. If prompted to restart your computer, click Restart. After restarting, Docker Desktop will open on its own.
-6. On first launch, Docker Desktop may show a tutorial or setup screen — you can close or skip it.
-7. Wait until the whale icon in the system tray shows **"Docker Desktop is running"** (hover over the icon to check). This can take a minute or two.
-
-> If Docker Desktop shows an error about virtualization, you may need to enable it in your computer's BIOS/UEFI settings. Search for your computer model + "enable virtualization" for instructions specific to your hardware.
-
----
-
-### Step 5 — Install LoCAL2
-
-Open Command Prompt and run:
-
-```
-pip install local2
-```
-
-You'll see a lot of text scroll by. Wait for the line that says `Successfully installed local2`.
-
-Then run the first-time setup:
-
-```
-local2 setup
-```
-
-This creates a data folder at `C:\Users\YourName\.local2\`, copies default settings there, and verifies the AI models are ready. You'll see a few lines confirming each step.
-
----
-
-### Step 6 — Start web search (optional)
-
-If you installed Docker Desktop in Step 4, you can start the private web search engine. Make sure the Docker Desktop whale icon is visible in the system tray (it must be running), then open Command Prompt and run:
-
-```
-local2 searxng up
-```
-
-You only need to do this once per session. SearXNG keeps running in the background until you shut down Docker Desktop or run `local2 searxng down`.
-
----
-
-### Step 7 — Start LoCAL2
-
-```
-local2
-```
-
-Your default browser will open to **http://localhost:8000** and you can start chatting.
-
----
-
-### Every time you use LoCAL2
-
-1. Make sure the **Ollama llama icon** is visible in the system tray. If it's not there, open the Start menu, search for **Ollama**, and launch it. Wait about 30 seconds.
-2. *(If you want web search)* Make sure **Docker Desktop** is running (whale icon in the system tray), then open Command Prompt and run `local2 searxng up`.
-3. Open Command Prompt and run `local2`.
-
----
-
-### Windows Troubleshooting
-
-**"'python' is not recognized as an internal or external command"**
-You skipped the "Add Python to PATH" checkbox during installation. Go to Control Panel → Programs → Uninstall a program, remove Python, then reinstall from Step 1 and check that box.
-
-**"'local2' is not recognized as an internal or external command"**
-Close Command Prompt completely and open a new one. If that doesn't fix it, run `python -m pip install local2` instead of `pip install local2`, then try again.
-
-**Ollama isn't responding / chat just spins**
-Check the system tray for the llama icon. If it's not there, open the Start menu, find Ollama, and launch it. Give it 30 seconds to start before trying LoCAL2 again.
-
-**"local2 searxng up" fails with a Docker error**
-Docker Desktop must be fully running before this command will work. Open Docker Desktop from the Start menu, wait until the whale icon shows "Docker Desktop is running", then try again.
-
-**Docker Desktop won't start / WSL 2 error**
-Open PowerShell as administrator: Start menu → search "PowerShell" → right-click → "Run as administrator". Run:
-```
-wsl --install
-```
-Restart your computer and try Docker Desktop again.
-
----
-
-## Prerequisites (macOS)
-
-- Python 3.11+
-- [Ollama](https://ollama.com) — download the macOS app or `brew install ollama`
-
----
-
-## Install (macOS)
-
-```bash
-brew install pipx
-pipx install local2
-local2 setup
-```
-
-`local2 setup` does five things:
-1. Writes default config files to `~/.local2/config/`
-2. Copies `docker-compose.yml` and SearXNG settings to `~/.local2/`
-3. Generates a random `MY_SEARX_SECRET` in `~/.local2/.env`
-4. Pulls `gemma4:e4b` (vision model for image queries; memory intent classifier)
-5. Pulls `nomic-embed-text` (embeddings for memory and RAG library)
-
-The default text model is `gemma4:e2b` (faster, lower VRAM). It is pulled on first use. To pre-fetch it: `ollama pull gemma4:e2b`.
-
-The critic uses `prometheus-7b:latest` (pulled on first use, or run `ollama pull prometheus-7b:latest` to pre-fetch).
-
----
-
-## Run
-
-```bash
-local2                          # web UI, opens browser at http://localhost:8000
-local2 --headless               # full local stack, no browser pop
-local2 --panels                 # web UI + read-only Qt observer windows
-local2 --desktop                # legacy PySide6 full desktop UI
-local2 --model gemma4:27b       # override the generator model at startup
-local2 --web-port 9000          # use a different port
-
-# Remote-bus mode — run only the web server; agents stay on another machine
-local2 --web-only --ipaddress 192.168.1.10
-```
-
----
-
-## Web search
-
-Web search requires SearXNG (self-hosted, no API key). Requires Docker Desktop.
-
-```bash
-local2 searxng up
-```
-
-SearXNG runs at `http://localhost:8080` and is the default provider in `web_search.yaml`.
-
----
-
-## Academic search (optional)
-
-`search_papers` uses the Semantic Scholar API. It works without a key at public rate limits. For higher limits, set an API key:
-
-```bash
-echo 'export SEMANTIC_SCHOLAR_API_KEY=<your-key>' >> ~/.zshrc
-source ~/.zshrc
-```
-
-Get a free key at [semanticscholar.org/product/api](https://www.semanticscholar.org/product/api).
-
----
-
-## Configuration
-
-User config lives in `~/.local2/config/`. Defaults are written there by `local2 setup` and can be edited freely — upgrades never overwrite them.
-
-| File | Controls |
+| Feature | Notes |
 |---|---|
-| `generator.yaml` | Model, context size, temperature, tool timeout, system prompt |
-| `web_search.yaml` | Search provider (`searxng`), SearXNG URL, max results |
-| `web_fetch.yaml` | Max chars extracted, fetch timeout |
-| `critic.yaml` | Critic model, grading rubric, grade timeout |
-| `memory.yaml` | ChromaDB path, episodic memory collection |
-| `search_memory.yaml` | Max results from memory search |
-| `semantic_scholar.yaml` | Max results, request timeout |
-| `documents.yaml` | Chunk size/overlap, RAG library collections |
-| `location.yaml` | Optional static location override (skips live IP lookup) |
-| `bus.yaml` | ZMQ proxy ports |
-| `system.yaml` | Instance ID, debug flags |
-
----
-
-## Document library (RAG)
-
-LoCAL2 maintains a persistent local knowledge base you can query with `search_library`. Use the library window in the Qt UI, or the CLI:
-
-```bash
-# Ingest one or more files into a named collection
-PYTHONPATH=src python scripts/ingest.py --collection mba path/to/file.pdf
-
-# List all ingested sources (all collections, or one)
-PYTHONPATH=src python scripts/ingest.py --list
-PYTHONPATH=src python scripts/ingest.py --list --collection mba
-
-# Delete a source by filename
-PYTHONPATH=src python scripts/ingest.py --delete "file.pdf" --collection mba
-```
-
-Supported formats: PDF, TXT, MD, PY, YAML, JSON, CSV. Files are chunked into 1500-character segments and embedded with `nomic-embed-text`. Re-ingesting the same file is safe — chunks are upserted by deterministic ID.
-
----
-
-## Remote access
-
-The web UI works from any browser on the same network — no installation needed on the remote device.
-
-**From another Mac, iPad, or iPhone (same WiFi):**
-
-1. Find the host machine's IP: `ipconfig getifaddr en0`
-2. Open a browser to `http://<host-ip>:8000`
-
-macOS firewall must allow inbound connections on port 8000 (System Settings → Network → Firewall).
-
-**Running only the web server on a remote machine:**
-
-```bash
-# On the remote machine — no agents, no proxy, no GPU needed
-local2 --web-only --ipaddress <host-ip>
-```
-
-This starts just the web server, which connects to the host machine's ZMQ bus. The host machine runs `local2` as normal and handles all generation and tool calls.
-
-The host firewall must allow inbound connections on ports **8000** (HTTP/WebSocket) and **5570/5571** (ZMQ bus).
-
-**Outside the local network:**
-
-Use [Tailscale](https://tailscale.com) or a VPN. Direct port-forwarding on a router works but exposes the server without authentication — not recommended.
-
----
-
-## File attachments
-
-The web UI supports file attachments. Click the paperclip icon in the input bar to attach:
-
-- **Images** (jpg, png, gif, webp) — sent to the model as vision input
-- **Documents** (pdf, txt, md, py, js, ts, yaml, json, csv) — text is extracted and prepended to the query
-
-Attachments are processed server-side before being included in the generation context.
-
----
-
-## After a reboot
-
-**Ollama:** On macOS, a stale `ollama serve` process can persist after reboot alongside the freshly launched Ollama.app, splitting IPv4 and IPv6 across two processes. If `ollama.chat()` hangs silently, check:
-
-```bash
-pgrep -fl ollama   # should show exactly one process
-```
-
-Kill the older PID if two appear.
-
-**SearXNG (if using Docker):** Docker Desktop needs to be running before `docker compose up -d`.
-
----
-
-## Development
-
-Clone the repo and install in editable mode:
-
-```bash
-git clone https://github.com/rkoike88/LoCAL2
-cd LoCAL2
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-```
-
-Run the app:
-
-```bash
-python run_local.py          # equivalent to 'local2'
-```
-
-Run tests:
-
-```bash
-make test                    # or: PYTHONPATH=src python -m pytest tests/ -q
-```
-
-Build a distributable wheel (builds frontend first):
-
-```bash
-make dist
-python -m build
-```
+| Web search + fetch | SearXNG (self-hosted, no API key); Gemma fetches URLs selectively |
+| Episodic memory | Auto-ingested per turn; critic-scored; score-weighted retrieval |
+| Pinned user facts | `remember_this` stores persistent facts always injected into context |
+| Document library (RAG) | Multi-collection ChromaDB; routed through an LLM-powered LibraryAgentTool |
+| Cognitive personas | `persona` tool primes a cognitive register via distilled conversation seeds |
+| Academic search | Semantic Scholar Graph API; arXiv URL fallback |
+| Datetime + location | Live IP geolocation with static override; stdlib clock |
+| Critic scoring | Prometheus-7b; rubric dynamically selected by turn context |
+| Context compaction | Token-counted gauge; on-demand compaction with summary injection |
+| Multi-model routing | Vision → `gemma4:e4b`; default → `gemma4:e4b-mlx`; quality → `gemma4:31b-mlx` |
+| File attachments | Images → vision input; PDFs/code/text → extracted and prepended |
+| Multi-user isolation | `user_id` threading partitions episodic memory per user |
+| Comparison harness | Side-by-side LoCAL2 vs. bare model; pairwise verdict store (SQLite) |
 
 ---
 
 ## Architecture
 
-See [docs/architecture/](docs/architecture/) for design documents covering the bus topology, agent state machines, tool protocol, and configuration reference.
+### 1. Design Philosophy
+
+**LoCAL1 vs LoCAL2.** In v1, an explicit orchestration layer (AnalystAgent, SynthesizerAgent, GatewayAgent) wrapped around the LLM. The LLM was a leaf — it received a preprocessed, decomposed sub-task and returned a raw answer. In v2 the LLM is the root. Gemma receives the raw user query and the full conversation history, and decides natively whether to search, recall, fetch, or answer directly.
+
+Three going-in objectives:
+
+1. **Native conversation history** — the generator receives the full messages array; Gemma handles follow-up, pronoun resolution, and multi-turn reasoning without preprocessing.
+2. **Tool-native architecture** — web search, memory recall, document search, and other capabilities are synchronous tool calls within a generation turn, not async bus-dispatched task pipelines.
+3. **Externalized LLM workings** — thinking tokens, tool calls, memory recalls, state transitions, and context window fill are first-class visible artifacts in the UI.
+
+What was removed from v1: GatewayAgent, AnalystAgent, SynthesizerAgent, task DAG pipeline, query preprocessing, explicit query rewriting, task decomposition, the complexity gate.
+
+---
+
+### 2. Participants
+
+| Participant | Type | Triggered by | Publishes to |
+|---|---|---|---|
+| **GeneratorAgent** | `*Agent` (LLM) | `query.received` | `response.generation`, `answer.dialog`, `agent.transition` |
+| **CriticAgent** | `*Agent` (LLM) | `response.generation` | `critique.result`, `agent.transition` |
+| **MemoryAgent** | `*Agent` (LLM) | `query.received`, `response.generation`, `critique.result` | `memory.context`, `agent.transition` |
+| **ToolDispatcher** | Synchronous bridge | `tool.call.*` (via GeneratorAgent) | `tool.result.*` (back to GeneratorAgent) |
+| **WebSearchTool** | `*Tool` | `tool.call.web_search` | `tool.result.web_search`, `tool.activity.web_search` |
+| **WebFetchTool** | `*Tool` | `tool.call.web_fetch` | `tool.result.web_fetch`, `tool.activity.web_fetch` |
+| **SearchMemoryTool** | `*Tool` | `tool.call.search_memory` | `tool.result.search_memory`, `tool.activity.search_memory` |
+| **DateTimeTool** | `*Tool` | `tool.call.get_datetime` | `tool.result.get_datetime`, `tool.activity.get_datetime` |
+| **LocationTool** | `*Tool` | `tool.call.get_location` | `tool.result.get_location`, `tool.activity.get_location` |
+| **SemanticScholarTool** | `*Tool` | `tool.call.search_papers` | `tool.result.search_papers`, `tool.activity.search_papers` |
+| **PersonaTool** | `*Tool` | `tool.call.persona` | `tool.result.persona`, `tool.activity.persona` |
+| **RememberThisTool** | `*Tool` | `tool.call.remember_this` | `tool.result.remember_this`, `user.context.updated` |
+| **LibraryAgentTool** | `*AgentTool` (LLM) | `tool.call.consult_librarian` | `tool.result.consult_librarian`, `library.*` |
+| **SearchLibraryTool** | `*Tool` (internal) | `tool.call.search_library` | `tool.result.search_library` |
+| **FastAPI Gateway** | UI/API | HTTP/WebSocket | `query.received`, `compaction.request`, `user.feedback`, `tool.schema.request` |
+| **ConversationService** | Service | — | — |
+| **MemoryService** | Service | — | — |
+| **DocumentService** | Service | — | — |
+| **ModelService** | Service | `response.generation`, `compaction.request` | `compaction.request` (auto), `compaction.result` |
+| **RewardService** | Service | `user.feedback` | `reward.event` |
+
+**Participant naming convention:**
+
+| Suffix | Has LLM | Triggered by | Output destination |
+|---|---|---|---|
+| `*Agent` | Yes | System (bus event) | Bus subject |
+| `*Tool` | No | Gemma (`tool.call.*`) | Back to Gemma via `tool.result.*` |
+| `*AgentTool` | Yes | Gemma (`tool.call.*`) | Back to Gemma via `tool.result.*` |
+
+---
+
+### 3. Query Flow — Happy Path
+
+```
+User types query (optionally with file attachments)
+  → Gateway publishes query.received {query, session_id, query_id, user_id, attachments?}
+  → MemoryAgent receives query.received
+      → searches episodic store for relevant prior turns
+      → publishes memory.context {summaries, pinned_facts}
+  → GeneratorAgent receives memory.context → injects context → IDLE → RECEIVING → GENERATING
+  → Gemma streams thinking tokens → GENERATION_THINKING events
+  → If Gemma calls a tool:
+      GeneratorAgent → DISPATCHING_TOOL
+      ToolDispatcher receives tool.call.<name> → executes tool → tool.result.<name>
+      ToolDispatcher returns result to GeneratorAgent → GENERATING
+      (repeats up to max_tool_iterations)
+  → Final answer → PUBLISHING
+  → GeneratorAgent publishes response.generation + answer.dialog → IDLE
+  → CriticAgent receives response.generation → grades it → publishes critique.result
+  → MemoryAgent receives response.generation → ingests engram
+  → MemoryAgent receives critique.result → annotates engram with critic score
+  → UI receives response.generation → displays answer + XAI footer (model, tokens, score)
+  → User optionally thumbs up/down → user.feedback → RewardService → reward.event → engram annotation
+```
+
+---
+
+### 4. Tool Schema Discovery
+
+Tools register dynamically. On startup, every tool publishes its JSON schema on `tool.schema`. GeneratorAgent subscribes, builds a live registry, and passes the current schema list to every `ollama.chat()` call.
+
+On reconnect, GeneratorAgent and the UI broadcast `tool.schema.request`. All running tools respond by re-announcing their schemas. A tool that starts after the generator is still picked up without restarting anything.
+
+Schema descriptions carry "when to call" guidance — not the system prompt. This keeps routing logic in the tool, not in a global instruction that has to be updated every time a tool is added.
+
+---
+
+### 5. ToolDispatcher
+
+ToolDispatcher is a synchronous bus participant, not an agent. It subscribes to `tool.call.*` (published by GeneratorAgent during a generation turn), routes each call to the correct tool, collects the `tool.result.*` reply, and returns it to GeneratorAgent. This decouples the generator from knowing which tool handles which subject and centralizes timeout handling.
+
+---
+
+### 6. Multi-Model Routing
+
+GeneratorAgent routes queries to different models via `config/generator.yaml`:
+
+```yaml
+models:
+  default: gemma4:e4b-mlx   # standard text queries (2× faster via Apple MLX)
+  vision:  gemma4:e4b        # queries with image attachments (selected automatically)
+  quality: gemma4:31b-mlx    # high-quality mode
+```
+
+The `response.generation` payload includes a `model` field. The UI displays this in the XAI footer so it is always visible which model answered.
+
+---
+
+### 7. Memory Model
+
+**Episodic store (ChromaDB):** Every Q&A turn is ingested as an engram by MemoryAgent after the response is published. Each engram captures: query text, answer summary, intent classification (fact/explanation/comparison/procedure), named entities, session ID, and user ID.
+
+**Score annotation:** When `critique.result` arrives, MemoryAgent patches the matching engram with `critic_score` (1–5) and `critic_feedback`. This forms an auditable trail: rubric → feedback → score.
+
+**Sentiment annotation:** When `user.feedback` arrives (`+1`/`-1`), RewardService patches the engram with `user_sentiment`.
+
+**Score-weighted retrieval:** `search_episodic()` applies a score bias of `(critic_score − 3) × 0.05` to ranked results. Engrams without a score are unaffected.
+
+**Pinned facts:** `remember_this` stores permanent key-value facts in a separate ChromaDB collection. Pinned facts are always injected into the generation context as a fixed prefix — not subject to similarity thresholds.
+
+**Structured context — three tiers injected before generation:**
+
+| Tier | Source | When present |
+|---|---|---|
+| Pinned facts | `remember_this` store | Always |
+| Episodic summaries | Similarity search over engrams for this user | Relevance score ≥ threshold |
+| Cross-session patterns | Elevated insights from collective namespace | When available |
+
+---
+
+### 8. Critic
+
+CriticAgent (Prometheus-7b) grades every response on a 1–5 absolute scale. The rubric is dynamically selected based on turn context:
+
+| Turn context | Rubric | Question |
+|---|---|---|
+| Standard knowledge turn | **Realistic** | Is the response accurate and achievable? |
+| Tool-use turn (web search / fetch) | **Style** | Is it well-formatted and comprehensive given the retrieved data? |
+| `remember_this` call | **Clarity** | Does it clearly confirm what was stored? |
+
+The critic skips grading on turns where it cannot assess content (e.g., pure tool-result echoes). The UI displays the score as a badge in the XAI footer alongside the rubric name.
+
+---
+
+### 9. Context Management
+
+**Token tracking:** After each generation, the final Ollama streaming chunk includes `prompt_eval_count` — the exact token count of the prompt sent. GeneratorAgent stores this in ConversationService and includes it in `response.generation`. The UI's token gauge reads it.
+
+**Compaction:** When the user triggers compaction, the gateway publishes `compaction.request`. ModelService summarizes the session history via a separate non-streaming Ollama call, replaces the messages array with `[SUMMARY] + last N verbatim turn pairs`, and publishes `compaction.result`. Compaction is rejected while the generator is busy.
+
+---
+
+### 10. Web UI
+
+**Stack:** React + Vite + TypeScript frontend served as static files by FastAPI. All communication over WebSocket.
+
+#### WebSocket event protocol (`/ws/chat`)
+
+Client → server (one message per query):
+```json
+{ "query": "...", "session_id": "uuid", "user_id": "...", "attachments": [...] }
+```
+
+Server → client (streaming, multiple messages per query):
+```json
+{ "type": "thinking_chunk",  "chunk": "...",                             "query_id": "uuid" }
+{ "type": "tool_start",      "tool": "web_search", "args": {...},        "query_id": "uuid" }
+{ "type": "tool_result",     "tool": "web_search", "result": "...",      "query_id": "uuid" }
+{ "type": "response",        "answer": "...", "model": "gemma4:e4b-mlx", "prompt_tokens": 4710, ... }
+{ "type": "critique",        "score": 4, "rubric_name": "realistic",     "query_id": "uuid" }
+```
+
+The gateway (`ws_bridge.py`) manages ZMQ subscriptions per connected session and fans out to the WebSocket.
+
+#### Run modes
+
+| Command | What starts |
+|---|---|
+| `local2` | Full stack — proxy, agents, tools, FastAPI; opens browser |
+| `local2 --headless` | Same, no browser |
+| `local2 --panels` | Full stack + Qt observer windows (read-only bus views) |
+| `local2 --web-only --ipaddress <ip>` | FastAPI only; connects to a remote ZMQ bus |
+
+---
+
+### 11. Comparison Harness
+
+A side-by-side evaluation tool for measuring LoCAL2 against a bare model (`python -m harness.server`, port 7001).
+
+**Arm A — full LoCAL2:** Routed via WebSocket proxy that injects a synthetic `user_id` to isolate episodic memory per run. Each session sees only its own engrams — no process restart needed between runs.
+
+**Arm B — bare model:** Same Ollama model with a standard tool-call loop. Same web search and fetch backends (direct HTTP — no bus). No memory, no critic, no structured context, no state machines.
+
+Each turn is logged to SQLite (`runs` / `items` / `judgments`). After both arms respond, the evaluator records a pairwise verdict (A better / tie / B better) with an optional rationale. The History tab shows aggregate win rates and allows reviewing and re-judging any past turn.
+
+---
+
+### 12. User Identity
+
+`user_id` is threaded through every bus envelope and stored on each episodic engram. A `"default"` user_id is transparent — no filtering, full backward compatibility with existing sessions. Non-default user IDs (synthetic harness IDs, or future multi-user accounts) partition the episodic store so each user sees only their own history.
+
+---
+
+### 13. File Attachments
+
+On submit, the frontend uploads each file to `POST /api/attachments`, which returns an `Attachment` object:
+
+```json
+{ "type": "text" | "image" | "error", "name": "filename.pdf", "data": "..." }
+```
+
+Images are base64-encoded. Documents (PDF, TXT, MD, code files) are text-extracted and truncated to `max_attachment_chars`. The processed list flows in the `query.received` payload unchanged to the generator.
+
+- Text attachments → prepended to the user message content
+- Image attachments → passed in the Ollama message `images` key (vision input)
+
+---
+
+### 14. Remote-Bus Mode
+
+The ZMQ proxy binds to `0.0.0.0`, making it reachable from the local network. Participants connect to `127.0.0.1` by default; `--ipaddress` redirects to a remote proxy.
+
+`local2 --web-only --ipaddress <host-ip>` starts only FastAPI — no local proxy, no agents. The web server publishes `query.received` to the remote bus and subscribes to receive the response stream. From the generator's perspective, the query is indistinguishable from a local one.
+
+---
+
+### 15. Architecture Invariants
+
+- The bus is the only coordination mechanism — no direct agent-to-agent function calls.
+- The LLM receives the raw query and full conversation history — no preprocessing or rewriting before the generator sees it.
+- Tool calls are synchronous within a generation turn — not async bus events the generator waits on asynchronously.
+- Thinking tokens are surfaced to the UI — not stripped and discarded.
+- `num_ctx` is always set explicitly in config — never rely on Ollama's hardware default (clips to 4 K below 24 GB VRAM).
+- Gemma 4 thinking tokens are stripped from assistant turns before passing history back to the model.
+- Conversation history is passed as a messages array to the Ollama chat endpoint — never embedded in a flat prompt string.
+- Every agent has an explicit state machine defined in `states.py` and `transitions.py`. No implicit state.
+
+---
+
+## Reference
+
+- **[Getting Started](GETTING_STARTED.md)** — installation, quick start, configuration, document library, remote access
+- **[Architecture Reference](docs/architecture/local2-design.md)** — detailed design document
+- **[Docs Index](docs/)** — participant docs, bus topology, state machines, config reference, plans

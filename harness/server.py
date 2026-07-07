@@ -30,6 +30,7 @@ from pydantic import BaseModel
 
 from harness import db
 from harness.arm_b import ArmBClient
+from harness.judge import PairwiseJudge
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ app = FastAPI(title="LoCAL2 Harness")
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 _arm_b = ArmBClient()
+_judge = PairwiseJudge()
 
 
 # ---------------------------------------------------------------------------
@@ -65,19 +67,20 @@ async def ws_arm_a(websocket: WebSocket, session_id: str) -> None:
                         run_id = data.pop("run_id", "")
                         data["user_id"] = f"arm_a_{run_id}" if run_id else "arm_a_default"
                         await local2_ws.send(json.dumps(data))
-                except WebSocketDisconnect:
+                except (WebSocketDisconnect, asyncio.CancelledError):
                     pass
 
             async def local2_to_browser() -> None:
                 try:
                     async for message in local2_ws:
                         await websocket.send_text(message if isinstance(message, str) else message.decode())
-                except Exception:
+                except (asyncio.CancelledError, Exception):
                     pass
 
             await asyncio.gather(browser_to_local2(), local2_to_browser())
-    except Exception as exc:
-        logger.warning("arm_a proxy error: %s", exc)
+    except (asyncio.CancelledError, Exception) as exc:
+        if not isinstance(exc, asyncio.CancelledError):
+            logger.warning("arm_a proxy error: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +114,8 @@ async def ws_arm_b(websocket: WebSocket, session_id: str) -> None:
                 finally:
                     asyncio.run_coroutine_threadsafe(queue.put(None), loop)
 
-            loop.run_in_executor(None, _run)
+            # daemon=True so Ctrl-C doesn't wait for in-flight Ollama calls to finish
+            threading.Thread(target=_run, daemon=True).start()
 
             while True:
                 event = await queue.get()
@@ -119,7 +123,7 @@ async def ws_arm_b(websocket: WebSocket, session_id: str) -> None:
                     break
                 await websocket.send_json(event)
 
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, asyncio.CancelledError):
         pass
 
 
@@ -161,10 +165,14 @@ class ItemRequest(BaseModel):
     session_id: str
     turn_idx: int
     prompt: str
+    prompt_id: str = ""
     arm_a_output: str = ""
+    arm_a_thinking: str = ""
+    arm_a_tool_calls: list = []
     arm_b_output: str = ""
-    arm_a_critic_score: Optional[float] = None
+    arm_b_thinking: str = ""
     arm_b_tool_calls: list = []
+    arm_a_critic_score: Optional[float] = None
     item_id: Optional[str] = None
 
 
@@ -175,10 +183,14 @@ async def upsert_item(body: ItemRequest) -> JSONResponse:
         session_id=body.session_id,
         turn_idx=body.turn_idx,
         prompt=body.prompt,
+        prompt_id=body.prompt_id,
         arm_a_output=body.arm_a_output,
+        arm_a_thinking=body.arm_a_thinking,
+        arm_a_tool_calls=body.arm_a_tool_calls,
         arm_b_output=body.arm_b_output,
-        arm_a_critic_score=body.arm_a_critic_score,
+        arm_b_thinking=body.arm_b_thinking,
         arm_b_tool_calls=body.arm_b_tool_calls,
+        arm_a_critic_score=body.arm_a_critic_score,
         item_id=body.item_id,
     )
     return JSONResponse({"item_id": iid})
@@ -223,12 +235,52 @@ async def get_aggregate(run_id: str) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Auto-judge (Prometheus pairwise)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/judge/{item_id}")
+async def auto_judge(item_id: str) -> JSONResponse:
+    item = db.get_item(item_id)
+    if not item:
+        return JSONResponse({"error": "item not found"}, status_code=404)
+    if not item.get("arm_a_output") or not item.get("arm_b_output"):
+        return JSONResponse({"error": "both arms must have output before judging"}, status_code=422)
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        None,
+        lambda: _judge.judge(item["prompt"], item["arm_a_output"], item["arm_b_output"]),
+    )
+    db.save_judgment(
+        run_id=item["run_id"],
+        item_id=item_id,
+        verdict=result["verdict"],
+        rationale=result["feedback"],
+        judge_type="prometheus",
+    )
+    return JSONResponse(result)
+
+
+@app.get("/api/items/{item_id}")
+async def get_item(item_id: str) -> JSONResponse:
+    item = db.get_item(item_id)
+    if not item:
+        return JSONResponse({"error": "item not found"}, status_code=404)
+    return JSONResponse(item)
+
+
+@app.get("/api/items/{item_id}/judgment")
+async def get_item_judgment(item_id: str) -> JSONResponse:
+    j = db.get_item_judgment(item_id, judge_type="prometheus")
+    return JSONResponse(j or {})
+
+
+# ---------------------------------------------------------------------------
 # Static / SPA
 # ---------------------------------------------------------------------------
 
 @app.get("/")
 async def index() -> FileResponse:
-    return FileResponse(str(_STATIC_DIR / "index.html"))
+    return FileResponse(str(_STATIC_DIR / "index.html"), headers={"Cache-Control": "no-store"})
 
 
 # ---------------------------------------------------------------------------

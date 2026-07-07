@@ -127,6 +127,9 @@ class ArmBClient:
                 stream=True,
                 options={"temperature": self._temperature},
             ):
+                thinking = getattr(chunk.message, "thinking", None)
+                if thinking:
+                    emit({"type": "thinking_chunk", "chunk": thinking})
                 if chunk.message.content:
                     iter_content += chunk.message.content
                     emit({"type": "token", "content": chunk.message.content})

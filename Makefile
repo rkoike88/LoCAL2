@@ -20,7 +20,7 @@ dev: install
 test:
 	PYTHONPATH=src python -m pytest tests/ -q
 
-# Start the comparison harness (requires LoCAL2 already running on port 3000)
+# Start the comparison harness (requires LoCAL2 already running on port 8000)
 harness:
 	python -m harness.server
 

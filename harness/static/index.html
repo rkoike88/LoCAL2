@@ -25,9 +25,11 @@
   /* --- Header --- */
   header { display: flex; align-items: center; gap: 12px; padding: 8px 16px;
            border-bottom: 1px solid var(--border); background: var(--surface1); flex-shrink: 0; }
-  header h1 { color: var(--accent); font-size: 14px; }
+  header h1 { color: var(--accent); font-size: 14px; letter-spacing: 0.03em; }
   .run-info { color: var(--muted); font-size: 11px; }
   .spacer { flex: 1; }
+
+  /* --- Buttons --- */
   button { background: var(--surface3); color: var(--text); border: 1px solid var(--border);
            padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: inherit;
            font-size: 12px; transition: background 0.15s; }
@@ -35,38 +37,77 @@
   button:disabled { opacity: 0.4; cursor: default; }
   button.primary { background: var(--accent); color: #111; border-color: var(--accent); font-weight: bold; }
   button.primary:hover { background: #6ab893; }
-  #tab-compare { color: var(--accent); border-bottom: 2px solid var(--accent); }
-  #tab-history { color: var(--muted); border-bottom: 2px solid transparent; }
 
-  /* --- Tabs --- */
-  .tab-bar { display: flex; gap: 0; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-  .tab { padding: 6px 18px; cursor: pointer; font-size: 12px; color: var(--muted);
-         border-bottom: 2px solid transparent; margin-bottom: -1px; }
-  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  /* --- Workspace --- */
+  .workspace { flex: 1; display: flex; overflow: hidden; }
 
-  /* --- Main area --- */
-  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-  #view-compare { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-  #view-history { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 16px; }
+  /* --- Sidebar --- */
+  #sidebar { width: 220px; background: var(--surface1); border-right: 1px solid var(--border);
+             display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;
+             transition: width 0.18s ease; }
+  #sidebar.collapsed { width: 0; }
+  .sidebar-header { padding: 8px 12px; font-size: 10px; color: var(--muted);
+                    border-bottom: 1px solid var(--border); text-transform: uppercase;
+                    letter-spacing: 0.06em; flex-shrink: 0; }
+  #sidebar-runs { flex: 1; overflow-y: auto; }
+
+  /* Run groups */
+  .run-group { border-bottom: 1px solid var(--border); }
+  .run-group-header { display: flex; align-items: center; gap: 5px; padding: 7px 10px;
+                      cursor: pointer; font-size: 11px; user-select: none; }
+  .run-group-header:hover { background: var(--surface2); }
+  .run-group-arrow { color: var(--muted); font-size: 9px; transition: transform 0.15s;
+                     flex-shrink: 0; }
+  .run-group.open .run-group-arrow { transform: rotate(90deg); }
+  .run-group-id { color: var(--accent); font-weight: bold; flex-shrink: 0; }
+  .run-group-model { color: var(--muted); overflow: hidden; text-overflow: ellipsis;
+                     white-space: nowrap; flex: 1; font-size: 10px; }
+  .run-group-stats { color: var(--muted); font-size: 10px; flex-shrink: 0; }
+  .run-group-turns { display: none; }
+  .run-group.open .run-group-turns { display: block; }
+
+  /* Turn items */
+  .turn-item { display: flex; align-items: center; gap: 6px; padding: 5px 10px 5px 18px;
+               cursor: pointer; font-size: 11px; border-left: 2px solid transparent; }
+  .turn-item:hover { background: var(--surface2); }
+  .turn-item.active { background: var(--surface3); border-left-color: var(--accent); padding-left: 16px; }
+  .verdict-dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--muted);
+                 flex-shrink: 0; }
+  .verdict-dot.a_better { background: var(--accent); border-color: var(--accent); }
+  .verdict-dot.tie { background: var(--muted); border-color: var(--muted); }
+  .verdict-dot.b_better { background: var(--gold); border-color: var(--gold); }
+  .turn-num { color: var(--muted); flex-shrink: 0; font-size: 10px; }
+  .turn-prompt { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+
+  /* Sidebar toggle */
+  .sidebar-toggle { width: 16px; background: var(--surface2); border-right: 1px solid var(--border);
+                    display: flex; align-items: center; justify-content: center; cursor: pointer;
+                    color: var(--muted); font-size: 12px; flex-shrink: 0; user-select: none; }
+  .sidebar-toggle:hover { background: var(--surface3); color: var(--text); }
+
+  /* --- Workspace main --- */
+  .workspace-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
   /* --- Input bar --- */
-  .input-bar { display: flex; gap: 8px; padding: 10px 16px;
+  .input-bar { display: flex; gap: 8px; padding: 10px 14px;
                border-bottom: 1px solid var(--border); flex-shrink: 0; background: var(--surface1); }
   .input-bar textarea { flex: 1; background: var(--surface2); color: var(--text);
                         border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
                         font-family: inherit; font-size: 12px; resize: none; outline: none;
                         max-height: 80px; }
   .input-bar textarea:disabled { opacity: 0.5; }
+  .input-controls { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
 
   /* --- Panels --- */
-  .panels { flex: 1; display: flex; overflow: hidden; }
+  .panels { flex: 1; display: flex; overflow: hidden; min-height: 0; }
   .panel { flex: 1; display: flex; flex-direction: column; border-right: 1px solid var(--border); overflow: hidden; }
   .panel:last-child { border-right: none; }
   .panel-header { padding: 6px 12px; background: var(--surface1); border-bottom: 1px solid var(--border);
-                  font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+                  font-size: 11px; color: var(--muted); display: flex; align-items: center;
+                  gap: 8px; flex-shrink: 0; }
   .panel-header .label { color: var(--accent); font-weight: bold; }
-  .panel-header .model { color: var(--muted); }
-  .panel-content { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .panel-content { flex: 1; overflow-y: auto; padding: 12px; display: flex;
+                   flex-direction: column; gap: 8px; }
 
   /* --- Messages --- */
   .msg { padding: 8px 10px; border-radius: 6px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
@@ -82,38 +123,30 @@
                 background: var(--surface2); border-radius: 4px; }
   .critic-bar .score { color: var(--accent); }
 
-  /* --- Verdict panel --- */
-  .verdict-panel { flex-shrink: 0; padding: 10px 16px; border-top: 1px solid var(--border);
-                   background: var(--surface1); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .verdict-panel.hidden { display: none; }
-  .verdict-label { color: var(--muted); font-size: 11px; }
-  .verdict-btns { display: flex; gap: 6px; }
-  .verdict-btns button { padding: 4px 14px; }
-  .verdict-btns button.selected { background: var(--accent); color: #111; border-color: var(--accent); }
-  #verdict-rationale { flex: 1; min-width: 200px; background: var(--surface2); color: var(--text);
-                       border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px;
-                       font-family: inherit; font-size: 12px; outline: none; }
-  #verdict-save { color: var(--accent); }
+  /* --- Thinking block --- */
+  .thinking-block { background: var(--surface2); border-left: 2px solid var(--muted);
+                    border-radius: 0 4px 4px 0; font-size: 11px; }
+  .thinking-block summary { padding: 4px 8px; cursor: pointer; color: var(--muted);
+                             user-select: none; list-style: none; }
+  .thinking-block summary::before { content: '▸ '; }
+  .thinking-block[open] summary::before { content: '▾ '; }
+  .thinking-body { padding: 4px 8px 8px; color: var(--muted); white-space: pre-wrap;
+                   max-height: 160px; overflow-y: auto; line-height: 1.5; }
 
-  /* --- History view --- */
-  #history-view { flex: 1; overflow-y: auto; }
-  .run-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
-              padding: 10px 14px; margin-bottom: 8px; cursor: pointer; }
-  .run-card:hover { border-color: var(--accent); }
-  .run-card h3 { color: var(--accent); font-size: 12px; }
-  .run-card .meta { color: var(--muted); font-size: 11px; margin-top: 4px; }
-  .turn-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-shrink: 0; }
-  .aggregate { background: var(--surface2); padding: 10px 14px; border-radius: 6px;
-               margin-bottom: 12px; font-size: 12px; }
-  .aggregate span { color: var(--accent); }
-  .history-banner { display: flex; align-items: center; gap: 12px; padding: 6px 16px;
-                    border-bottom: 1px solid var(--border); background: var(--surface1);
-                    flex-shrink: 0; flex-wrap: wrap; }
-  .hb-stat { font-size: 11px; color: var(--muted); }
-  .hb-stat .hl { color: var(--accent); }
+  /* --- Prometheus panel --- */
+  .prometheus-panel { height: 33vh; border-top: 1px solid var(--border);
+                      background: var(--surface1); display: flex; flex-direction: column;
+                      flex-shrink: 0; min-height: 80px; }
+  .prometheus-header { display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+                       border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .prom-label { color: var(--muted); font-size: 11px; text-transform: uppercase;
+                letter-spacing: 0.06em; flex-shrink: 0; }
+  #prom-verdict { font-size: 12px; font-weight: bold; }
+  .prometheus-body { flex: 1; overflow-y: auto; padding: 10px 14px; white-space: pre-wrap;
+                     word-break: break-word; font-size: 12px; line-height: 1.6; color: var(--text); }
 
   /* --- Status --- */
-  .status { color: var(--muted); font-size: 11px; padding: 0 4px; }
+  .status { color: var(--muted); font-size: 11px; }
   .status.streaming { color: var(--gold); }
 </style>
 </head>
@@ -121,66 +154,59 @@
 
 <header>
   <h1>LoCAL2 Harness</h1>
-  <span class="run-info" id="run-info">no run</span>
+  <span class="run-info" id="run-info">no active run</span>
   <div class="spacer"></div>
-  <button class="primary" id="btn-new">New Comparison</button>
+  <button class="primary" id="btn-new">New Run</button>
 </header>
 
-<div class="tab-bar">
-  <div class="tab active" id="tab-compare" onclick="showTab('compare')">Compare</div>
-  <div class="tab" id="tab-history" onclick="showTab('history')">History</div>
-</div>
+<div class="workspace">
 
-<div class="main">
+  <div id="sidebar">
+    <div class="sidebar-header">Runs</div>
+    <div id="sidebar-runs"></div>
+  </div>
+  <div class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()">‹</div>
 
-  <!-- Compare view -->
-  <div id="view-compare">
+  <div class="workspace-main">
+
     <div class="input-bar">
       <textarea id="input" placeholder="Message both arms…" rows="2" disabled
                 onkeydown="handleKey(event)"></textarea>
-      <button id="btn-send" onclick="sendQuery()" disabled>Send</button>
-      <span class="status" id="status"></span>
+      <div class="input-controls">
+        <button id="btn-send" onclick="sendQuery()" disabled>Send</button>
+        <span class="status" id="status"></span>
+      </div>
     </div>
-    <div class="history-banner" id="history-banner" style="display:none">
-      <button onclick="exitHistory()">← Runs</button>
-      <span id="hb-run-info" class="run-info"></span>
-      <span id="hb-aggregate" class="hb-stat"></span>
-      <div style="flex:1"></div>
-      <div id="hb-turn-nav" class="turn-nav" style="margin:0"></div>
-    </div>
+
     <div class="panels">
       <div class="panel" id="panel-a">
         <div class="panel-header">
           <span class="label">A — LoCAL2</span>
-          <span class="model" id="a-model"></span>
+          <span style="color:var(--muted)" id="a-model"></span>
         </div>
         <div class="panel-content" id="a-content"></div>
       </div>
       <div class="panel" id="panel-b">
         <div class="panel-header">
-          <span class="label">B — Naked model</span>
-          <span class="model" id="b-model"></span>
+          <span class="label">B — Native</span>
+          <span style="color:var(--muted)" id="b-model"></span>
         </div>
         <div class="panel-content" id="b-content"></div>
       </div>
     </div>
-    <div class="verdict-panel hidden" id="verdict-panel">
-      <span class="verdict-label">Pairwise:</span>
-      <div class="verdict-btns">
-        <button id="vbtn-a" onclick="selectVerdict('a_better')">A better</button>
-        <button id="vbtn-tie" onclick="selectVerdict('tie')">Tie</button>
-        <button id="vbtn-b" onclick="selectVerdict('b_better')">B better</button>
+
+    <div class="prometheus-panel">
+      <div class="prometheus-header">
+        <span class="prom-label">Prometheus</span>
+        <span id="prom-verdict"></span>
+        <div class="spacer"></div>
+        <span class="status" id="prom-status">Start a run to compare.</span>
+        <button id="btn-rejudge" onclick="autoJudge()" disabled>Judge</button>
       </div>
-      <input id="verdict-rationale" placeholder="Rationale (optional)…" />
-      <button id="verdict-save" onclick="saveVerdict()">Save</button>
+      <div class="prometheus-body" id="prom-body"></div>
     </div>
-  </div>
 
-  <!-- History view -->
-  <div id="view-history" style="display:none">
-    <div id="history-view"></div>
   </div>
-
 </div>
 
 <script>
@@ -191,74 +217,185 @@ let runId = null;
 let sessionId = null;
 let turnIdx = 0;
 let currentItemId = null;
-
-let wsA = null;
-let wsB = null;
-
-let aDone = false;
-let bDone = false;
-let aFull = "";
-let bFull = "";
-let bToolCalls = [];
-let aCriticScore = null;
-
-let selectedVerdict = null;
 let currentQuery = '';
+let sidebarCollapsed = false;
 
-// Streaming elements
-let aStreamEl = null;
-let bStreamEl = null;
+let wsA = null, wsB = null;
+let aDone = false, bDone = false;
+let aFull = '', bFull = '';
+let aThinking = '', bThinking = '';
+let aToolCalls = [], bToolCalls = [];
+let aCurrentTool = null;
+let aCriticScore = null;
+let aStreamEl = null, bStreamEl = null;
+let aThinkingEl = null;
+
+const _VERDICT_LABELS = { a_better: 'A better', tie: 'Tie', b_better: 'B better' };
+const _VERDICT_COLORS = { a_better: 'var(--accent)', tie: 'var(--muted)', b_better: 'var(--gold)' };
 
 // ---------------------------------------------------------------------------
-// Tab switching
+// Init
 // ---------------------------------------------------------------------------
-function showTab(name) {
-  document.getElementById('view-compare').style.display = name === 'compare' ? '' : 'none';
-  document.getElementById('view-history').style.display = name === 'history' ? '' : 'none';
-  document.getElementById('tab-compare').classList.toggle('active', name === 'compare');
-  document.getElementById('tab-history').classList.toggle('active', name === 'history');
-  if (name === 'history') loadHistory();
+window.addEventListener('DOMContentLoaded', loadSidebar);
+document.getElementById('btn-new').addEventListener('click', newRun);
+
+// ---------------------------------------------------------------------------
+// Sidebar
+// ---------------------------------------------------------------------------
+function toggleSidebar() {
+  sidebarCollapsed = !sidebarCollapsed;
+  document.getElementById('sidebar').classList.toggle('collapsed', sidebarCollapsed);
+  document.getElementById('sidebar-toggle').textContent = sidebarCollapsed ? '›' : '‹';
+}
+
+async function loadSidebar() {
+  const runs = await fetch('/api/runs').then(r => r.json()).catch(() => []);
+  const el = document.getElementById('sidebar-runs');
+  el.innerHTML = '';
+
+  const details = await Promise.all(runs.map(run => Promise.all([
+    fetch(`/api/runs/${run.run_id}`).then(r => r.json()).catch(() => ({ items: [] })),
+    fetch(`/api/judgments/${run.run_id}`).then(r => r.json()).catch(() => []),
+  ])));
+
+  for (let i = 0; i < runs.length; i++) {
+    const [runData, judgments] = details[i];
+    const jMap = buildJudgmentMap(judgments);
+    el.appendChild(buildRunGroup(runs[i], runData.items || [], jMap));
+  }
+}
+
+function buildJudgmentMap(judgments) {
+  const map = {};
+  // prometheus judgments only; keep latest per item (array is time-ordered)
+  for (const j of judgments) {
+    if (j.judge_type === 'prometheus') map[j.item_id] = j;
+  }
+  return map;
+}
+
+function buildRunGroup(run, items, jMap) {
+  const group = document.createElement('div');
+  group.className = 'run-group';
+  group.id = `run-group-${run.run_id}`;
+
+  const judged = Object.keys(jMap).length;
+  const aWins = Object.values(jMap).filter(j => j.verdict === 'a_better').length;
+  const ties  = Object.values(jMap).filter(j => j.verdict === 'tie').length;
+  const bWins = Object.values(jMap).filter(j => j.verdict === 'b_better').length;
+  const statsText = judged > 0 ? `A:${aWins} T:${ties} B:${bWins}` : `${items.length}T`;
+  const modelShort = (run.arm_b_model || '').split(':')[0].slice(0, 14);
+
+  const hdr = document.createElement('div');
+  hdr.className = 'run-group-header';
+  hdr.onclick = () => group.classList.toggle('open');
+  hdr.innerHTML = `
+    <span class="run-group-arrow">▸</span>
+    <span class="run-group-id">${run.run_id}</span>
+    <span class="run-group-model">${modelShort}</span>
+    <span class="run-group-stats">${statsText}</span>
+  `;
+
+  const turnsEl = document.createElement('div');
+  turnsEl.className = 'run-group-turns';
+  turnsEl.id = `turns-${run.run_id}`;
+
+  for (const item of items) {
+    turnsEl.appendChild(buildTurnItem(item, jMap[item.item_id]));
+  }
+
+  group.appendChild(hdr);
+  group.appendChild(turnsEl);
+  return group;
+}
+
+function buildTurnItem(item, judgment) {
+  const li = document.createElement('div');
+  li.className = 'turn-item';
+  li.id = `turn-item-${item.item_id}`;
+
+  const verdict = judgment ? judgment.verdict : null;
+  const dotClass = verdict || '';
+  const promptPreview = (item.prompt || '').slice(0, 36) + ((item.prompt || '').length > 36 ? '…' : '');
+
+  li.innerHTML = `
+    <span class="verdict-dot ${dotClass}"></span>
+    <span class="turn-num">T${item.turn_idx}</span>
+    <span class="turn-prompt">${escHtml(promptPreview)}</span>
+  `;
+  li.onclick = () => viewTurn(item);
+  return li;
+}
+
+function updateSidebarTurnVerdict(itemId, verdict) {
+  const li = document.getElementById(`turn-item-${itemId}`);
+  if (!li) return;
+  const dot = li.querySelector('.verdict-dot');
+  if (dot) dot.className = `verdict-dot ${verdict}`;
+}
+
+function setActiveTurnItem(itemId) {
+  document.querySelectorAll('.turn-item.active').forEach(el => el.classList.remove('active'));
+  const el = document.getElementById(`turn-item-${itemId}`);
+  if (el) el.classList.add('active');
+}
+
+function openRunGroup(rid) {
+  const g = document.getElementById(`run-group-${rid}`);
+  if (g) g.classList.add('open');
+}
+
+function addTurnToSidebar(item, judgment) {
+  const turnsEl = document.getElementById(`turns-${item.run_id}`);
+  if (!turnsEl) { loadSidebar(); return; }
+
+  const existing = document.getElementById(`turn-item-${item.item_id}`);
+  const li = buildTurnItem(item, judgment);
+  if (existing) existing.replaceWith(li);
+  else turnsEl.appendChild(li);
+
+  openRunGroup(item.run_id);
+  setActiveTurnItem(item.item_id);
 }
 
 // ---------------------------------------------------------------------------
-// New Comparison
+// New Run
 // ---------------------------------------------------------------------------
-document.getElementById('btn-new').addEventListener('click', newComparison);
+async function newRun() {
+  clearPanels();
+  document.getElementById('prom-verdict').textContent = '';
+  document.getElementById('prom-body').textContent = '';
+  setPromStatus('Start a comparison.');
+  document.getElementById('btn-rejudge').disabled = true;
+  currentItemId = null;
 
-async function newComparison() {
-  showTab('compare');
-  document.querySelector('.input-bar').style.display = '';
-  document.getElementById('history-banner').style.display = 'none';
-
-  // Create run in backend
-  const res = await fetch('/api/runs', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+  const res = await fetch('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
   const data = await res.json();
   runId = data.run_id;
   sessionId = crypto.randomUUID();
   turnIdx = 0;
-  currentItemId = null;
-  selectedVerdict = null;
   aCriticScore = null;
 
   document.getElementById('run-info').textContent = `run: ${runId}  arm_b: ${data.arm_b_model}`;
   document.getElementById('b-model').textContent = data.arm_b_model;
-  document.getElementById('a-content').innerHTML = '';
-  document.getElementById('b-content').innerHTML = '';
-  document.getElementById('verdict-panel').classList.add('hidden');
   document.getElementById('input').disabled = false;
   document.getElementById('btn-send').disabled = false;
   document.getElementById('input').focus();
-
   setStatus('');
 
-  // Connect WebSockets
+  // Add to top of sidebar
+  const runEntry = { run_id: runId, arm_b_model: data.arm_b_model, created_at: Date.now() / 1000 };
+  const group = buildRunGroup(runEntry, [], {});
+  group.classList.add('open');
+  const sbRuns = document.getElementById('sidebar-runs');
+  sbRuns.insertBefore(group, sbRuns.firstChild);
+
   closeWS();
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   wsA = new WebSocket(`${proto}://${location.host}/arm_a/${sessionId}`);
   wsB = new WebSocket(`${proto}://${location.host}/arm_b/${sessionId}`);
-
-  wsA.onmessage = (e) => handleAEvent(JSON.parse(e.data));
-  wsB.onmessage = (e) => handleBEvent(JSON.parse(e.data));
+  wsA.onmessage = e => handleAEvent(JSON.parse(e.data));
+  wsB.onmessage = e => handleBEvent(JSON.parse(e.data));
   wsA.onerror = () => setStatus('arm_a error');
   wsB.onerror = () => setStatus('arm_b error');
 }
@@ -269,7 +406,7 @@ function closeWS() {
 }
 
 // ---------------------------------------------------------------------------
-// Send query
+// Send Query
 // ---------------------------------------------------------------------------
 function handleKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuery(); }
@@ -279,80 +416,86 @@ function sendQuery() {
   const q = document.getElementById('input').value.trim();
   if (!q || !wsA || !wsB) return;
 
-  // Reset turn state
-  aDone = false;
-  bDone = false;
-  aFull = "";
-  bFull = "";
-  bToolCalls = [];
+  aDone = false; bDone = false;
+  aFull = ''; bFull = '';
+  aThinking = ''; bThinking = '';
+  aToolCalls = []; bToolCalls = [];
+  aCurrentTool = null;
   aCriticScore = null;
-  selectedVerdict = null;
   currentItemId = null;
+  aThinkingEl = null;
+  bThinkingEl = null;
 
   currentQuery = q;
   document.getElementById('input').value = '';
-  document.getElementById('verdict-panel').classList.add('hidden');
-  clearVerdictButtons();
 
-  // Show query in both panels
+  clearPanels();
   appendMsg('a-content', 'user', q);
   appendMsg('b-content', 'user', q);
-
-  // Create streaming placeholders
   aStreamEl = appendMsg('a-content', 'assistant streaming', '');
   bStreamEl = appendMsg('b-content', 'assistant streaming', '');
 
   setStatus('streaming…', true);
+  setPromStatus('Waiting for responses…');
+  document.getElementById('prom-verdict').textContent = '';
+  document.getElementById('prom-body').textContent = '';
+  document.getElementById('btn-rejudge').disabled = true;
   document.getElementById('btn-send').disabled = true;
   document.getElementById('input').disabled = true;
 
-  // Send to both arms
   wsA.send(JSON.stringify({ query: q, run_id: runId }));
   wsB.send(JSON.stringify({ query: q, run_id: runId }));
-
   turnIdx++;
 }
 
 // ---------------------------------------------------------------------------
-// Arm A events (LoCAL2 format)
+// Arm A events (LoCAL2 ws_bridge format)
 // ---------------------------------------------------------------------------
 function handleAEvent(ev) {
   switch (ev.type) {
     case 'thinking_chunk':
-      // skip thinking display for now
+      aThinking += (ev.chunk || '');
+      if (!aThinkingEl) aThinkingEl = createThinkingBlock('a-content');
+      aThinkingEl.querySelector('.thinking-body').textContent += (ev.chunk || '');
       break;
     case 'tool_start':
+      aCurrentTool = { tool: ev.tool, args: ev.args || {}, result: '' };
       finaliseStreamEl('a');
       appendMsg('a-content', 'tool-call', `→ ${ev.tool}(${JSON.stringify(ev.args || {})})`);
       aStreamEl = appendMsg('a-content', 'assistant streaming', '');
       break;
     case 'tool_result':
-      appendMsg('a-content', 'tool-result', `← ${ev.tool}: ${(ev.result || '').slice(0, 200)}…`);
+      if (aCurrentTool) { aCurrentTool.result = ev.result || ''; aToolCalls.push(aCurrentTool); aCurrentTool = null; }
+      appendMsg('a-content', 'tool-result', `← ${ev.tool}: ${(ev.result || '').slice(0, 300)}`);
       break;
     case 'response':
       aFull = ev.answer || '';
-      if (aStreamEl) { aStreamEl.textContent = aFull; aStreamEl.classList.remove('streaming'); }
+      if (aStreamEl) { aStreamEl.textContent = aFull; aStreamEl.classList.remove('streaming'); aStreamEl = null; }
       aDone = true;
       checkBothDone();
       break;
     case 'critique':
       aCriticScore = ev.score;
-      const criEl = document.createElement('div');
-      criEl.className = 'critic-bar';
-      criEl.innerHTML = `critic: <span class="score">● ${ev.score}/5</span>  <span style="color:var(--muted)">${ev.rubric_name || 'realistic'}</span>`;
-      document.getElementById('a-content').appendChild(criEl);
+      appendCriticBar('a-content', ev.score, ev.rubric_name);
       if (currentItemId) updateItemCritic(currentItemId, ev.score);
       break;
   }
 }
 
 // ---------------------------------------------------------------------------
-// Arm B events (harness format)
+// Arm B events (harness arm_b format)
 // ---------------------------------------------------------------------------
+let bThinkingEl = null;
+
 function handleBEvent(ev) {
   switch (ev.type) {
+    case 'thinking_chunk':
+      bThinking += (ev.chunk || '');
+      if (!bThinkingEl) bThinkingEl = createThinkingBlock('b-content');
+      bThinkingEl.querySelector('.thinking-body').textContent += (ev.chunk || '');
+      break;
     case 'token':
-      if (bStreamEl) { bStreamEl.textContent += ev.content || ''; bStreamEl.scrollIntoView({block:'nearest'}); }
+      if (bStreamEl) { bStreamEl.textContent += (ev.content || ''); bStreamEl.scrollIntoView({ block: 'nearest' }); }
       break;
     case 'tool_call':
       finaliseStreamEl('b');
@@ -360,17 +503,17 @@ function handleBEvent(ev) {
       bStreamEl = appendMsg('b-content', 'assistant streaming', '');
       break;
     case 'tool_result':
-      appendMsg('b-content', 'tool-result', `← ${ev.tool}: ${(ev.result || '').slice(0, 200)}…`);
+      appendMsg('b-content', 'tool-result', `← ${ev.tool}: ${(ev.result || '').slice(0, 300)}`);
       break;
     case 'done':
       bFull = ev.content || '';
       bToolCalls = ev.tool_calls || [];
-      if (bStreamEl) { bStreamEl.textContent = bFull; bStreamEl.classList.remove('streaming'); }
+      if (bStreamEl) { bStreamEl.textContent = bFull; bStreamEl.classList.remove('streaming'); bStreamEl = null; }
       bDone = true;
       checkBothDone();
       break;
     case 'error':
-      if (bStreamEl) { bStreamEl.textContent = `[error: ${ev.content}]`; bStreamEl.classList.remove('streaming'); }
+      if (bStreamEl) { bStreamEl.textContent = `[error: ${ev.content}]`; bStreamEl.classList.remove('streaming'); bStreamEl = null; }
       bDone = true;
       checkBothDone();
       break;
@@ -380,12 +523,11 @@ function handleBEvent(ev) {
 function finaliseStreamEl(arm) {
   const el = arm === 'a' ? aStreamEl : bStreamEl;
   if (el) el.classList.remove('streaming');
-  if (arm === 'a') aStreamEl = null;
-  else bStreamEl = null;
+  if (arm === 'a') aStreamEl = null; else bStreamEl = null;
 }
 
 // ---------------------------------------------------------------------------
-// Both done → log item, show verdict panel
+// Both done → log item → auto-judge
 // ---------------------------------------------------------------------------
 async function checkBothDone() {
   if (!aDone || !bDone) return;
@@ -394,175 +536,158 @@ async function checkBothDone() {
   document.getElementById('btn-send').disabled = false;
   document.getElementById('input').disabled = false;
 
-  // Log item
   const res = await fetch('/api/items', {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      run_id: runId,
-      session_id: sessionId,
-      turn_idx: turnIdx,
+      run_id: runId, session_id: sessionId, turn_idx: turnIdx,
       prompt: currentQuery,
-      arm_a_output: aFull,
-      arm_b_output: bFull,
+      arm_a_output: aFull, arm_a_thinking: aThinking, arm_a_tool_calls: aToolCalls,
+      arm_b_output: bFull, arm_b_thinking: bThinking, arm_b_tool_calls: bToolCalls,
       arm_a_critic_score: aCriticScore,
-      arm_b_tool_calls: bToolCalls,
     }),
   });
   const data = await res.json();
   currentItemId = data.item_id;
 
-  document.getElementById('verdict-panel').classList.remove('hidden');
+  // Add pending turn to sidebar
+  addTurnToSidebar({
+    item_id: data.item_id, run_id: runId, turn_idx: turnIdx,
+    prompt: currentQuery, arm_a_output: aFull, arm_b_output: bFull,
+    arm_a_critic_score: aCriticScore,
+  }, null);
+
+  document.getElementById('btn-rejudge').disabled = false;
+  autoJudge();
 }
 
 async function updateItemCritic(itemId, score) {
-  // Re-upsert with critic score filled in
   await fetch('/api/items', {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       run_id: runId, session_id: sessionId, turn_idx: turnIdx,
-      prompt: '', arm_a_output: aFull, arm_b_output: bFull,
-      arm_a_critic_score: score, arm_b_tool_calls: bToolCalls,
+      prompt: currentQuery,
+      arm_a_output: aFull, arm_a_thinking: aThinking, arm_a_tool_calls: aToolCalls,
+      arm_b_output: bFull, arm_b_thinking: bThinking, arm_b_tool_calls: bToolCalls,
+      arm_a_critic_score: score,
       item_id: itemId,
     }),
   });
 }
 
 // ---------------------------------------------------------------------------
-// Verdict
+// View historical turn (sidebar click)
 // ---------------------------------------------------------------------------
-function selectVerdict(v) {
-  selectedVerdict = v;
-  document.getElementById('vbtn-a').classList.toggle('selected', v === 'a_better');
-  document.getElementById('vbtn-tie').classList.toggle('selected', v === 'tie');
-  document.getElementById('vbtn-b').classList.toggle('selected', v === 'b_better');
-}
+async function viewTurn(item) {
+  currentItemId = item.item_id;
+  setActiveTurnItem(item.item_id);
+  clearPanels();
 
-function clearVerdictButtons() {
-  ['vbtn-a','vbtn-tie','vbtn-b'].forEach(id => document.getElementById(id).classList.remove('selected'));
-  document.getElementById('verdict-rationale').value = '';
-}
-
-async function saveVerdict() {
-  if (!selectedVerdict || !currentItemId) return;
-  const rationale = document.getElementById('verdict-rationale').value.trim();
-  await fetch('/api/judgments', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({
-      run_id: runId, item_id: currentItemId,
-      verdict: selectedVerdict, rationale,
-    }),
-  });
-  const btn = document.getElementById('verdict-save');
-  btn.textContent = '✓ saved';
-  setTimeout(() => { btn.textContent = 'Save'; }, 1500);
-}
-
-// ---------------------------------------------------------------------------
-// History view
-// ---------------------------------------------------------------------------
-async function loadHistory() {
-  const runs = await fetch('/api/runs').then(r => r.json());
-  const el = document.getElementById('history-view');
-  el.innerHTML = '';
-
-  if (!runs.length) {
-    el.innerHTML = '<p style="color:var(--muted);margin-top:24px;text-align:center">No runs yet.</p>';
-    return;
+  // A panel — thinking, tool calls, response, critic bar
+  appendMsg('a-content', 'user', item.prompt || '');
+  const aThinkingStored = (item.arm_a_thinking || '').trim();
+  if (aThinkingStored) {
+    const d = createThinkingBlock('a-content');
+    d.querySelector('.thinking-body').textContent = aThinkingStored;
   }
+  for (const tc of parseToolCalls(item.arm_a_tool_calls)) {
+    appendMsg('a-content', 'tool-call', `→ ${tc.tool}(${JSON.stringify(tc.args || {})})`);
+    if (tc.result != null) appendMsg('a-content', 'tool-result', `← ${tc.tool}: ${String(tc.result).slice(0, 300)}`);
+  }
+  appendMsg('a-content', 'assistant', item.arm_a_output || '');
+  if (item.arm_a_critic_score != null) appendCriticBar('a-content', item.arm_a_critic_score);
 
-  for (const run of runs) {
-    const card = document.createElement('div');
-    card.className = 'run-card';
-    const agg = await fetch(`/api/aggregate/${run.run_id}`).then(r => r.json());
-    card.innerHTML = `
-      <h3>Run ${run.run_id} — ${run.arm_b_model}</h3>
-      <div class="meta">
-        ${new Date(run.created_at * 1000).toLocaleString()}
-        &nbsp;·&nbsp; ${agg.judged}/${agg.total_items} judged
-        &nbsp;·&nbsp; A: ${agg.a_wins} | tie: ${agg.ties} | B: ${agg.b_wins}
-        ${agg.a_win_rate != null ? `&nbsp;·&nbsp; A win-rate: ${(agg.a_win_rate*100).toFixed(0)}%` : ''}
-      </div>
-    `;
-    card.addEventListener('click', () => loadRunDetail(run.run_id));
-    el.appendChild(card);
+  // B panel — thinking, tool calls, response
+  appendMsg('b-content', 'user', item.prompt || '');
+  const bThinkingStored = (item.arm_b_thinking || '').trim();
+  if (bThinkingStored) {
+    const d = createThinkingBlock('b-content');
+    d.querySelector('.thinking-body').textContent = bThinkingStored;
+  }
+  for (const tc of parseToolCalls(item.arm_b_tool_calls)) {
+    appendMsg('b-content', 'tool-call', `→ ${tc.tool}(${JSON.stringify(tc.args || {})})`);
+    if (tc.result != null) appendMsg('b-content', 'tool-result', `← ${tc.tool}: ${String(tc.result).slice(0, 300)}`);
+  }
+  appendMsg('b-content', 'assistant', item.arm_b_output || '');
+
+  document.getElementById('btn-rejudge').disabled = false;
+  document.getElementById('btn-rejudge').textContent = 'Re-judge';
+  document.getElementById('prom-verdict').textContent = '';
+  document.getElementById('prom-body').textContent = '';
+  setPromStatus('Loading…');
+
+  const j = await fetch(`/api/items/${item.item_id}/judgment`).then(r => r.json()).catch(() => ({}));
+  if (j && j.verdict) {
+    showJudgmentInPanel(j);
+  } else {
+    setPromStatus('No judgment yet.');
   }
 }
 
-async function loadRunDetail(rid) {
-  const [runData, judgments, agg] = await Promise.all([
-    fetch(`/api/runs/${rid}`).then(r => r.json()),
-    fetch(`/api/judgments/${rid}`).then(r => r.json()),
-    fetch(`/api/aggregate/${rid}`).then(r => r.json()),
-  ]);
-  const items = runData.items;
-  if (!items.length) return;
+function parseToolCalls(raw) {
+  if (!raw) return [];
+  try {
+    const arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
 
-  const judgmentMap = {};
-  judgments.forEach(j => { judgmentMap[j.item_id] = j; });
+// ---------------------------------------------------------------------------
+// Auto-judge (Prometheus pairwise)
+// ---------------------------------------------------------------------------
+async function autoJudge() {
+  const itemId = currentItemId;
+  if (!itemId) return;
 
-  // Switch to compare tab in history-review mode
-  showTab('compare');
-  document.querySelector('.input-bar').style.display = 'none';
-  document.getElementById('history-banner').style.display = 'flex';
+  const btn = document.getElementById('btn-rejudge');
+  btn.textContent = 'Judging…';
+  btn.disabled = true;
+  setPromStatus('Running Prometheus…');
+  document.getElementById('prom-verdict').textContent = '';
+  document.getElementById('prom-body').textContent = '';
 
-  runId = rid;
-  document.getElementById('hb-run-info').textContent = `run: ${rid}  ·  ${runData.arm_b_model || ''}`;
-  const winRate = agg.a_win_rate != null ? `  ·  A win-rate: <span class="hl">${(agg.a_win_rate*100).toFixed(0)}%</span>` : '';
-  document.getElementById('hb-aggregate').innerHTML =
-    `${agg.judged}/${agg.total_items} judged  ·  ` +
-    `A: <span class="hl">${agg.a_wins}</span>  tie: ${agg.ties}  B: <span class="hl">${agg.b_wins}</span>${winRate}`;
-
-  function showHistoryTurn(i) {
-    const item = items[i];
-    const judgment = judgmentMap[item.item_id];
-
-    document.getElementById('a-content').innerHTML = '';
-    document.getElementById('b-content').innerHTML = '';
-
-    appendMsg('a-content', 'user', item.prompt);
-    appendMsg('b-content', 'user', item.prompt);
-    appendMsg('a-content', 'assistant', item.arm_a_output);
-    appendMsg('b-content', 'assistant', item.arm_b_output);
-
-    if (item.arm_a_critic_score != null) {
-      const criEl = document.createElement('div');
-      criEl.className = 'critic-bar';
-      criEl.innerHTML = `critic: <span class="score">● ${item.arm_a_critic_score}/5</span>`;
-      document.getElementById('a-content').appendChild(criEl);
+  try {
+    const res = await fetch(`/api/judge/${itemId}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.error) {
+      setPromStatus(`Error: ${data.error}`);
+      btn.textContent = 'Retry';
+      btn.disabled = false;
+      return;
     }
-
-    currentItemId = item.item_id;
-    document.getElementById('verdict-panel').classList.remove('hidden');
-    clearVerdictButtons();
-    if (judgment) selectVerdict(judgment.verdict);
-    document.getElementById('verdict-rationale').value = judgment?.rationale || '';
-
-    document.getElementById('hb-turn-nav').innerHTML = `
-      <button onclick="_showHistoryTurn(${i-1})" ${i===0?'disabled':''}>← prev</button>
-      <span style="color:var(--muted)">turn ${i+1}/${items.length}</span>
-      <button onclick="_showHistoryTurn(${i+1})" ${i===items.length-1?'disabled':''}>next →</button>
-    `;
+    showJudgmentInPanel(data);
+    updateSidebarTurnVerdict(itemId, data.verdict);
+    btn.textContent = 'Re-judge';
+  } catch (e) {
+    setPromStatus('Judge failed.');
+    btn.textContent = 'Retry';
+  } finally {
+    btn.disabled = false;
   }
-
-  window._showHistoryTurn = showHistoryTurn;
-  showHistoryTurn(0);
 }
 
-function exitHistory() {
-  document.querySelector('.input-bar').style.display = '';
-  document.getElementById('history-banner').style.display = 'none';
-  document.getElementById('verdict-panel').classList.add('hidden');
+function showJudgmentInPanel(data) {
+  const verdict = data.verdict;
+  const vEl = document.getElementById('prom-verdict');
+  vEl.textContent = _VERDICT_LABELS[verdict] || verdict;
+  vEl.style.color = _VERDICT_COLORS[verdict] || 'var(--text)';
+
+  const raw = data.feedback || data.rationale || '';
+  const m = raw.match(/Feedback:\s*([\s\S]*?)(?:\[RESULT\]|$)/i);
+  const feedback = m ? m[1].trim() : raw;
+  document.getElementById('prom-body').textContent = feedback;
+  setPromStatus('');
+}
+
+// ---------------------------------------------------------------------------
+// DOM helpers
+// ---------------------------------------------------------------------------
+function clearPanels() {
   document.getElementById('a-content').innerHTML = '';
   document.getElementById('b-content').innerHTML = '';
-  showTab('history');
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 function appendMsg(containerId, cls, text) {
   const el = document.createElement('div');
   el.className = `msg ${cls}`;
@@ -572,10 +697,34 @@ function appendMsg(containerId, cls, text) {
   return el;
 }
 
+function appendCriticBar(containerId, score, rubricName) {
+  const el = document.createElement('div');
+  el.className = 'critic-bar';
+  el.innerHTML = `critic: <span class="score">● ${score}/5</span>`
+    + (rubricName ? `  <span style="color:var(--muted)">${rubricName}</span>` : '');
+  document.getElementById(containerId).appendChild(el);
+}
+
+function createThinkingBlock(containerId) {
+  const details = document.createElement('details');
+  details.className = 'thinking-block';
+  details.innerHTML = '<summary>thinking</summary><div class="thinking-body"></div>';
+  document.getElementById(containerId).appendChild(details);
+  return details;
+}
+
 function setStatus(msg, streaming = false) {
   const el = document.getElementById('status');
   el.textContent = msg;
   el.className = 'status' + (streaming ? ' streaming' : '');
+}
+
+function setPromStatus(msg) {
+  document.getElementById('prom-status').textContent = msg;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 </script>
 </body>

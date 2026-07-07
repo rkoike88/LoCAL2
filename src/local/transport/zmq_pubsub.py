@@ -30,7 +30,7 @@ class ZmqPublisher:
         else:
             self.socket.connect(address)
 
-    def publish(self, message: "Union[MessageEnvelope, BusMessage]", *, sender_id: str = "", correlation_id: str = "", session_id: str = "") -> None:
+    def publish(self, message: "Union[MessageEnvelope, BusMessage]", *, sender_id: str = "", correlation_id: str = "", session_id: str = "", user_id: str = "") -> None:
         from local.protocol.messages import BusMessage
         if isinstance(message, BusMessage):
             envelope = message.to_envelope(
@@ -38,6 +38,8 @@ class ZmqPublisher:
                 correlation_id=correlation_id,
                 session_id=session_id,
             )
+            if user_id:
+                envelope.metadata["user_id"] = user_id
         else:
             envelope = message
         self.socket.send_multipart([

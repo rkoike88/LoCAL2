@@ -16,6 +16,15 @@ def init_db(path: str) -> None:
     _DB_PATH = Path(path)
     with _conn() as con:
         con.executescript("""
+            CREATE TABLE IF NOT EXISTS prompts (
+                prompt_id        TEXT PRIMARY KEY,
+                source_idx       INTEGER,
+                instruction      TEXT UNIQUE,
+                reference_answer TEXT DEFAULT '',
+                criteria         TEXT DEFAULT '',
+                score_rubric     TEXT DEFAULT '',
+                created_at       REAL
+            );
             CREATE TABLE IF NOT EXISTS runs (
                 run_id       TEXT PRIMARY KEY,
                 created_at   REAL,
@@ -24,16 +33,20 @@ def init_db(path: str) -> None:
                 config_json  TEXT
             );
             CREATE TABLE IF NOT EXISTS items (
-                item_id           TEXT PRIMARY KEY,
-                run_id            TEXT,
-                session_id        TEXT,
-                turn_idx          INTEGER,
-                prompt            TEXT,
-                arm_a_output      TEXT DEFAULT '',
-                arm_b_output      TEXT DEFAULT '',
+                item_id            TEXT PRIMARY KEY,
+                run_id             TEXT,
+                session_id         TEXT,
+                turn_idx           INTEGER,
+                prompt             TEXT,
+                prompt_id          TEXT DEFAULT '',
+                arm_a_output       TEXT DEFAULT '',
+                arm_a_thinking     TEXT DEFAULT '',
+                arm_a_tool_calls   TEXT DEFAULT '[]',
+                arm_b_output       TEXT DEFAULT '',
+                arm_b_thinking     TEXT DEFAULT '',
+                arm_b_tool_calls   TEXT DEFAULT '[]',
                 arm_a_critic_score REAL,
-                arm_b_tool_calls  TEXT DEFAULT '[]',
-                timestamp         REAL
+                timestamp          REAL
             );
             CREATE TABLE IF NOT EXISTS judgments (
                 judgment_id      TEXT PRIMARY KEY,
@@ -42,10 +55,25 @@ def init_db(path: str) -> None:
                 verdict          TEXT,
                 rubric_scores_json TEXT DEFAULT '{}',
                 rationale        TEXT DEFAULT '',
+                reference_answer TEXT DEFAULT '',
+                rubric           TEXT DEFAULT '',
                 judge_type       TEXT DEFAULT 'human',
                 timestamp        REAL
             );
         """)
+        # Idempotent migration for existing DBs — add new columns if absent
+        _add_column_if_missing(con, "items", "prompt_id", "TEXT DEFAULT ''")
+        _add_column_if_missing(con, "items", "arm_a_thinking", "TEXT DEFAULT ''")
+        _add_column_if_missing(con, "items", "arm_a_tool_calls", "TEXT DEFAULT '[]'")
+        _add_column_if_missing(con, "items", "arm_b_thinking", "TEXT DEFAULT ''")
+        _add_column_if_missing(con, "judgments", "reference_answer", "TEXT DEFAULT ''")
+        _add_column_if_missing(con, "judgments", "rubric", "TEXT DEFAULT ''")
+
+
+def _add_column_if_missing(con: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    cols = {row[1] for row in con.execute(f"PRAGMA table_info({table})")}
+    if column not in cols:
+        con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def _conn() -> sqlite3.Connection:
@@ -77,6 +105,45 @@ def list_runs() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Prompts
+# ---------------------------------------------------------------------------
+
+def insert_prompt(
+    prompt_id: str,
+    source_idx: int,
+    instruction: str,
+    reference_answer: str,
+    criteria: str,
+    score_rubric: str,
+) -> None:
+    with _conn() as con:
+        con.execute(
+            "INSERT OR IGNORE INTO prompts VALUES (?,?,?,?,?,?,?)",
+            (prompt_id, source_idx, instruction, reference_answer, criteria, score_rubric, time.time()),
+        )
+
+
+def get_prompts(limit: int = 100, offset: int = 0) -> list[dict]:
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT * FROM prompts ORDER BY source_idx LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def count_prompts() -> int:
+    with _conn() as con:
+        return con.execute("SELECT COUNT(*) FROM prompts").fetchone()[0]
+
+
+def get_prompt(prompt_id: str) -> dict | None:
+    with _conn() as con:
+        row = con.execute("SELECT * FROM prompts WHERE prompt_id=?", (prompt_id,)).fetchone()
+    return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
 # Items
 # ---------------------------------------------------------------------------
 
@@ -86,32 +153,57 @@ def upsert_item(
     turn_idx: int,
     prompt: str,
     arm_a_output: str = "",
+    arm_a_thinking: str = "",
+    arm_a_tool_calls: list | None = None,
     arm_b_output: str = "",
-    arm_a_critic_score: float | None = None,
+    arm_b_thinking: str = "",
     arm_b_tool_calls: list | None = None,
+    arm_a_critic_score: float | None = None,
+    prompt_id: str = "",
     item_id: str | None = None,
 ) -> str:
     iid = item_id or str(uuid.uuid4())
     with _conn() as con:
         con.execute(
             """INSERT INTO items
-               (item_id, run_id, session_id, turn_idx, prompt,
-                arm_a_output, arm_b_output, arm_a_critic_score, arm_b_tool_calls, timestamp)
-               VALUES (?,?,?,?,?,?,?,?,?,?)
+               (item_id, run_id, session_id, turn_idx, prompt, prompt_id,
+                arm_a_output, arm_a_thinking, arm_a_tool_calls,
+                arm_b_output, arm_b_thinking, arm_b_tool_calls,
+                arm_a_critic_score, timestamp)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(item_id) DO UPDATE SET
                  arm_a_output=excluded.arm_a_output,
+                 arm_a_thinking=excluded.arm_a_thinking,
+                 arm_a_tool_calls=excluded.arm_a_tool_calls,
                  arm_b_output=excluded.arm_b_output,
-                 arm_a_critic_score=excluded.arm_a_critic_score,
-                 arm_b_tool_calls=excluded.arm_b_tool_calls
+                 arm_b_thinking=excluded.arm_b_thinking,
+                 arm_b_tool_calls=excluded.arm_b_tool_calls,
+                 arm_a_critic_score=excluded.arm_a_critic_score
             """,
             (
-                iid, run_id, session_id, turn_idx, prompt,
-                arm_a_output, arm_b_output, arm_a_critic_score,
-                json.dumps(arm_b_tool_calls or []),
+                iid, run_id, session_id, turn_idx, prompt, prompt_id,
+                arm_a_output, arm_a_thinking, json.dumps(arm_a_tool_calls or []),
+                arm_b_output, arm_b_thinking, json.dumps(arm_b_tool_calls or []),
+                arm_a_critic_score,
                 time.time(),
             ),
         )
     return iid
+
+
+def get_item(item_id: str) -> dict | None:
+    with _conn() as con:
+        row = con.execute("SELECT * FROM items WHERE item_id=?", (item_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_item_judgment(item_id: str, judge_type: str = "prometheus") -> dict | None:
+    with _conn() as con:
+        row = con.execute(
+            "SELECT * FROM judgments WHERE item_id=? AND judge_type=? ORDER BY timestamp DESC LIMIT 1",
+            (item_id, judge_type),
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def get_items(run_id: str, session_id: str | None = None) -> list[dict]:

@@ -1,4 +1,4 @@
-local2_url: "ws://localhost:3000"
+local2_url: "ws://localhost:8000"
 
 arm_b:
   backend: ollama
@@ -20,3 +20,12 @@ fetch:
 
 harness_port: 7001
 db_path: "harness.db"
+
+judge:
+  model: "prometheus-7b:latest"
+  temperature: 0.0
+  num_ctx: 32000
+  rubric: |
+    [Which response is more helpful, accurate, and comprehensive?
+    Consider: factual correctness, depth of reasoning, practical usefulness, and clarity.
+    Prefer the response that would leave the user better informed or more capable of acting on the information.]

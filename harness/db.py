@@ -65,9 +65,24 @@ def init_db(path: str) -> None:
         _add_column_if_missing(con, "items", "prompt_id", "TEXT DEFAULT ''")
         _add_column_if_missing(con, "items", "arm_a_thinking", "TEXT DEFAULT ''")
         _add_column_if_missing(con, "items", "arm_a_tool_calls", "TEXT DEFAULT '[]'")
+        _add_column_if_missing(con, "items", "arm_a_capsules", "TEXT DEFAULT '[]'")
+        _add_column_if_missing(con, "items", "arm_a_candidates", "TEXT DEFAULT '[]'")
         _add_column_if_missing(con, "items", "arm_b_thinking", "TEXT DEFAULT ''")
+        _add_column_if_missing(con, "items", "arm_a_t_submit", "REAL")
+        _add_column_if_missing(con, "items", "arm_a_t_first_event", "REAL")
+        _add_column_if_missing(con, "items", "arm_a_t_complete", "REAL")
+        _add_column_if_missing(con, "items", "arm_a_timed_out", "INTEGER DEFAULT 0")
+        _add_column_if_missing(con, "items", "arm_b_t_submit", "REAL")
+        _add_column_if_missing(con, "items", "arm_b_t_first_event", "REAL")
+        _add_column_if_missing(con, "items", "arm_b_t_complete", "REAL")
+        _add_column_if_missing(con, "items", "arm_b_timed_out", "INTEGER DEFAULT 0")
         _add_column_if_missing(con, "judgments", "reference_answer", "TEXT DEFAULT ''")
         _add_column_if_missing(con, "judgments", "rubric", "TEXT DEFAULT ''")
+        _add_column_if_missing(con, "judgments", "t_judge_start", "REAL")
+        _add_column_if_missing(con, "judgments", "verdict_pass1", "TEXT DEFAULT ''")
+        _add_column_if_missing(con, "judgments", "feedback_pass2", "TEXT DEFAULT ''")
+        _add_column_if_missing(con, "judgments", "verdict_pass2", "TEXT DEFAULT ''")
+        _add_column_if_missing(con, "judgments", "t_judge_start_pass2", "REAL")
 
 
 def _add_column_if_missing(con: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -155,37 +170,61 @@ def upsert_item(
     arm_a_output: str = "",
     arm_a_thinking: str = "",
     arm_a_tool_calls: list | None = None,
+    arm_a_capsules: list | None = None,
+    arm_a_candidates: list | None = None,
     arm_b_output: str = "",
     arm_b_thinking: str = "",
     arm_b_tool_calls: list | None = None,
     arm_a_critic_score: float | None = None,
     prompt_id: str = "",
     item_id: str | None = None,
+    arm_a_t_submit: float | None = None,
+    arm_a_t_first_event: float | None = None,
+    arm_a_t_complete: float | None = None,
+    arm_a_timed_out: bool = False,
+    arm_b_t_submit: float | None = None,
+    arm_b_t_first_event: float | None = None,
+    arm_b_t_complete: float | None = None,
+    arm_b_timed_out: bool = False,
 ) -> str:
     iid = item_id or str(uuid.uuid4())
     with _conn() as con:
         con.execute(
             """INSERT INTO items
                (item_id, run_id, session_id, turn_idx, prompt, prompt_id,
-                arm_a_output, arm_a_thinking, arm_a_tool_calls,
+                arm_a_output, arm_a_thinking, arm_a_tool_calls, arm_a_capsules, arm_a_candidates,
                 arm_b_output, arm_b_thinking, arm_b_tool_calls,
-                arm_a_critic_score, timestamp)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                arm_a_critic_score, timestamp,
+                arm_a_t_submit, arm_a_t_first_event, arm_a_t_complete, arm_a_timed_out,
+                arm_b_t_submit, arm_b_t_first_event, arm_b_t_complete, arm_b_timed_out)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(item_id) DO UPDATE SET
                  arm_a_output=excluded.arm_a_output,
                  arm_a_thinking=excluded.arm_a_thinking,
                  arm_a_tool_calls=excluded.arm_a_tool_calls,
+                 arm_a_capsules=excluded.arm_a_capsules,
+                 arm_a_candidates=excluded.arm_a_candidates,
                  arm_b_output=excluded.arm_b_output,
                  arm_b_thinking=excluded.arm_b_thinking,
                  arm_b_tool_calls=excluded.arm_b_tool_calls,
-                 arm_a_critic_score=excluded.arm_a_critic_score
+                 arm_a_critic_score=excluded.arm_a_critic_score,
+                 arm_a_t_submit=excluded.arm_a_t_submit,
+                 arm_a_t_first_event=excluded.arm_a_t_first_event,
+                 arm_a_t_complete=excluded.arm_a_t_complete,
+                 arm_a_timed_out=excluded.arm_a_timed_out,
+                 arm_b_t_submit=excluded.arm_b_t_submit,
+                 arm_b_t_first_event=excluded.arm_b_t_first_event,
+                 arm_b_t_complete=excluded.arm_b_t_complete,
+                 arm_b_timed_out=excluded.arm_b_timed_out
             """,
             (
                 iid, run_id, session_id, turn_idx, prompt, prompt_id,
                 arm_a_output, arm_a_thinking, json.dumps(arm_a_tool_calls or []),
+                json.dumps(arm_a_capsules or []), json.dumps(arm_a_candidates or []),
                 arm_b_output, arm_b_thinking, json.dumps(arm_b_tool_calls or []),
-                arm_a_critic_score,
-                time.time(),
+                arm_a_critic_score, time.time(),
+                arm_a_t_submit, arm_a_t_first_event, arm_a_t_complete, int(arm_a_timed_out),
+                arm_b_t_submit, arm_b_t_first_event, arm_b_t_complete, int(arm_b_timed_out),
             ),
         )
     return iid
@@ -215,7 +254,7 @@ def get_items(run_id: str, session_id: str | None = None) -> list[dict]:
             ).fetchall()
         else:
             rows = con.execute(
-                "SELECT * FROM items WHERE run_id=? ORDER BY session_id, turn_idx",
+                "SELECT * FROM items WHERE run_id=? ORDER BY timestamp, turn_idx",
                 (run_id,),
             ).fetchall()
     return [dict(r) for r in rows]
@@ -232,15 +271,28 @@ def save_judgment(
     rubric_scores: dict | None = None,
     rationale: str = "",
     judge_type: str = "human",
+    reference_answer: str = "",
+    rubric: str = "",
+    t_judge_start: float | None = None,
+    verdict_pass1: str = "",
+    feedback_pass2: str = "",
+    verdict_pass2: str = "",
+    t_judge_start_pass2: float | None = None,
 ) -> str:
     jid = str(uuid.uuid4())
     with _conn() as con:
         con.execute(
-            "INSERT INTO judgments VALUES (?,?,?,?,?,?,?,?)",
+            """INSERT INTO judgments
+               (judgment_id, run_id, item_id, verdict, rubric_scores_json,
+                rationale, reference_answer, rubric, judge_type, timestamp, t_judge_start,
+                verdict_pass1, feedback_pass2, verdict_pass2, t_judge_start_pass2)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 jid, run_id, item_id, verdict,
-                json.dumps(rubric_scores or {}), rationale, judge_type,
-                time.time(),
+                json.dumps(rubric_scores or {}), rationale,
+                reference_answer, rubric, judge_type,
+                time.time(), t_judge_start,
+                verdict_pass1, feedback_pass2, verdict_pass2, t_judge_start_pass2,
             ),
         )
     return jid

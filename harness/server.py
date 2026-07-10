@@ -1,8 +1,8 @@
 """Harness server — FastAPI app for the LoCAL2 comparison harness.
 
 Endpoints:
-  WS  /arm_a/{session_id}     — proxy to LoCAL2 gateway (injects user_id)
-  WS  /arm_b/{session_id}     — bare model tool-call loop
+  WS  /arm_a/{session_id}     — proxy to LoCAL2 (normal mode: memory + tools)
+  WS  /arm_b/{session_id}     — proxy to LoCAL2 (native mode: bare model + web tools)
   POST /api/runs              — create a run
   GET  /api/runs              — list runs
   GET  /api/runs/{run_id}     — run detail + items
@@ -10,13 +10,14 @@ Endpoints:
   GET  /api/judgments/{run_id}— list judgments for a run
   GET  /api/aggregate/{run_id}— win-rate stats
   GET  /                      — serve index.html
+
+arm_a = LoCAL2 (full augmentation), arm_b = Native (bare model). Always.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-import threading
 from pathlib import Path
 from typing import Optional
 
@@ -29,7 +30,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from harness import db
-from harness.arm_b import ArmBClient
 from harness.judge import PairwiseJudge
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,6 @@ _LOCAL2_URL: str = _cfg.get("local2_url", "ws://localhost:3000")
 app = FastAPI(title="LoCAL2 Harness")
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
-_arm_b = ArmBClient()
 _judge = PairwiseJudge()
 
 
@@ -64,8 +63,9 @@ async def ws_arm_a(websocket: WebSocket, session_id: str) -> None:
                     while True:
                         raw = await websocket.receive_text()
                         data = json.loads(raw)
-                        run_id = data.pop("run_id", "")
-                        data["user_id"] = f"arm_a_{run_id}" if run_id else "arm_a_default"
+                        data.pop("run_id", "")
+                        if "user_id" not in data or not data["user_id"]:
+                            data["user_id"] = "arm_a_default"
                         await local2_ws.send(json.dumps(data))
                 except (WebSocketDisconnect, asyncio.CancelledError):
                     pass
@@ -84,47 +84,41 @@ async def ws_arm_a(websocket: WebSocket, session_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Arm B — bare model tool-call loop
+# Arm B — native mode proxy to LoCAL2 (no memory/augmentation)
 # ---------------------------------------------------------------------------
 
 @app.websocket("/arm_b/{session_id}")
 async def ws_arm_b(websocket: WebSocket, session_id: str) -> None:
-    """Run Arm B tool-call loop, streaming events to the browser."""
+    """Proxy browser WS to LoCAL2 in native mode (bare model + web tools only)."""
     await websocket.accept()
-    loop = asyncio.get_event_loop()
+    local2_ws_url = f"{_LOCAL2_URL}/ws/chat/{session_id}"
 
     try:
-        while True:
-            data = await websocket.receive_json()
-            query: str = data.get("query", "").strip()
-            if not query:
-                continue
-
-            queue: asyncio.Queue = asyncio.Queue()
-
-            def _run() -> None:
-                def _emit(event: dict) -> None:
-                    asyncio.run_coroutine_threadsafe(queue.put(event), loop)
+        async with websockets.connect(local2_ws_url) as local2_ws:
+            async def browser_to_local2() -> None:
                 try:
-                    _arm_b.stream(session_id, query, _emit)
-                except Exception as exc:
-                    asyncio.run_coroutine_threadsafe(
-                        queue.put({"type": "error", "content": str(exc)}), loop
-                    )
-                finally:
-                    asyncio.run_coroutine_threadsafe(queue.put(None), loop)
+                    while True:
+                        raw = await websocket.receive_text()
+                        data = json.loads(raw)
+                        data.pop("run_id", "")
+                        data["native"] = True
+                        if "user_id" not in data or not data["user_id"]:
+                            data["user_id"] = "arm_b_default"
+                        await local2_ws.send(json.dumps(data))
+                except (WebSocketDisconnect, asyncio.CancelledError):
+                    pass
 
-            # daemon=True so Ctrl-C doesn't wait for in-flight Ollama calls to finish
-            threading.Thread(target=_run, daemon=True).start()
+            async def local2_to_browser() -> None:
+                try:
+                    async for message in local2_ws:
+                        await websocket.send_text(message if isinstance(message, str) else message.decode())
+                except (asyncio.CancelledError, Exception):
+                    pass
 
-            while True:
-                event = await queue.get()
-                if event is None:
-                    break
-                await websocket.send_json(event)
-
-    except (WebSocketDisconnect, asyncio.CancelledError):
-        pass
+            await asyncio.gather(browser_to_local2(), local2_to_browser())
+    except (asyncio.CancelledError, Exception) as exc:
+        if not isinstance(exc, asyncio.CancelledError):
+            logger.warning("arm_b (native) proxy error: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -132,17 +126,15 @@ async def ws_arm_b(websocket: WebSocket, session_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 class RunRequest(BaseModel):
-    arm_b_model: Optional[str] = None
-    arm_b_backend: Optional[str] = None
+    native_model: Optional[str] = None
 
 
 @app.post("/api/runs")
 async def create_run(body: RunRequest) -> JSONResponse:
-    arm_b_cfg = _cfg.get("arm_b", {})
-    model   = body.arm_b_model   or arm_b_cfg.get("model", "")
-    backend = body.arm_b_backend or arm_b_cfg.get("backend", "ollama")
-    run_id = db.create_run(model, backend, arm_b_cfg)
-    return JSONResponse({"run_id": run_id, "arm_b_model": model, "arm_b_backend": backend})
+    generator_cfg = _cfg.get("generator", {})
+    model = body.native_model or generator_cfg.get("model", "native")
+    run_id = db.create_run(model, "local2-gateway", _cfg)
+    return JSONResponse({"run_id": run_id, "native_model": model})
 
 
 @app.get("/api/runs")
@@ -169,6 +161,8 @@ class ItemRequest(BaseModel):
     arm_a_output: str = ""
     arm_a_thinking: str = ""
     arm_a_tool_calls: list = []
+    arm_a_capsules: list = []
+    arm_a_candidates: list = []
     arm_b_output: str = ""
     arm_b_thinking: str = ""
     arm_b_tool_calls: list = []
@@ -187,6 +181,8 @@ async def upsert_item(body: ItemRequest) -> JSONResponse:
         arm_a_output=body.arm_a_output,
         arm_a_thinking=body.arm_a_thinking,
         arm_a_tool_calls=body.arm_a_tool_calls,
+        arm_a_capsules=body.arm_a_capsules,
+        arm_a_candidates=body.arm_a_candidates,
         arm_b_output=body.arm_b_output,
         arm_b_thinking=body.arm_b_thinking,
         arm_b_tool_calls=body.arm_b_tool_calls,
@@ -211,8 +207,8 @@ class JudgmentRequest(BaseModel):
 
 @app.post("/api/judgments")
 async def save_judgment(body: JudgmentRequest) -> JSONResponse:
-    if body.verdict not in ("a_better", "tie", "b_better"):
-        return JSONResponse({"error": "verdict must be a_better, tie, or b_better"}, status_code=422)
+    if body.verdict not in ("local2_better", "tie", "native_better"):
+        return JSONResponse({"error": "verdict must be local2_better, tie, or native_better"}, status_code=422)
     jid = db.save_judgment(
         run_id=body.run_id,
         item_id=body.item_id,
@@ -245,19 +241,56 @@ async def auto_judge(item_id: str) -> JSONResponse:
         return JSONResponse({"error": "item not found"}, status_code=404)
     if not item.get("arm_a_output") or not item.get("arm_b_output"):
         return JSONResponse({"error": "both arms must have output before judging"}, status_code=422)
+    prompt_row = db.get_prompt(item.get("prompt_id", "")) if item.get("prompt_id") else None
+    reference_answer = (prompt_row or {}).get("reference_answer", "")
+    rubric = (prompt_row or {}).get("score_rubric", "")
     loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(
-        None,
-        lambda: _judge.judge(item["prompt"], item["arm_a_output"], item["arm_b_output"]),
-    )
-    db.save_judgment(
-        run_id=item["run_id"],
-        item_id=item_id,
-        verdict=result["verdict"],
-        rationale=result["feedback"],
-        judge_type="prometheus",
-    )
-    return JSONResponse(result)
+    double_judge: bool = _cfg.get("judge", {}).get("double_judge", False)
+
+    if double_judge:
+        result = await loop.run_in_executor(
+            None,
+            lambda: _judge.judge_both(
+                item["prompt"], item["arm_a_output"], item["arm_b_output"],
+                reference_answer=reference_answer, rubric=rubric or None,
+            ),
+        )
+        db.save_judgment(
+            run_id=item["run_id"],
+            item_id=item_id,
+            verdict=result["verdict"],
+            rationale=result["feedback_pass1"],
+            judge_type="prometheus",
+            reference_answer=reference_answer,
+            rubric=rubric,
+            t_judge_start=result["t_judge_start"],
+            verdict_pass1=result["verdict_pass1"],
+            feedback_pass2=result["feedback_pass2"],
+            verdict_pass2=result["verdict_pass2"],
+            t_judge_start_pass2=result["t_judge_start_pass2"],
+        )
+    else:
+        result = await loop.run_in_executor(
+            None,
+            lambda: _judge.judge(
+                item["prompt"], item["arm_a_output"], item["arm_b_output"],
+                reference_answer=reference_answer, rubric=rubric or None,
+            ),
+        )
+        # Translate raw verdict (arm_a=LoCAL2 in UI manual runs)
+        verdict = {"a_better": "local2_better", "b_better": "native_better"}.get(result["verdict"], result["verdict"])
+        result = {**result, "verdict": verdict}
+        db.save_judgment(
+            run_id=item["run_id"],
+            item_id=item_id,
+            verdict=verdict,
+            rationale=result["feedback"],
+            judge_type="prometheus",
+            reference_answer=reference_answer,
+            rubric=rubric,
+        )
+
+    return JSONResponse({**result, "rubric": rubric})
 
 
 @app.get("/api/items/{item_id}")
@@ -292,7 +325,7 @@ def main() -> None:
     cfg = yaml.safe_load(_CONFIG_PATH.read_text())
     db.init_db(cfg.get("db_path", "harness.db"))
     port = cfg.get("harness_port", 7001)
-    logger.info("Harness starting on port %d  arm_b=%s", port, cfg.get("arm_b", {}).get("model", "?"))
+    logger.info("Harness starting on port %d  local2=%s", port, cfg.get("local2_url", "?"))
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
 
 

@@ -3,7 +3,9 @@ local2_url: "ws://localhost:8000"
 arm_b:
   backend: ollama
   model: gemma4:e4b-mlx
-  temperature: 0.7
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 64
   system_prompt: ""
   tools:
     web_search: true
@@ -25,6 +27,8 @@ judge:
   model: "prometheus-7b:latest"
   temperature: 0.0
   num_ctx: 32000
+  double_judge: true          # run both positions; win condition = win both passes
+  position: "native_first"   # used only when double_judge: false
   rubric: |
     [Which response is more helpful, accurate, and comprehensive?
     Consider: factual correctness, depth of reasoning, practical usefulness, and clarity.

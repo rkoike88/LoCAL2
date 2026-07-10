@@ -27,6 +27,12 @@
            border-bottom: 1px solid var(--border); background: var(--surface1); flex-shrink: 0; }
   header h1 { color: var(--accent); font-size: 14px; letter-spacing: 0.03em; }
   .run-info { color: var(--muted); font-size: 11px; }
+  .user-selector { display: flex; align-items: center; gap: 5px; }
+  .user-selector label { color: var(--muted); font-size: 11px; }
+  .user-selector input { background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+                         border-radius: 3px; padding: 2px 6px; font-family: inherit; font-size: 11px;
+                         width: 110px; }
+  .user-selector input:focus { outline: none; border-color: var(--accent); }
   .spacer { flex: 1; }
 
   /* --- Buttons --- */
@@ -73,9 +79,9 @@
   .turn-item.active { background: var(--surface3); border-left-color: var(--accent); padding-left: 16px; }
   .verdict-dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--muted);
                  flex-shrink: 0; }
-  .verdict-dot.a_better { background: var(--accent); border-color: var(--accent); }
+  .verdict-dot.local2_better { background: var(--accent); border-color: var(--accent); }
   .verdict-dot.tie { background: var(--muted); border-color: var(--muted); }
-  .verdict-dot.b_better { background: var(--gold); border-color: var(--gold); }
+  .verdict-dot.native_better { background: var(--gold); border-color: var(--gold); }
   .turn-num { color: var(--muted); flex-shrink: 0; font-size: 10px; }
   .turn-prompt { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 
@@ -142,8 +148,32 @@
   .prom-label { color: var(--muted); font-size: 11px; text-transform: uppercase;
                 letter-spacing: 0.06em; flex-shrink: 0; }
   #prom-verdict { font-size: 12px; font-weight: bold; }
-  .prometheus-body { flex: 1; overflow-y: auto; padding: 10px 14px; white-space: pre-wrap;
+  .prometheus-body { flex: 1; overflow-y: auto; padding: 10px 14px;
                      word-break: break-word; font-size: 12px; line-height: 1.6; color: var(--text); }
+  .prom-rubric { margin-bottom: 8px; border: 1px solid var(--border); border-radius: 3px;
+                 padding: 4px 8px; background: var(--surface2); }
+  .prom-rubric summary { color: var(--muted); font-size: 11px; cursor: pointer;
+                          list-style: none; display: flex; gap: 5px; align-items: flex-start; }
+  .prom-rubric summary::before { content: '▸'; flex-shrink: 0; }
+  .prom-rubric[open] summary::before { content: '▾'; }
+  .prom-rubric-body { margin-top: 6px; color: var(--muted); font-size: 11px;
+                      white-space: pre-wrap; border-top: 1px solid var(--border); padding-top: 6px; }
+  .prom-feedback { white-space: pre-wrap; }
+
+  /* --- Memory capsules --- */
+  .memory-capsule { border: 1px solid var(--border); border-radius: 3px; margin-bottom: 4px;
+                    background: var(--surface2); }
+  .memory-capsule summary { color: var(--blue); font-size: 11px; cursor: pointer; padding: 4px 8px;
+                             list-style: none; display: flex; gap: 6px; align-items: baseline; }
+  .memory-capsule summary::before { content: '↑'; flex-shrink: 0; }
+  .memory-capsule-score { color: var(--muted); font-size: 10px; flex-shrink: 0; }
+  .memory-capsule-body { padding: 4px 8px 6px; color: var(--muted); font-size: 11px;
+                          white-space: pre-wrap; border-top: 1px solid var(--border); }
+  .memory-candidate { opacity: 0.45; }
+  .memory-candidate summary { color: var(--muted); }
+  .memory-candidate summary::before { content: '↓'; flex-shrink: 0; }
+  .memory-candidates-header { color: var(--muted); font-size: 10px; margin: 6px 0 2px;
+                               letter-spacing: 0.04em; text-transform: uppercase; }
 
   /* --- Status --- */
   .status { color: var(--muted); font-size: 11px; }
@@ -156,6 +186,10 @@
   <h1>LoCAL2 Harness</h1>
   <span class="run-info" id="run-info">no active run</span>
   <div class="spacer"></div>
+  <div class="user-selector">
+    <label for="arm-a-user">A user:</label>
+    <input id="arm-a-user" type="text" value="harness" title="LoCAL2 user_id for Arm A sessions">
+  </div>
   <button class="primary" id="btn-new">New Run</button>
 </header>
 
@@ -226,12 +260,14 @@ let aFull = '', bFull = '';
 let aThinking = '', bThinking = '';
 let aToolCalls = [], bToolCalls = [];
 let aCurrentTool = null;
+let aCapsules = [];
+let aCandidates = [];
 let aCriticScore = null;
 let aStreamEl = null, bStreamEl = null;
 let aThinkingEl = null;
 
-const _VERDICT_LABELS = { a_better: 'A better', tie: 'Tie', b_better: 'B better' };
-const _VERDICT_COLORS = { a_better: 'var(--accent)', tie: 'var(--muted)', b_better: 'var(--gold)' };
+const _VERDICT_LABELS = { local2_better: 'LoCAL2 better', tie: 'Tie', native_better: 'Native better' };
+const _VERDICT_COLORS = { local2_better: 'var(--accent)', tie: 'var(--muted)', native_better: 'var(--gold)' };
 
 // ---------------------------------------------------------------------------
 // Init
@@ -280,11 +316,11 @@ function buildRunGroup(run, items, jMap) {
   group.id = `run-group-${run.run_id}`;
 
   const judged = Object.keys(jMap).length;
-  const aWins = Object.values(jMap).filter(j => j.verdict === 'a_better').length;
-  const ties  = Object.values(jMap).filter(j => j.verdict === 'tie').length;
-  const bWins = Object.values(jMap).filter(j => j.verdict === 'b_better').length;
-  const statsText = judged > 0 ? `A:${aWins} T:${ties} B:${bWins}` : `${items.length}T`;
-  const modelShort = (run.arm_b_model || '').split(':')[0].slice(0, 14);
+  const l2Wins = Object.values(jMap).filter(j => j.verdict === 'local2_better').length;
+  const ties   = Object.values(jMap).filter(j => j.verdict === 'tie').length;
+  const nWins  = Object.values(jMap).filter(j => j.verdict === 'native_better').length;
+  const statsText = judged > 0 ? `L:${l2Wins} T:${ties} N:${nWins}` : `${items.length}T`;
+  const modelShort = (run.native_model || run.arm_b_model || '').split(':')[0].slice(0, 14);
 
   const hdr = document.createElement('div');
   hdr.className = 'run-group-header';
@@ -300,8 +336,8 @@ function buildRunGroup(run, items, jMap) {
   turnsEl.className = 'run-group-turns';
   turnsEl.id = `turns-${run.run_id}`;
 
-  for (const item of items) {
-    turnsEl.appendChild(buildTurnItem(item, jMap[item.item_id]));
+  for (let i = 0; i < items.length; i++) {
+    turnsEl.appendChild(buildTurnItem(items[i], jMap[items[i].item_id], i + 1));
   }
 
   group.appendChild(hdr);
@@ -309,7 +345,7 @@ function buildRunGroup(run, items, jMap) {
   return group;
 }
 
-function buildTurnItem(item, judgment) {
+function buildTurnItem(item, judgment, seq) {
   const li = document.createElement('div');
   li.className = 'turn-item';
   li.id = `turn-item-${item.item_id}`;
@@ -320,7 +356,7 @@ function buildTurnItem(item, judgment) {
 
   li.innerHTML = `
     <span class="verdict-dot ${dotClass}"></span>
-    <span class="turn-num">T${item.turn_idx}</span>
+    <span class="turn-num">${seq != null ? seq : ''}</span>
     <span class="turn-prompt">${escHtml(promptPreview)}</span>
   `;
   li.onclick = () => viewTurn(item);
@@ -350,7 +386,8 @@ function addTurnToSidebar(item, judgment) {
   if (!turnsEl) { loadSidebar(); return; }
 
   const existing = document.getElementById(`turn-item-${item.item_id}`);
-  const li = buildTurnItem(item, judgment);
+  const seq = existing ? Array.from(turnsEl.children).indexOf(existing) + 1 : turnsEl.children.length + 1;
+  const li = buildTurnItem(item, judgment, seq);
   if (existing) existing.replaceWith(li);
   else turnsEl.appendChild(li);
 
@@ -376,15 +413,15 @@ async function newRun() {
   turnIdx = 0;
   aCriticScore = null;
 
-  document.getElementById('run-info').textContent = `run: ${runId}  arm_b: ${data.arm_b_model}`;
-  document.getElementById('b-model').textContent = data.arm_b_model;
+  document.getElementById('run-info').textContent = `run: ${runId}  native: ${data.native_model || ''}`;
+  document.getElementById('b-model').textContent = data.native_model || '';
   document.getElementById('input').disabled = false;
   document.getElementById('btn-send').disabled = false;
   document.getElementById('input').focus();
   setStatus('');
 
   // Add to top of sidebar
-  const runEntry = { run_id: runId, arm_b_model: data.arm_b_model, created_at: Date.now() / 1000 };
+  const runEntry = { run_id: runId, native_model: data.native_model, created_at: Date.now() / 1000 };
   const group = buildRunGroup(runEntry, [], {});
   group.classList.add('open');
   const sbRuns = document.getElementById('sidebar-runs');
@@ -420,7 +457,9 @@ function sendQuery() {
   aFull = ''; bFull = '';
   aThinking = ''; bThinking = '';
   aToolCalls = []; bToolCalls = [];
-  aCurrentTool = null;
+  aCurrentTool = null; bCurrentTool = null;
+  aCapsules = [];
+  aCandidates = [];
   aCriticScore = null;
   currentItemId = null;
   aThinkingEl = null;
@@ -443,7 +482,8 @@ function sendQuery() {
   document.getElementById('btn-send').disabled = true;
   document.getElementById('input').disabled = true;
 
-  wsA.send(JSON.stringify({ query: q, run_id: runId }));
+  const armAUser = (document.getElementById('arm-a-user').value || 'harness').trim();
+  wsA.send(JSON.stringify({ query: q, run_id: runId, user_id: armAUser }));
   wsB.send(JSON.stringify({ query: q, run_id: runId }));
   turnIdx++;
 }
@@ -470,6 +510,9 @@ function handleAEvent(ev) {
       break;
     case 'response':
       aFull = ev.answer || '';
+      aCapsules = ev.capsules || [];
+      aCandidates = ev.candidates || [];
+      renderMemoryCandidates('a-content', aCapsules, aCandidates);
       if (aStreamEl) { aStreamEl.textContent = aFull; aStreamEl.classList.remove('streaming'); aStreamEl = null; }
       aDone = true;
       checkBothDone();
@@ -483,9 +526,10 @@ function handleAEvent(ev) {
 }
 
 // ---------------------------------------------------------------------------
-// Arm B events (harness arm_b format)
+// Arm B events (LoCAL2 ws_bridge format, native=true)
 // ---------------------------------------------------------------------------
 let bThinkingEl = null;
+let bCurrentTool = null;
 
 function handleBEvent(ev) {
   switch (ev.type) {
@@ -494,26 +538,19 @@ function handleBEvent(ev) {
       if (!bThinkingEl) bThinkingEl = createThinkingBlock('b-content');
       bThinkingEl.querySelector('.thinking-body').textContent += (ev.chunk || '');
       break;
-    case 'token':
-      if (bStreamEl) { bStreamEl.textContent += (ev.content || ''); bStreamEl.scrollIntoView({ block: 'nearest' }); }
-      break;
-    case 'tool_call':
+    case 'tool_start':
+      bCurrentTool = { tool: ev.tool, args: ev.args || {}, result: '' };
       finaliseStreamEl('b');
       appendMsg('b-content', 'tool-call', `→ ${ev.tool}(${JSON.stringify(ev.args || {})})`);
       bStreamEl = appendMsg('b-content', 'assistant streaming', '');
       break;
     case 'tool_result':
+      if (bCurrentTool) { bCurrentTool.result = ev.result || ''; bToolCalls.push(bCurrentTool); bCurrentTool = null; }
       appendMsg('b-content', 'tool-result', `← ${ev.tool}: ${(ev.result || '').slice(0, 300)}`);
       break;
-    case 'done':
-      bFull = ev.content || '';
-      bToolCalls = ev.tool_calls || [];
+    case 'response':
+      bFull = ev.answer || '';
       if (bStreamEl) { bStreamEl.textContent = bFull; bStreamEl.classList.remove('streaming'); bStreamEl = null; }
-      bDone = true;
-      checkBothDone();
-      break;
-    case 'error':
-      if (bStreamEl) { bStreamEl.textContent = `[error: ${ev.content}]`; bStreamEl.classList.remove('streaming'); bStreamEl = null; }
       bDone = true;
       checkBothDone();
       break;
@@ -543,6 +580,7 @@ async function checkBothDone() {
       run_id: runId, session_id: sessionId, turn_idx: turnIdx,
       prompt: currentQuery,
       arm_a_output: aFull, arm_a_thinking: aThinking, arm_a_tool_calls: aToolCalls,
+      arm_a_capsules: aCapsules, arm_a_candidates: aCandidates,
       arm_b_output: bFull, arm_b_thinking: bThinking, arm_b_tool_calls: bToolCalls,
       arm_a_critic_score: aCriticScore,
     }),
@@ -569,6 +607,7 @@ async function updateItemCritic(itemId, score) {
       run_id: runId, session_id: sessionId, turn_idx: turnIdx,
       prompt: currentQuery,
       arm_a_output: aFull, arm_a_thinking: aThinking, arm_a_tool_calls: aToolCalls,
+      arm_a_capsules: aCapsules, arm_a_candidates: aCandidates,
       arm_b_output: bFull, arm_b_thinking: bThinking, arm_b_tool_calls: bToolCalls,
       arm_a_critic_score: score,
       item_id: itemId,
@@ -595,6 +634,9 @@ async function viewTurn(item) {
     appendMsg('a-content', 'tool-call', `→ ${tc.tool}(${JSON.stringify(tc.args || {})})`);
     if (tc.result != null) appendMsg('a-content', 'tool-result', `← ${tc.tool}: ${String(tc.result).slice(0, 300)}`);
   }
+  const storedCapsules = parseToolCalls(item.arm_a_capsules);
+  const storedCandidates = parseToolCalls(item.arm_a_candidates || '[]');
+  if (storedCapsules.length || storedCandidates.length) renderMemoryCandidates('a-content', storedCapsules, storedCandidates);
   appendMsg('a-content', 'assistant', item.arm_a_output || '');
   if (item.arm_a_critic_score != null) appendCriticBar('a-content', item.arm_a_critic_score);
 
@@ -623,6 +665,46 @@ async function viewTurn(item) {
   } else {
     setPromStatus('No judgment yet.');
   }
+}
+
+function _makeCapsuleEl(c, dimmed) {
+  const det = document.createElement('details');
+  det.className = dimmed ? 'memory-capsule memory-candidate' : 'memory-capsule';
+  const sum = document.createElement('summary');
+  const firstLine = (c.content || '').split('\n')[0].slice(0, 80);
+  sum.appendChild(document.createTextNode(firstLine));
+  if (c.score != null) {
+    const scoreEl = document.createElement('span');
+    scoreEl.className = 'memory-capsule-score';
+    scoreEl.textContent = c.score.toFixed(2);
+    sum.appendChild(scoreEl);
+  }
+  det.appendChild(sum);
+  const body = document.createElement('div');
+  body.className = 'memory-capsule-body';
+  body.textContent = (c.content || '').slice(0, 600);
+  det.appendChild(body);
+  return det;
+}
+
+function renderMemoryCandidates(containerId, capsules, candidates) {
+  if (!capsules.length && !candidates.length) return;
+  const container = document.getElementById(containerId);
+  for (const c of capsules) container.appendChild(_makeCapsuleEl(c, false));
+  // show below-threshold candidates dimmed so user can see why they weren't used
+  const usedIds = new Set(capsules.map(c => c.id));
+  const below = candidates.filter(c => !usedIds.has(c.id));
+  if (below.length) {
+    const hdr = document.createElement('div');
+    hdr.className = 'memory-candidates-header';
+    hdr.textContent = 'below threshold';
+    container.appendChild(hdr);
+    for (const c of below) container.appendChild(_makeCapsuleEl(c, true));
+  }
+}
+
+function renderCapsules(containerId, capsules) {
+  renderMemoryCandidates(containerId, capsules, []);
 }
 
 function parseToolCalls(raw) {
@@ -673,10 +755,53 @@ function showJudgmentInPanel(data) {
   vEl.textContent = _VERDICT_LABELS[verdict] || verdict;
   vEl.style.color = _VERDICT_COLORS[verdict] || 'var(--text)';
 
-  const raw = data.feedback || data.rationale || '';
-  const m = raw.match(/Feedback:\s*([\s\S]*?)(?:\[RESULT\]|$)/i);
-  const feedback = m ? m[1].trim() : raw;
-  document.getElementById('prom-body').textContent = feedback;
+  const body = document.getElementById('prom-body');
+  body.innerHTML = '';
+
+  // Rubric: extract criterion (first [bracketed] line) as summary, full scale on expand
+  const rubric = (data.rubric || '').trim();
+  if (rubric) {
+    const m = rubric.match(/^\[([^\]]+)\]/s);
+    const criterion = m ? m[1].trim() : rubric.split('\n')[0];
+    const det = document.createElement('details');
+    det.className = 'prom-rubric';
+    const sum = document.createElement('summary');
+    sum.textContent = criterion;
+    det.appendChild(sum);
+    const full = document.createElement('div');
+    full.className = 'prom-rubric-body';
+    full.textContent = rubric;
+    det.appendChild(full);
+    body.appendChild(det);
+  }
+
+  // Feedback: show both passes if double_judge, otherwise single
+  const isDouble = data.verdict_pass1 || data.verdict_pass2;
+
+  function appendFeedback(rawText, passLabel, passVerdict) {
+    if (!rawText) return;
+    const fm = rawText.match(/Feedback:\s*([\s\S]*?)(?:\[RESULT\]|$)/i);
+    const text = fm ? fm[1].trim() : rawText;
+    if (passLabel) {
+      const lbl = document.createElement('div');
+      lbl.style.cssText = 'font-size:11px;font-weight:bold;color:var(--muted);margin:10px 0 4px';
+      const verdictColor = passVerdict === 'local2_better' ? 'var(--accent)' : passVerdict === 'native_better' ? 'var(--gold)' : 'var(--muted)';
+      lbl.innerHTML = `${passLabel} → <span style="color:${verdictColor}">${_VERDICT_LABELS[passVerdict] || passVerdict}</span>`;
+      body.appendChild(lbl);
+    }
+    const fdiv = document.createElement('div');
+    fdiv.className = 'prom-feedback';
+    fdiv.textContent = text;
+    body.appendChild(fdiv);
+  }
+
+  if (isDouble) {
+    appendFeedback(data.rationale || data.feedback_pass1, 'Pass 1 — LoCAL2 → A', data.verdict_pass1);
+    appendFeedback(data.feedback_pass2, 'Pass 2 — Native → A', data.verdict_pass2);
+  } else {
+    appendFeedback(data.feedback || data.rationale, null, null);
+  }
+
   setPromStatus('');
 }
 

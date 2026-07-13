@@ -56,7 +56,6 @@ Three going-in objectives:
 
 What was removed from v1: GatewayAgent, AnalystAgent, SynthesizerAgent, task DAG pipeline, query preprocessing, explicit query rewriting, task decomposition, the complexity gate.
 
----
 
 ### 2. Participants
 
@@ -286,3 +285,28 @@ The ZMQ proxy binds to `0.0.0.0`, making it reachable from the local network. Pa
 - **[Getting Started](GETTING_STARTED.md)** — installation, quick start, configuration, document library, remote access
 - **[Architecture Reference](docs/architecture/local2-design.md)** — detailed design document
 - **[Docs Index](docs/)** — participant docs, bus topology, state machines, config reference, plans
+
+---
+
+## Citations
+
+The comparison harness uses [Prometheus](https://huggingface.co/prometheus-eval/prometheus-7b-v2.0) for pairwise evaluation and the [Preference-Collection](https://huggingface.co/datasets/prometheus-eval/Preference-Collection) as the prompt set.
+
+```bibtex
+@misc{kim2023prometheus,
+    title={Prometheus: Inducing Fine-grained Evaluation Capability in Language Models},
+    author={Seungone Kim and Jamin Shin and Yejin Cho and Joel Jang and Shayne Longpre and Hwaran Lee and Sangdoo Yun and Seongjin Shin and Sungdong Kim and James Thorne and Minjoon Seo},
+    year={2023},
+    eprint={2310.08491},
+    archivePrefix={arXiv},
+    primaryClass={cs.CL}
+}
+@misc{kim2024prometheus,
+    title={Prometheus 2: An Open Source Language Model Specialized in Evaluating Other Language Models},
+    author={Seungone Kim and Juyoung Suk and Shayne Longpre and Bill Yuchen Lin and Jamin Shin and Sean Welleck and Graham Neubig and Moontae Lee and Kyungjae Lee and Minjoon Seo},
+    year={2024},
+    eprint={2405.01535},
+    archivePrefix={arXiv},
+    primaryClass={cs.CL}
+}
+```

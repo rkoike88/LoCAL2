@@ -64,7 +64,7 @@ class ModelService(BaseService):
             return
 
         gen_cfg = get_config("generator") or {}
-        num_ctx = gen_cfg["num_ctx"]
+        num_ctx = gen_cfg.get("num_ctx_max") or gen_cfg.get("num_ctx") or 131072
         prompt_tokens: int = envelope.payload.get("prompt_tokens", 0)
         session_id: str | None = envelope.payload.get("session_id")
 
@@ -94,7 +94,7 @@ class ModelService(BaseService):
         gen_cfg = get_config("generator") or {}
         model: str = gen_cfg["model"]
         options = {
-            "num_ctx": gen_cfg["num_ctx"],
+            "num_ctx": gen_cfg.get("num_ctx_max") or gen_cfg.get("num_ctx") or 131072,
             "temperature": gen_cfg["temperature"],
         }
         cmp_cfg = get_config("compaction") or {}

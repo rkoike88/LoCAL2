@@ -296,6 +296,8 @@ class LibraryAgentTool(BaseTool):
                 stream=False,
                 options={
                     "temperature": cfg.get("temperature", 0.0),
+                    "top_p": cfg.get("top_p", 0.95),
+                    "top_k": cfg.get("top_k", 64),
                     "num_ctx": cfg.get(num_ctx_key, 512),
                 },
             )

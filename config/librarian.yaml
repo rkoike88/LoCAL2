@@ -3,6 +3,8 @@ critique_rubric_name: "realistic"
 critique_priority: 5
 model: gemma4:e4b
 temperature: 0.0
+top_p: 0.95
+top_k: 64
 num_ctx_categorise: 512
 num_ctx_reorganise: 4096
 

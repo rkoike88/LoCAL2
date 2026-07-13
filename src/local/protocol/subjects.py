@@ -3,6 +3,7 @@
 # Core conversation flow
 QUERY_RECEIVED = "query.received"
 GENERATION_THINKING = "generation.thinking"   # streaming thinking chunks
+GENERATION_TOKEN    = "generation.token"      # streaming response token chunks
 RESPONSE_GENERATION = "response.generation"
 ANSWER_DIALOG = "answer.dialog"
 
@@ -58,6 +59,11 @@ GENERATOR_STATUS = "generator.status"
 TOOL_CALL_PERSONA    = "tool.call.persona"
 TOOL_RESULT_PERSONA  = "tool.result.persona"
 TOOL_ACTIVITY_PERSONA = "tool.activity.persona"
+
+# Set the stage tool
+TOOL_CALL_SET_THE_STAGE    = "tool.call.set_the_stage"
+TOOL_RESULT_SET_THE_STAGE  = "tool.result.set_the_stage"
+TOOL_ACTIVITY_SET_THE_STAGE = "tool.activity.set_the_stage"
 
 TOOL_CALL_REMEMBER_THIS     = "tool.call.remember_this"
 TOOL_RESULT_REMEMBER_THIS   = "tool.result.remember_this"

@@ -57,11 +57,19 @@ class MemoryAgent(BaseAgent):
         cfg = get_config("memory")
         model = cfg["model"]
         retrieval_cfg = cfg.get("retrieval") or {}
+        ingest_cfg = cfg.get("ingest") or {}
         self._classify_prompt: str = (cfg.get("classify_prompt") or "").strip()
         self._summarize_prompt: str = (cfg.get("summarize_prompt") or "").strip()
+        self._merge_prompt: str = (cfg.get("merge_prompt") or "").strip()
         self._min_similarity: float = retrieval_cfg.get("min_similarity", 0.85)
         self._max_results: int = retrieval_cfg.get("max_results", 7)
+        self._dedup_threshold: float = ingest_cfg.get("dedup_threshold", 0.90)
         self._write_enabled: bool = cfg.get("write_enabled", True)
+        self._llm_options: dict = {
+            "temperature": cfg.get("temperature", 0.0),
+            "top_p": cfg.get("top_p", 0.95),
+            "top_k": cfg.get("top_k", 64),
+        }
         self._memory = memory_service or MemoryService()
         self._llm = llm or OllamaBackend(model=model, agent_name=self.id)
         self._pub, self._sub = make_participant_bus([QUERY_RECEIVED, RESPONSE_GENERATION, CRITIQUE, USER_CONTEXT_REQUEST])
@@ -98,13 +106,15 @@ class MemoryAgent(BaseAgent):
         query, session_id, query_id, user_id = msg.query, msg.session_id, msg.query_id, msg.user_id
 
         capsules: list = []
+        candidates: list = []
         self._do_transition(MemoryAgentAction.START_RETRIEVE)
         try:
             filter_user = user_id if user_id and user_id != "default" else None
-            candidates = self._memory.search_episodic(query, n=self._max_results, user_id=filter_user)
-            capsules = [c for c in candidates if c["score"] >= self._min_similarity]
-            top_scores = [round(c["score"], 3) for c in candidates[:3]]
-            logger.info("MemoryAgent: relay capsules=%d (of %d candidates) top_scores=%s user_id=%s", len(capsules), len(candidates), top_scores, user_id)
+            all_results = self._memory.search_episodic(query, n=self._max_results, user_id=filter_user)
+            capsules   = [c for c in all_results if c["score"] >= self._min_similarity]
+            candidates = [c for c in all_results if c["score"] <  self._min_similarity]
+            top_scores = [round(c["score"], 3) for c in all_results[:3]]
+            logger.info("MemoryAgent: relay capsules=%d below_threshold=%d top_scores=%s user_id=%s", len(capsules), len(candidates), top_scores, user_id)
         except Exception as exc:
             logger.error("MemoryAgent: retrieval failed (publishing empty context): %s", exc)
         finally:
@@ -116,8 +126,10 @@ class MemoryAgent(BaseAgent):
                 session_id=session_id,
                 query_id=query_id,
                 capsules=capsules,
+                candidates=candidates,
                 attachments=msg.attachments,
                 user_id=user_id,
+                native=msg.native,
             ),
             sender_id=self.id,
             correlation_id=envelope.correlation_id,
@@ -146,7 +158,22 @@ class MemoryAgent(BaseAgent):
             if thinking:
                 classification["thinking"] = thinking
             summary = self._summarize(query, answer)
+
+            filter_user = msg.user_id if msg.user_id and msg.user_id != "default" else None
+            near_dups = self._memory.search_episodic(query, n=1, user_id=filter_user)
+            old_id: str | None = None
+            if near_dups and near_dups[0]["score"] >= self._dedup_threshold:
+                dup = near_dups[0]
+                old_id = dup["id"]
+                merged = self._merge(dup["content"], query, answer)
+                if merged:
+                    summary = merged
+                logger.info("MemoryAgent: near-duplicate score=%.3f — merging with engram %s", dup["score"], old_id)
+
             self._memory.write_episodic(query, answer, metadata=classification, query_id=query_id or None, summary=summary)
+            if old_id:
+                self._memory.delete_episodic(old_id)
+                logger.info("MemoryAgent: deleted old engram %s after merge", old_id)
             logger.info(
                 "MemoryAgent: ingested engram intent=%r entities=%r",
                 classification.get("intent", ""),
@@ -192,7 +219,24 @@ class MemoryAgent(BaseAgent):
         if not self._summarize_prompt:
             return None
         prompt = self._summarize_prompt.format(query=query, answer=answer[:1000])
-        text, _ = self._llm.chat([{"role": "user", "content": prompt}])
+        text, _ = self._llm.chat([{"role": "user", "content": prompt}], options=self._llm_options)
+        return text.strip() or None
+
+    def _merge(self, old_content: str, query: str, answer: str) -> str | None:
+        """Merge an existing engram with a new Q+A into a single compact summary.
+
+        Args:
+            old_content: The stored document of the existing near-duplicate engram.
+            query: The new user question.
+            answer: The new agent response, truncated to 1000 chars in the prompt.
+
+        Returns:
+            Merged summary string, or None if the LLM returns no text.
+        """
+        if not self._merge_prompt:
+            return None
+        prompt = self._merge_prompt.format(old_content=old_content, query=query, answer=answer[:1000])
+        text, _ = self._llm.chat([{"role": "user", "content": prompt}], options=self._llm_options)
         return text.strip() or None
 
     def _classify(self, query: str, answer: str) -> dict:
@@ -211,7 +255,7 @@ class MemoryAgent(BaseAgent):
             or ``{}`` if the LLM returns no text or unparseable JSON.
         """
         prompt = self._classify_prompt.format(query=query, answer=answer[:500])
-        text, _ = self._llm.chat([{"role": "user", "content": prompt}])
+        text, _ = self._llm.chat([{"role": "user", "content": prompt}], options=self._llm_options)
         if not text:
             return {}
         m = re.search(r'\{[^{}]+\}', text, re.DOTALL)

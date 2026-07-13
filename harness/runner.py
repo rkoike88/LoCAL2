@@ -331,6 +331,8 @@ async def _run(
     user_id: str,
     cfg: dict,
     offset: int = 0,
+    prompt_ids: list[str] | None = None,
+    inter_item_sleep: float = 0.0,
 ) -> None:
     db.init_db(cfg.get("db_path", "harness.db"))
 
@@ -346,10 +348,13 @@ async def _run(
     if done_prompt_ids:
         logger.info("Already processed: %d items (will skip)", len(done_prompt_ids))
 
-    fetch_limit = n + len(done_prompt_ids) + 100
-    all_prompts = db.get_prompts(limit=fetch_limit, offset=offset)
-    if offset:
-        logger.info("Prompt offset: %d", offset)
+    if prompt_ids:
+        all_prompts = [p for p in db.get_prompts(limit=10000) if p["prompt_id"] in prompt_ids]
+    else:
+        fetch_limit = n + len(done_prompt_ids) + 100
+        all_prompts = db.get_prompts(limit=fetch_limit, offset=offset)
+        if offset:
+            logger.info("Prompt offset: %d", offset)
 
     if filter_kw:
         kw = filter_kw.lower()
@@ -388,6 +393,9 @@ async def _run(
             verdict = "skipped"
 
         verdicts[verdict] = verdicts.get(verdict, 0) + 1
+
+        if i < len(remaining) and inter_item_sleep > 0:
+            await asyncio.sleep(inter_item_sleep)
 
         if i % 10 == 0 or i == len(remaining):
             total_judged = verdicts["local2_better"] + verdicts["tie"] + verdicts["native_better"]
@@ -431,10 +439,13 @@ def main() -> None:
     ap.add_argument("--skip-local2",  action="store_true", help="Skip LoCAL2 arm (Native + judge only)")
     ap.add_argument("--user-id",      default="harness")
     ap.add_argument("--offset",       type=int, default=0)
+    ap.add_argument("--prompt-ids",       default=None, help="Comma-separated prompt_ids to run (skips --n/--offset/--filter)")
+    ap.add_argument("--inter-item-sleep", type=float, default=5.0, help="Seconds to sleep between items (default: 5)")
     args = ap.parse_args()
 
     cfg["db_path"] = args.db
     run_id = args.run_id or str(uuid.uuid4())[:8]
+    prompt_ids = [p.strip() for p in args.prompt_ids.split(",")] if args.prompt_ids else None
 
     asyncio.run(
         _run(
@@ -445,6 +456,8 @@ def main() -> None:
             user_id=args.user_id,
             cfg=cfg,
             offset=args.offset,
+            prompt_ids=prompt_ids,
+            inter_item_sleep=args.inter_item_sleep,
         )
     )
 

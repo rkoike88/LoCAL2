@@ -36,6 +36,7 @@ export function CritiqueBar({ score, feedback, rubricName, rubricText, groundedn
 
   const hasBiscuit = contextBiscuit && (
     contextBiscuit.capsules.length > 0 ||
+    contextBiscuit.candidates.length > 0 ||
     contextBiscuit.pinned_facts.length > 0
   );
 
@@ -129,7 +130,17 @@ export function CritiqueBar({ score, feedback, rubricName, rubricText, groundedn
               <div className="text-indigo-400 mb-1">retrieved sessions</div>
               {contextBiscuit.capsules.map((c, i) => (
                 <div key={i} className="text-gray-500">
-                  <span className="text-indigo-700">[{c.score.toFixed(2)}]</span> {c.content}
+                  <span className="text-indigo-700">↑ [{c.score.toFixed(2)}]</span> {c.content}
+                </div>
+              ))}
+            </div>
+          )}
+          {contextBiscuit.candidates.length > 0 && (
+            <div>
+              <div className="text-gray-700 mb-1">below threshold</div>
+              {contextBiscuit.candidates.map((c, i) => (
+                <div key={i} className="text-gray-700">
+                  <span className="text-gray-600">↓ [{c.score.toFixed(2)}]</span> {c.content}
                 </div>
               ))}
             </div>

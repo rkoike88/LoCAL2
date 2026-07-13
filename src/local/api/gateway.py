@@ -147,14 +147,15 @@ async def ws_chat(websocket: WebSocket, session_id: str) -> None:
                 continue
             attachments: list = data.get("attachments") or []
             user_id: str = data.get("user_id", "default")
+            native: bool = bool(data.get("native", False))
 
-            logger.debug("ws_chat: query received session_id=%s user_id=%s query=%r", session_id, user_id, query[:60])
+            logger.debug("ws_chat: query received session_id=%s user_id=%s native=%s query=%r", session_id, user_id, native, query[:60])
             session = LoCALSession(publisher, session_id=session_id, user_id=user_id)
             queue: asyncio.Queue = asyncio.Queue()
 
             def _stream() -> None:
                 try:
-                    for env in session.stream(query, attachments=attachments or None):
+                    for env in session.stream(query, attachments=attachments or None, native=native):
                         asyncio.run_coroutine_threadsafe(queue.put(env), loop)
                 finally:
                     asyncio.run_coroutine_threadsafe(queue.put(None), loop)

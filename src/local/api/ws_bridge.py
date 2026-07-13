@@ -13,14 +13,15 @@ from local.protocol.subjects import (
     ANSWER_DIALOG,
     CRITIQUE,
     GENERATION_THINKING,
+    GENERATION_TOKEN,
     LIBRARY_INGEST_COMPLETE,
     LIBRARY_INGEST_STARTED,
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
     TOOL_CALL_CONSULT_LIBRARIAN,
-    TOOL_CALL_PERSONA,
     TOOL_CALL_REMEMBER_THIS,
-    TOOL_RESULT_PERSONA,
+    TOOL_CALL_SET_THE_STAGE,
+    TOOL_CALL_PERSONA,
     TOOL_TRANSITION,
     TOOL_CALL_GET_DATETIME,
     TOOL_CALL_GET_LOCATION,
@@ -31,6 +32,8 @@ from local.protocol.subjects import (
     TOOL_CALL_WEB_SEARCH,
     TOOL_RESULT_CONSULT_LIBRARIAN,
     TOOL_RESULT_REMEMBER_THIS,
+    TOOL_RESULT_SET_THE_STAGE,
+    TOOL_RESULT_PERSONA,
     TOOL_RESULT_GET_DATETIME,
     TOOL_RESULT_GET_LOCATION,
     TOOL_RESULT_SEARCH_DOCUMENTS,
@@ -45,6 +48,7 @@ from local.protocol.subjects import (
 CHAT_OBSERVE = [
     QUERY_RECEIVED,
     GENERATION_THINKING,
+    GENERATION_TOKEN,
     TOOL_CALL_WEB_SEARCH,
     TOOL_RESULT_WEB_SEARCH,
     TOOL_CALL_WEB_FETCH,
@@ -63,6 +67,8 @@ CHAT_OBSERVE = [
     TOOL_RESULT_CONSULT_LIBRARIAN,
     TOOL_CALL_REMEMBER_THIS,
     TOOL_RESULT_REMEMBER_THIS,
+    TOOL_CALL_SET_THE_STAGE,
+    TOOL_RESULT_SET_THE_STAGE,
     TOOL_CALL_PERSONA,
     TOOL_RESULT_PERSONA,
     LIBRARY_INGEST_COMPLETE,
@@ -101,6 +107,13 @@ def translate(envelope: MessageEnvelope) -> dict | None:
             "query_id": query_id,
         }
 
+    if subject == GENERATION_TOKEN:
+        return {
+            "type": "token",
+            "chunk": payload.get("chunk", ""),
+            "query_id": query_id,
+        }
+
     if subject.startswith(_TOOL_CALL_PREFIX):
         tool_name = subject[len(_TOOL_CALL_PREFIX):]
         return {
@@ -133,6 +146,7 @@ def translate(envelope: MessageEnvelope) -> dict | None:
             "prompt_tokens": payload.get("prompt_tokens", 0),
             "model": payload.get("model", ""),
             "capsules": payload.get("capsules", []),
+            "candidates": payload.get("candidates", []),
             "pinned_facts": payload.get("pinned_facts", []),
         }
 

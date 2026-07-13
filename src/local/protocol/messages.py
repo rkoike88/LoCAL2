@@ -24,6 +24,7 @@ from local.protocol.subjects import (
     CONFIG_RELOAD,
     CRITIQUE,
     GENERATION_THINKING,
+    GENERATION_TOKEN,
     GENERATOR_STATUS,
     LIBRARY_COLLECTION_CREATED,
     LIBRARY_INGEST_COMPLETE,
@@ -86,6 +87,7 @@ class QueryReceived(BusMessage):
     query_id:    str
     attachments: list = field(default_factory=list)
     user_id:     str = "default"
+    native:      bool = False  # True = skip memory injection + use bare system prompt
 
     @classmethod
     def from_envelope(cls, envelope: MessageEnvelope) -> "QueryReceived":
@@ -96,6 +98,7 @@ class QueryReceived(BusMessage):
             query_id=p.get("query_id", ""),
             attachments=p.get("attachments") or [],
             user_id=p.get("user_id") or envelope.metadata.get("user_id", "default"),
+            native=bool(p.get("native", False)),
         )
 
 
@@ -119,6 +122,25 @@ class GenerationThinking(BusMessage):
 
 
 @dataclass
+class GenerationToken(BusMessage):
+    subject:      ClassVar[str] = GENERATION_TOKEN
+    message_type: ClassVar[str] = "token"
+
+    chunk:      str
+    session_id: str
+    query_id:   str
+
+    @classmethod
+    def from_envelope(cls, envelope: MessageEnvelope) -> "GenerationToken":
+        p = envelope.payload
+        return cls(
+            chunk=p.get("chunk", ""),
+            session_id=p.get("session_id", ""),
+            query_id=p.get("query_id", ""),
+        )
+
+
+@dataclass
 class ResponseGeneration(BusMessage):
     subject:      ClassVar[str] = RESPONSE_GENERATION
     message_type: ClassVar[str] = "response"
@@ -133,6 +155,7 @@ class ResponseGeneration(BusMessage):
     error:         bool = False
     model:         str = ""
     capsules:      list = field(default_factory=list)
+    candidates:    list = field(default_factory=list)
     pinned_facts:  list = field(default_factory=list)
     user_id:       str = "default"
 
@@ -150,6 +173,7 @@ class ResponseGeneration(BusMessage):
             error=bool(p.get("error", False)),
             model=p.get("model", ""),
             capsules=p.get("capsules") or [],
+            candidates=p.get("candidates") or [],
             pinned_facts=p.get("pinned_facts") or [],
             user_id=p.get("user_id") or envelope.metadata.get("user_id", "default"),
         )
@@ -197,9 +221,11 @@ class MemoryContext(BusMessage):
     query:       str
     session_id:  str
     query_id:    str
-    capsules:    list   # list of {content, score, metadata} from search_episodic
+    capsules:    list   # list of {content, score, metadata} — above threshold only
+    candidates:  list = field(default_factory=list)  # below-threshold results
     attachments: list = field(default_factory=list)
     user_id:     str = "default"
+    native:      bool = False  # passed through from QueryReceived
 
     @classmethod
     def from_envelope(cls, envelope: MessageEnvelope) -> "MemoryContext":
@@ -209,8 +235,10 @@ class MemoryContext(BusMessage):
             session_id=p.get("session_id", ""),
             query_id=p.get("query_id", ""),
             capsules=p.get("capsules") or [],
+            candidates=p.get("candidates") or [],
             attachments=p.get("attachments") or [],
             user_id=p.get("user_id") or envelope.metadata.get("user_id", "default"),
+            native=bool(p.get("native", False)),
         )
 
 

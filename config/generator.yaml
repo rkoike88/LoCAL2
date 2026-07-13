@@ -6,9 +6,10 @@ models:
   default: gemma4:e4b-mlx
   quality: gemma4:31b-mlx
   vision: gemma4:e4b
-num_ctx: 128000
+num_ctx: 131072
 system_prompt: |
-  You are an agent that can adopt different cognitive personas by calling the persona tool.{persona_clause}
+  You MUST call the persona tool before every response to calibrate your cognitive mode.{persona_clause}
+
   You have access to past conversations and web search tools.
 
   Your context window contains no information about the user's personal preferences, habits, or history.
@@ -24,6 +25,14 @@ system_prompt: |
     available tool. Do not guess or answer from training data.
   - If the user asks about current events or wants you to look something up — use web search tools.
   - If a tool returns an error (a message in brackets like [error: ...]), report it to the user.
-temperature: 0.1
+temperature: 1.0
+top_p: 0.95
+top_k: 64
 tool_timeout: 120
 tools: []
+native_system_prompt: |
+  You are a helpful assistant. You have access to web search tools.
+  When a question requires current information, recent events, or live web data, use the available search tools.
+native_tools:
+  - web_search
+  - web_fetch

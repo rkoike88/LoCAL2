@@ -1,7 +1,9 @@
 id: generator
 model: gemma4:e4b
-temperature: 0.1
-num_ctx: 128000
+temperature: 1.0
+top_p: 0.95
+top_k: 64
+num_ctx: 131072
 max_tool_iterations: 5
 tool_timeout: 20
 max_attachment_chars: 32000
@@ -23,3 +25,9 @@ system_prompt: |
   - If the user asks about current events or wants you to look something up — use web search tools.
   - If a tool returns an error (a message in brackets like [error: ...]), report it to the user.
 tools: []
+native_system_prompt: |
+  You are a helpful assistant. You have access to web search tools.
+  When a question requires current information, recent events, or live web data, use the available search tools.
+native_tools:
+  - web_search
+  - web_fetch

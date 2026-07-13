@@ -22,12 +22,12 @@ from local.agents.ollama_types import OllamaToolCall, clean_for_history, make_as
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.messages import (
-    AnswerDialog, GenerationThinking,
+    AnswerDialog, GenerationThinking, GenerationToken,
     GeneratorStatus, MemoryContext, ResponseGeneration, ToolSchemaRequest,
     UserContext, UserContextRequest, UserContextUpdated,
 )
 from local.protocol.subjects import (
-    CONFIG_RELOAD, MEMORY_CONTEXT, TOOL_SCHEMA, USER_CONTEXT, USER_CONTEXT_UPDATED,
+    CONFIG_RELOAD, GENERATION_TOKEN, MEMORY_CONTEXT, TOOL_SCHEMA, USER_CONTEXT, USER_CONTEXT_UPDATED,
 )
 from local.protocol.types import Attachment
 from local.services.conversation_service import ConversationService
@@ -70,17 +70,21 @@ class GeneratorAgent(BaseAgent):
         self._model: str = model or self._models.get("default", "")
         self._active_model: str = self._model
         self._options: dict = {
-            "num_ctx": cfg["num_ctx"],
+            "num_ctx": cfg.get("num_ctx") or cfg.get("num_ctx_max") or 131072,
             "temperature": temperature if temperature is not None else cfg["temperature"],
+            "top_p": cfg.get("top_p", 0.95),
+            "top_k": cfg.get("top_k", 64),
         }
         self._system_prompt: str = cfg.get("system_prompt") or ""
+        self._native_system_prompt: str = cfg.get("native_system_prompt") or ""
+        self._native_tool_names: set = set(cfg.get("native_tools") or ["web_search", "web_fetch"])
         self._post_tool_prefill: str = cfg.get("post_tool_think_prefill", "")
         self._max_tool_iters: int = cfg["max_tool_iterations"]
         self._tool_timeout: float = cfg["tool_timeout"]
         self._tool_schemas: list = cfg.get("tools") or []
         self._instance_id: str = sys_cfg.get("instance_id") or socket.gethostname()
         self._token_count: int = 0
-        self._active_persona: dict[str, str] = {}  # session_id -> active persona name
+        self._active_persona: dict[str, str] = {}  # session_id -> active persona mode
         self._user_context: list[dict] = []        # [{fact, reason}] — bootstrapped from pinned store
         self._conv = conversation_service or ConversationService()
         self._tool_dispatcher = tool_dispatcher or ToolDispatcher(self._tool_timeout)
@@ -140,7 +144,9 @@ class GeneratorAgent(BaseAgent):
         original_query_id: str = msg.query_id or str(uuid.uuid4())
         attachments: list = msg.attachments
         capsules: list = msg.capsules
+        candidates: list = msg.candidates
         user_id: str = msg.user_id or "default"
+        native: bool = msg.native
 
         query_id = original_query_id
         correlation_id = envelope.correlation_id or query_id
@@ -152,17 +158,20 @@ class GeneratorAgent(BaseAgent):
         self._do_transition(GeneratorAction.RECEIVE)
 
         self._conv.write_context_biscuit(query_id, {
-            "capsules": capsules,
-            "pinned_facts": list(self._user_context),
-            "persona": self._active_persona.get(session_id or ""),
+            "capsules": capsules if not native else [],
+            "pinned_facts": list(self._user_context) if not native else [],
         }, session_id=session_id or "")
-        messages = self._build_messages(query, session_id, attachments, capsules=capsules)
+        messages = self._build_messages(query, session_id, attachments, capsules=capsules, native=native)
         initial_len = len(messages)
         self._do_transition(GeneratorAction.START_GENERATION)
 
+        tool_schemas = (
+            [s for s in self._tool_schemas if s.get("function", {}).get("name") in self._native_tool_names]
+            if native else self._tool_schemas
+        )
         try:
             answer, thinking, tool_call_log, prompt_tokens = self._generate(
-                messages, correlation_id, session_id, query_id, model=active_model
+                messages, correlation_id, session_id, query_id, model=active_model, tool_schemas=tool_schemas
             )
         except Exception as exc:
             logger.error("GeneratorAgent: generation failed: %s", exc, exc_info=True)
@@ -180,9 +189,9 @@ class GeneratorAgent(BaseAgent):
 
         for tc in tool_call_log:
             if tc.get("tool") == "persona":
-                name = (tc.get("args") or {}).get("name", "")
-                if name and session_id:
-                    self._active_persona[session_id] = name
+                mode = (tc.get("args") or {}).get("mode", "")
+                if mode and session_id:
+                    self._active_persona[session_id] = mode
 
         new_messages = [clean_for_history(m) for m in messages[initial_len - 1:]]
         logger.debug("GeneratorAgent: append_messages session_id=%s n=%d", session_id, len(new_messages))
@@ -196,7 +205,8 @@ class GeneratorAgent(BaseAgent):
                 query=query, answer=answer, thinking=thinking,
                 tool_calls=tool_call_log, session_id=session_id or "",
                 query_id=query_id, prompt_tokens=prompt_tokens, model=active_model,
-                capsules=capsules, pinned_facts=list(self._user_context),
+                capsules=capsules, candidates=candidates,
+                pinned_facts=list(self._user_context),
                 user_id=user_id,
             ),
             sender_id=self.id, correlation_id=correlation_id, session_id=session_id or "", user_id=user_id,
@@ -218,6 +228,7 @@ class GeneratorAgent(BaseAgent):
         session_id: str | None,
         attachments: list[dict] | None = None,
         capsules: list | None = None,
+        native: bool = False,
     ) -> list[dict]:
         """Build the messages array for ``ollama.chat()`` from history + new query.
 
@@ -238,15 +249,18 @@ class GeneratorAgent(BaseAgent):
         """
         history = self._conv.get_history(session_id)
         messages: list[dict] = []
-        active_persona = self._active_persona.get(session_id or "")
-        persona_clause = f" Your current persona is {active_persona}." if active_persona else ""
-        system_text = self._system_prompt.replace("{persona_clause}", persona_clause)
-        if self._user_context:
-            facts_text = "\n".join(f"- {f['fact']}" for f in self._user_context)
-            system_text += f"\n\n[Things to always remember about the user:]\n{facts_text}"
-        if capsules:
-            summaries = "\n".join(f"- {c['content']}" for c in capsules)
-            system_text += f"\n\n[Relevant prior sessions:]\n{summaries}"
+        if native:
+            system_text = self._native_system_prompt
+        else:
+            active_persona = self._active_persona.get(session_id or "")
+            persona_clause = f" Your current persona is {active_persona}." if active_persona else ""
+            system_text = self._system_prompt.replace("{persona_clause}", persona_clause)
+            if self._user_context:
+                facts_text = "\n".join(f"- {f['fact']}" for f in self._user_context)
+                system_text += f"\n\n[Things to always remember about the user:]\n{facts_text}"
+            if capsules:
+                summaries = "\n".join(f"- {c['content']}" for c in capsules)
+                system_text += f"\n\n[Relevant prior sessions:]\n{summaries}"
         if system_text:
             messages.append({"role": "system", "content": system_text})
         messages.extend(history)
@@ -275,6 +289,7 @@ class GeneratorAgent(BaseAgent):
         session_id: str | None = None,
         query_id: str = "",
         model: str = "",
+        tool_schemas: list | None = None,
     ) -> tuple[str, str, list[dict], int]:
         """Run the Ollama streaming chat loop with tool call dispatch.
 
@@ -316,16 +331,15 @@ class GeneratorAgent(BaseAgent):
             iter_tool_calls = None
             last_chunk = None
 
-            # For post-tool rounds, prefill the thinking channel so Gemma reasons
-            # before synthesizing the answer rather than jumping straight to prose.
             call_messages = messages
             if tool_call_log and self._post_tool_prefill:
                 call_messages = messages + [{"role": "assistant", "content": self._post_tool_prefill}]
 
+            active_schemas = tool_schemas if tool_schemas is not None else self._tool_schemas
             for chunk in ollama.chat(
                 model=model or self._model,
                 messages=call_messages,
-                tools=self._tool_schemas or None,
+                tools=active_schemas or None,
                 think=True,
                 stream=True,
                 options=self._options,
@@ -343,6 +357,13 @@ class GeneratorAgent(BaseAgent):
                     )
                 if chunk.message.content:
                     iter_content += chunk.message.content
+                    self._pub.publish(
+                        GenerationToken(
+                            chunk=chunk.message.content,
+                            session_id=session_id or "", query_id=query_id,
+                        ),
+                        sender_id=self.id, correlation_id=correlation_id, session_id=session_id or "",
+                    )
                 if chunk.message.tool_calls:
                     iter_tool_calls = chunk.message.tool_calls
 
@@ -385,8 +406,10 @@ class GeneratorAgent(BaseAgent):
         self._models = cfg.get("models") or {"default": cfg.get("model", "")}
         self._model = self._models.get("default", "")
         self._active_model = self._model
-        self._options["num_ctx"] = cfg["num_ctx"]
+        self._options["num_ctx"] = cfg.get("num_ctx") or cfg.get("num_ctx_max") or 131072
         self._options["temperature"] = cfg["temperature"]
+        self._options["top_p"] = cfg.get("top_p", 0.95)
+        self._options["top_k"] = cfg.get("top_k", 64)
         self._system_prompt = cfg.get("system_prompt") or ""
         logger.info("GeneratorAgent: config reloaded — model=%s", self._model)
         self._publish_status()

@@ -3,7 +3,10 @@ collection: "local_memory"
 chroma_path: ".chroma"
 embed_model: "nomic-embed-text"
 n_results: 5
-model: "gemma4:e4b"        # used by MemoryAgent for intent/entity classification and summarization
+model: "gemma4:e4b-mlx"    # used by MemoryAgent for intent/entity classification and summarization
+
+ingest:
+  dedup_threshold: 0.90    # cosine similarity above which an existing engram is merged rather than accumulated
 
 retrieval:
   min_similarity: 0.85     # cosine similarity threshold; converted to distance (1 - sim) at query time
@@ -16,6 +19,19 @@ summarize_prompt: |
 
   Q: {query}
   A: {answer}
+
+merge_prompt: |
+  You are merging two similar memory entries into one compact summary.
+
+  Existing memory:
+  {old_content}
+
+  New exchange:
+  Q: {query}
+  A: {answer}
+
+  Write a merged summary in 2-4 sentences. Preserve all unique facts. Drop redundant content.
+  Output only the merged summary — no preamble.
 
 classify_prompt: |
   Classify this Q&A pair and extract named entities. Output JSON only, no explanation:

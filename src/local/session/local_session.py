@@ -21,17 +21,22 @@ from local.protocol.subjects import (
     ANSWER_DIALOG,
     CRITIQUE,
     GENERATION_THINKING,
+    GENERATION_TOKEN,
     QUERY_RECEIVED,
     RESPONSE_GENERATION,
+    TOOL_CALL_CONSULT_LIBRARIAN,
     TOOL_CALL_GET_DATETIME,
     TOOL_CALL_GET_LOCATION,
+    TOOL_CALL_PERSONA,
     TOOL_CALL_SEARCH_DOCUMENTS,
     TOOL_CALL_SEARCH_MEMORY,
     TOOL_CALL_SEARCH_PAPERS,
     TOOL_CALL_WEB_FETCH,
     TOOL_CALL_WEB_SEARCH,
+    TOOL_RESULT_CONSULT_LIBRARIAN,
     TOOL_RESULT_GET_DATETIME,
     TOOL_RESULT_GET_LOCATION,
+    TOOL_RESULT_PERSONA,
     TOOL_RESULT_SEARCH_DOCUMENTS,
     TOOL_RESULT_SEARCH_MEMORY,
     TOOL_RESULT_SEARCH_PAPERS,
@@ -45,6 +50,7 @@ from local.transport.zmq_pubsub import ZmqPublisher, ZmqSubscriber
 OBSERVE = [
     QUERY_RECEIVED,
     GENERATION_THINKING,
+    GENERATION_TOKEN,
     TOOL_CALL_WEB_SEARCH,
     TOOL_RESULT_WEB_SEARCH,
     TOOL_CALL_WEB_FETCH,
@@ -59,6 +65,10 @@ OBSERVE = [
     TOOL_RESULT_SEARCH_PAPERS,
     TOOL_CALL_SEARCH_DOCUMENTS,
     TOOL_RESULT_SEARCH_DOCUMENTS,
+    TOOL_CALL_PERSONA,
+    TOOL_RESULT_PERSONA,
+    TOOL_CALL_CONSULT_LIBRARIAN,
+    TOOL_RESULT_CONSULT_LIBRARIAN,
     RESPONSE_GENERATION,
     ANSWER_DIALOG,
     CRITIQUE,
@@ -91,7 +101,8 @@ class LoCALSession:
         *,
         query_id: Optional[str] = None,
         attachments: Optional[list] = None,
-        timeout: float = 120.0,
+        native: bool = False,
+        timeout: float = 180.0,
     ) -> Iterator[MessageEnvelope]:
         """Publish query.received; yield bus events until RESPONSE_GENERATION + trail.
 
@@ -108,6 +119,8 @@ class LoCALSession:
         }
         if attachments:
             payload["attachments"] = attachments
+        if native:
+            payload["native"] = True
         envelope = MessageEnvelope.create(
             message_type="query",
             subject=QUERY_RECEIVED,

@@ -73,7 +73,8 @@ export interface ResponseEvent {
   query_id: string;
   prompt_tokens: number;
   model?: string;
-  capsules?: Array<{ content: string; score: number }>;
+  capsules?:    Array<{ content: string; score: number }>;
+  candidates?:  Array<{ content: string; score: number }>;
   pinned_facts?: PinnedFact[];
 }
 
@@ -139,7 +140,8 @@ export interface PinnedFact {
 }
 
 export interface ContextBiscuit {
-  capsules: Array<{ content: string; score: number }>;
+  capsules:   Array<{ content: string; score: number }>;
+  candidates: Array<{ content: string; score: number }>;
   pinned_facts: PinnedFact[];
   persona?: string;
 }

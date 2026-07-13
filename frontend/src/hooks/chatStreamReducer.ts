@@ -121,8 +121,8 @@ export function chatStreamReducer(
       const pendingSources = { ...state.pendingSources };
       delete pendingSources[action.query_id];
       const toolNames = new Set(action.tool_calls.map((tc) => tc.tool));
-      const biscuit = (action.capsules?.length || action.pinned_facts?.length)
-        ? { capsules: action.capsules ?? [], pinned_facts: action.pinned_facts ?? [] }
+      const biscuit = (action.capsules?.length || action.candidates?.length || action.pinned_facts?.length)
+        ? { capsules: action.capsules ?? [], candidates: action.candidates ?? [], pinned_facts: action.pinned_facts ?? [] }
         : undefined;
       const msg: ChatMessage = {
         id: action.query_id,

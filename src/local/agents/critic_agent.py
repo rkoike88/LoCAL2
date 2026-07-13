@@ -61,6 +61,8 @@ class CriticAgent(BaseAgent):
         self._options: dict = {
             "num_ctx": cfg["num_ctx"],
             "temperature": cfg["temperature"],
+            "top_p": cfg.get("top_p", 0.95),
+            "top_k": cfg.get("top_k", 64),
         }
         timeout: int = cfg["grade_timeout"]
         self._llm = llm or OllamaBackend(model=model, agent_name=self.id, timeout=timeout)

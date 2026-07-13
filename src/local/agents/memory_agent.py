@@ -63,6 +63,8 @@ class MemoryAgent(BaseAgent):
         self._merge_prompt: str = (cfg.get("merge_prompt") or "").strip()
         self._min_similarity: float = retrieval_cfg.get("min_similarity", 0.85)
         self._max_results: int = retrieval_cfg.get("max_results", 7)
+        self._base_cap: int = retrieval_cfg.get("base_cap", 4)
+        self._high_confidence_threshold: float = retrieval_cfg.get("high_confidence_threshold", 0.90)
         self._dedup_threshold: float = ingest_cfg.get("dedup_threshold", 0.90)
         self._write_enabled: bool = cfg.get("write_enabled", True)
         self._llm_options: dict = {
@@ -111,8 +113,13 @@ class MemoryAgent(BaseAgent):
         try:
             filter_user = user_id if user_id and user_id != "default" else None
             all_results = self._memory.search_episodic(query, n=self._max_results, user_id=filter_user)
-            capsules   = [c for c in all_results if c["score"] >= self._min_similarity]
-            candidates = [c for c in all_results if c["score"] <  self._min_similarity]
+            above = [c for c in all_results if c["score"] >= self._min_similarity]
+            candidates = [c for c in all_results if c["score"] < self._min_similarity]
+            # base cap: 4; allow a 5th if it clears the high-confidence threshold
+            cap = self._base_cap
+            if len(above) > cap and above[cap]["score"] >= self._high_confidence_threshold:
+                cap += 1
+            capsules = above[:cap]
             top_scores = [round(c["score"], 3) for c in all_results[:3]]
             logger.info("MemoryAgent: relay capsules=%d below_threshold=%d top_scores=%s user_id=%s", len(capsules), len(candidates), top_scores, user_id)
         except Exception as exc:

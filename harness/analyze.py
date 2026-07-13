@@ -91,7 +91,8 @@ def _load_rows(con: sqlite3.Connection, run_id: str | None) -> list[dict]:
         for tc in tool_calls:
             t = tc.get("tool", "")
             if t == "persona":
-                persona_mode = tc.get("args", {}).get("mode", "?")
+                args = tc.get("args", {})
+                persona_mode = args.get("name") or args.get("mode") or "?"
             elif t == "web_search":
                 web_search += 1
             elif t in ("search_library", "consult_librarian"):

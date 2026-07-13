@@ -13,8 +13,10 @@ ingest:
   dedup_threshold: 0.90    # cosine similarity above which an existing engram is merged rather than accumulated
 
 retrieval:
-  min_similarity: 0.75     # true cosine similarity threshold (collection uses squared-L2; converted in search_episodic)
-  max_results: 7           # cap on injected summaries
+  min_similarity: 0.75          # true cosine similarity threshold (collection uses squared-L2; converted in search_episodic)
+  max_results: 7                # fetch candidate pool from Chroma before capping
+  base_cap: 4                   # max capsules injected at standard threshold
+  high_confidence_threshold: 0.90  # a 5th capsule is included if it clears this score
 
 summarize_prompt: |
   Summarize what was established in this exchange in 2-4 sentences.

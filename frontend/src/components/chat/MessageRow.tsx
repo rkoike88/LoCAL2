@@ -75,6 +75,7 @@ export function MessageRow({ msg, sessionId, selected, onToggle }: Props) {
           groundedness={msg.groundedness}
           model={msg.model}
           persona={msg.persona}
+          personaRole={msg.persona_role}
           queryId={msg.id}
           sessionId={sessionId}
           contextBiscuit={msg.context_biscuit}

@@ -14,3 +14,8 @@ export function derivePersona(toolCalls: ToolCall[] | undefined): string | undef
   const call = toolCalls?.find((tc) => tc.tool === "persona");
   return call?.args?.name as string | undefined;
 }
+
+export function deriveRole(toolCalls: ToolCall[] | undefined): string | undefined {
+  const call = toolCalls?.find((tc) => tc.tool === "persona");
+  return (call?.args?.role as string | undefined) || undefined;
+}

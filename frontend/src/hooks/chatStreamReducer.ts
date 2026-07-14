@@ -1,4 +1,4 @@
-import { deriveGroundedness, derivePersona } from "../utils/groundedness";
+import { deriveGroundedness, derivePersona, deriveRole } from "../utils/groundedness";
 import type {
   ChatMessage,
   GatewayEvent,
@@ -135,6 +135,7 @@ export function chatStreamReducer(
         prompt_tokens: action.prompt_tokens,
         model: action.model || undefined,
         persona: derivePersona(action.tool_calls) || undefined,
+        persona_role: deriveRole(action.tool_calls) || undefined,
         context_biscuit: biscuit,
       };
       return {

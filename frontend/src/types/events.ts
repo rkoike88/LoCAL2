@@ -160,6 +160,7 @@ export interface ChatMessage {
   attachments?: Attachment[];
   model?: string;
   persona?: string;
+  persona_role?: string;
   context_biscuit?: ContextBiscuit;
   engram_id?: string;
 }

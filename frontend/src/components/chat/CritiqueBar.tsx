@@ -24,12 +24,13 @@ interface Props {
   groundedness?: string;
   model?: string;
   persona?: string;
+  personaRole?: string;
   queryId: string;
   sessionId: string;
   contextBiscuit?: ContextBiscuit;
 }
 
-export function CritiqueBar({ score, feedback, rubricName, rubricText, groundedness, model, persona, queryId, sessionId, contextBiscuit }: Props) {
+export function CritiqueBar({ score, feedback, rubricName, rubricText, groundedness, model, persona, personaRole, queryId, sessionId, contextBiscuit }: Props) {
   const [sentiment, setSentiment] = useState<"positive" | "negative" | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [biscuitOpen, setBiscuitOpen] = useState(false);
@@ -59,7 +60,7 @@ export function CritiqueBar({ score, feedback, rubricName, rubricText, groundedn
         )}
         {persona && (
           <span className="text-xs text-purple-400 font-mono" title="Cognitive persona active for this response">
-            ◈ {persona}
+            ◈ {persona}{personaRole ? ` · ${personaRole}` : ""}
           </span>
         )}
         {ground && (

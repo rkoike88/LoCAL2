@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ChatMessage, SessionMeta } from "../types/events";
-import { derivePersona } from "../utils/groundedness";
+import { derivePersona, deriveRole } from "../utils/groundedness";
 import { randomUUID } from "../utils/uuid";
 import {
   deleteSession as apiDeleteSession,
@@ -49,6 +49,7 @@ export function useSessions(): UseSessionsResult {
             thinking: m.thinking || undefined,
             tool_calls: m.tool_calls?.length ? m.tool_calls : undefined,
             persona: derivePersona(m.tool_calls ?? undefined) || undefined,
+            persona_role: deriveRole(m.tool_calls ?? undefined) || undefined,
             critique:
               m.critic_score != null
                 ? { score: m.critic_score, feedback: m.critic_feedback ?? "", rubric_name: m.critic_rubric_name ?? "", rubric_text: m.critic_rubric_text ?? "" }

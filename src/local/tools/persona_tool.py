@@ -33,13 +33,14 @@ class PersonaTool(BaseTool):
         correlation_id = envelope.correlation_id
         name = args.get("name", "general")
         reason = args.get("reason", "")
+        role = args.get("role", "")
 
         personas_cfg = get_config(self.CONFIG_NAME) or {}
         personas = personas_cfg.get("personas", {})
         persona = personas.get(name) or personas.get("general", {})
         seed = (persona.get("seed") or f"[{name.upper()}]").strip()
 
-        logger.info("PersonaTool: mode=%s", name)
-        self._publish_activity("request", {"name": name, "reason": reason}, correlation_id)
+        logger.info("PersonaTool: mode=%s role=%s", name, role or "none")
+        self._publish_activity("request", {"name": name, "reason": reason, "role": role}, correlation_id)
         self._publish_activity("result", {"result": seed}, correlation_id)
         self._publish_result(seed, correlation_id)

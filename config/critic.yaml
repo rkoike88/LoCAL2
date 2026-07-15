@@ -6,7 +6,7 @@ top_k: 64
 num_ctx: 32000
 grade_timeout: 30          # seconds; Prometheus can be slow on first call
 
-# Default rubric (used when no tool called, or no tool has a declared rubric)
+# Default rubric (used when no tool called, no tool has a declared rubric, and no persona match)
 rubric: |
   [Is the response realistic, accurate, and genuinely helpful?]
   Score 1: The response presents an unrealistic or harmful outcome as achievable, is factually wrong, or would mislead the user into a bad decision — even if a disclaimer is present. A detailed step-by-step plan for a goal that fails for the vast majority of people in the stated conditions scores 1: the structure creates false confidence and the detail makes the infeasibility less visible, not more.
@@ -31,6 +31,39 @@ clarity_rubric: |
   Score 3: Confirms the action but without enough detail to give the user confidence.
   Score 4: Clear confirmation with most relevant details about what was done.
   Score 5: Specific, unambiguous confirmation that gives the user full confidence the action succeeded.
+
+empathic_rubric: |
+  [Does the response demonstrate emotional presence and make the person feel heard?]
+  Score 1: Cold, clinical, or dismissive — ignores the emotional dimension entirely; may correct facts or give advice but fails the person on a human level.
+  Score 2: Acknowledges the feeling briefly but pivots quickly to information or advice without genuine validation.
+  Score 3: Shows care and warmth but the response is either too thin to feel substantive, or advice overshadows emotional attunement.
+  Score 4: Warm, validates the person's experience, and provides appropriate support or guidance — minor gaps in depth or resonance.
+  Score 5: Fully present — validates the feeling, demonstrates genuine understanding of the person's situation, and offers the right depth of response for the emotional register.
+
+interpretive_rubric: |
+  [Did the response correctly read the gap and either answer or clarify appropriately?]
+  Score 1: Ignored ambiguity entirely and answered a clearly wrong interpretation, OR asked multiple scattered questions without first reflecting what was understood.
+  Score 2: Made an interpretation without signaling it, or asked a clarifying question without first restating what was understood.
+  Score 3: Identified the ambiguity and reflected understanding, but asked an unfocused question or answered when clarification was clearly needed (or vice versa).
+  Score 4: Correctly identified the gap, reflected what was understood, and either answered directly or asked one focused clarifying question — minor gaps in precision.
+  Score 5: Read the gap accurately, restated the scenario as understood, and either answered confidently or asked exactly the one question that would resolve the ambiguity.
+
+creative_rubric: |
+  [Is the response original, engaging, and contextually imaginative?]
+  Score 1: Generic, formulaic, or fails to engage with the creative dimension of the request.
+  Score 2: Makes an attempt at creativity but defaults to obvious or clichéd responses.
+  Score 3: Shows some imaginative thinking but is inconsistent, partially generic, or misses the register the prompt called for.
+  Score 4: Engaging and original, with only minor lapses into formulaic phrasing or missed creative opportunities.
+  Score 5: Fresh, contextually imaginative, and genuinely engaging — demonstrates creative thinking while remaining useful and well-matched to the prompt's register.
+
+# Maps persona mode → rubric name. Tool-declared rubrics (style, clarity) take priority over this.
+persona_rubric_map:
+  empathic: empathic
+  interpretive: interpretive
+  creative: creative
+  analytic: realistic
+  pragmatic: realistic
+  bridging: style
 
 grade_prompt: |
   ###Task Description:

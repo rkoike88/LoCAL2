@@ -23,6 +23,7 @@ import argparse
 import asyncio
 import json
 import logging
+import random
 import time
 import uuid
 from pathlib import Path
@@ -38,8 +39,6 @@ logger = logging.getLogger(__name__)
 
 _CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
-_IDLE_TIMEOUT = 120  # seconds of silence on either arm before considered hung
-
 
 # ---------------------------------------------------------------------------
 # Single-arm async WS query
@@ -51,6 +50,7 @@ async def _query_arm(
     user_id: str,
     query: str,
     native: bool = False,
+    idle_timeout: int = 150,
 ) -> dict[str, Any]:
     """Connect to LoCAL2 gateway and run one query turn.
 
@@ -83,15 +83,15 @@ async def _query_arm(
 
             last_event = time.monotonic()
             while True:
-                time_left = _IDLE_TIMEOUT - (time.monotonic() - last_event)
+                time_left = idle_timeout - (time.monotonic() - last_event)
                 if time_left <= 0:
-                    logger.warning("%s idle timeout (%ds) session=%s", arm_label, _IDLE_TIMEOUT, session_id)
+                    logger.warning("%s idle timeout (%ds) session=%s", arm_label, idle_timeout, session_id)
                     acc["timed_out"] = True
                     break
                 try:
                     raw = await asyncio.wait_for(ws.recv(), timeout=time_left)
                 except asyncio.TimeoutError:
-                    logger.warning("%s idle timeout (%ds) session=%s", arm_label, _IDLE_TIMEOUT, session_id)
+                    logger.warning("%s idle timeout (%ds) session=%s", arm_label, idle_timeout, session_id)
                     acc["timed_out"] = True
                     break
 
@@ -139,7 +139,7 @@ async def _query_arm(
 # Timing helpers
 # ---------------------------------------------------------------------------
 
-def _arm_timing_summary(result: dict, label: str) -> str:
+def _arm_timing_summary(result: dict, label: str, idle_timeout: int = 150) -> str:
     t_sub = result.get("t_submit")
     t_fe  = result.get("t_first_event")
     t_com = result.get("t_complete")
@@ -158,7 +158,7 @@ def _arm_timing_summary(result: dict, label: str) -> str:
         parts.append(f"gen={t_com - (t_fe or t_sub):.1f}s")
         parts.append(f"total={t_com - t_sub:.1f}s")
     elif timed_out:
-        parts.append(f"TIMED_OUT({_IDLE_TIMEOUT}s idle)")
+        parts.append(f"TIMED_OUT({idle_timeout}s idle)")
     else:
         parts.append("total=—(no response event)")
 
@@ -178,6 +178,7 @@ async def _eval_prompt(
     skip_local2: bool,
     user_id: str,
     double_judge: bool = False,
+    idle_timeout: int = 150,
 ) -> str:
     """Evaluate one prompt against both arms, save item + judgment. Returns verdict."""
     prompt_id: str = prompt["prompt_id"]
@@ -198,15 +199,15 @@ async def _eval_prompt(
             "t_submit": None, "t_first_event": None, "t_complete": None, "timed_out": False,
         }
     else:
-        local2_result = await _query_arm(local2_url, local2_session, user_id, query, native=False)
+        local2_result = await _query_arm(local2_url, local2_session, user_id, query, native=False, idle_timeout=idle_timeout)
 
-    native_result = await _query_arm(local2_url, native_session, user_id, query, native=True)
+    native_result = await _query_arm(local2_url, native_session, user_id, query, native=True, idle_timeout=idle_timeout)
 
     local2_answer: str = local2_result["answer"]
     native_answer: str = native_result["answer"]
 
-    logger.info("%s", _arm_timing_summary(local2_result, "local2"))
-    logger.info("%s", _arm_timing_summary(native_result, "native"))
+    logger.info("%s", _arm_timing_summary(local2_result, "local2", idle_timeout=idle_timeout))
+    logger.info("%s", _arm_timing_summary(native_result, "native", idle_timeout=idle_timeout))
     logger.info(
         "  local2=%d chars  native=%d chars",
         len(local2_answer), len(native_answer),
@@ -333,6 +334,7 @@ async def _run(
     offset: int = 0,
     prompt_ids: list[str] | None = None,
     inter_item_sleep: float = 0.0,
+    seed: int | None = None,
 ) -> None:
     db.init_db(cfg.get("db_path", "harness.db"))
 
@@ -340,6 +342,7 @@ async def _run(
     judge_position: str = judge_cfg.get("position", "local2_first")
     double_judge: bool = judge_cfg.get("double_judge", False)
     local2_url: str = cfg.get("local2_url", "ws://localhost:8000")
+    idle_timeout: int = cfg.get("idle_timeout", 150)
 
     _ensure_run(run_id, "native-mode", "local2-gateway", cfg)
 
@@ -360,11 +363,18 @@ async def _run(
         kw = filter_kw.lower()
         all_prompts = [p for p in all_prompts if kw in (p.get("criteria") or "").lower()]
 
-    remaining = [p for p in all_prompts if p["prompt_id"] not in done_prompt_ids][:n]
+    candidates = [p for p in all_prompts if p["prompt_id"] not in done_prompt_ids]
+
+    if seed is None:
+        seed = random.randint(0, 2**31)
+    cfg["seed"] = seed
+    rng = random.Random(seed)
+    rng.shuffle(candidates)
+    remaining = candidates[:n]
 
     logger.info(
-        "DB has %d prompts total. Processing %d this run (run_id=%s, position=%s, user_id=%s)",
-        db.count_prompts(), len(remaining), run_id, judge_position, user_id,
+        "DB has %d prompts total. Processing %d this run (run_id=%s, position=%s, user_id=%s, seed=%d)",
+        db.count_prompts(), len(remaining), run_id, judge_position, user_id, seed,
     )
 
     if not remaining:
@@ -387,6 +397,7 @@ async def _run(
         try:
             verdict = await _eval_prompt(
                 prompt, run_id, judge, local2_url, judge_position, skip_local2, user_id, double_judge,
+                idle_timeout=idle_timeout,
             )
         except Exception as exc:
             logger.error("  FAILED: %s", exc, exc_info=True)
@@ -441,6 +452,7 @@ def main() -> None:
     ap.add_argument("--offset",       type=int, default=0)
     ap.add_argument("--prompt-ids",       default=None, help="Comma-separated prompt_ids to run (skips --n/--offset/--filter)")
     ap.add_argument("--inter-item-sleep", type=float, default=5.0, help="Seconds to sleep between items (default: 5)")
+    ap.add_argument("--seed",             type=int,   default=None, help="RNG seed for prompt shuffle (auto-generated and logged if omitted)")
     args = ap.parse_args()
 
     cfg["db_path"] = args.db
@@ -458,6 +470,7 @@ def main() -> None:
             offset=args.offset,
             prompt_ids=prompt_ids,
             inter_item_sleep=args.inter_item_sleep,
+            seed=args.seed,
         )
     )
 

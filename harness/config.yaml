@@ -1,4 +1,5 @@
 local2_url: "ws://localhost:8000"
+idle_timeout: 150          # seconds of silence on either arm before considered hung (should exceed tool_timeout in generator.yaml)
 
 arm_b:
   backend: ollama

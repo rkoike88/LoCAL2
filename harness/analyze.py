@@ -32,7 +32,7 @@ V_SHORT = {
     "":              "—",
 }
 
-PERSONAS = ["analytic", "empathic", "creative", "pragmatic", "confluence"]
+PERSONAS = ["analytic", "empathic", "creative", "pragmatic", "bridging"]
 
 
 def _safe_float(v):
@@ -793,7 +793,7 @@ def run_html(run_id: str | None, band_size: int, out_path: Path) -> None:
   td.active-empathic   {{ color: #f472b6; }}
   td.active-creative   {{ color: #fb923c; }}
   td.active-pragmatic  {{ color: #34d399; }}
-  td.active-confluence {{ color: #fbbf24; }}
+  td.active-bridging   {{ color: #fbbf24; }}
   td.active-none       {{ color: var(--muted); font-size: 11px; }}
 
   /* caps badge */

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class ToolDispatcher(Participant):
     """Synchronous bus helper for dispatching tool calls mid-generation.
 
-    Has its own ZmqPublisher and opens a short-lived ZmqSubscriber per call.
+    Has its own ZmqPublisher and a persistent ZmqSubscriber on tool.result.*.
     No run loop — called on-demand by the generator.
     """
 
@@ -35,6 +35,7 @@ class ToolDispatcher(Participant):
         """
         self._tool_timeout = tool_timeout
         self._pub = ZmqPublisher(PROXY_FRONTEND_ADDR, bind=False)
+        self._result_sub = ZmqSubscriber(PROXY_BACKEND_ADDR, subscriptions=["tool.result."])
 
     def execute(
         self,
@@ -45,9 +46,8 @@ class ToolDispatcher(Participant):
     ) -> tuple[str, bool]:
         """Dispatch a tool call and block for the result.
 
-        Opens a ZmqSubscriber for tool.result.<name> BEFORE publishing
-        tool.request.<name> to avoid a race between publish and subscribe.
-        Polls until correlation_id matches or tool_timeout expires.
+        Publishes tool.call.<name> and polls the persistent result subscriber
+        until correlation_id matches or tool_timeout expires.
 
         Args:
             name: Tool function name; normalized via _normalize() first.
@@ -60,25 +60,20 @@ class ToolDispatcher(Participant):
             timed_out is True if no matching response arrived in time.
         """
         name = self._normalize(name, schemas)
-        res_subject = f"tool.result.{name}"
 
-        result_sub = ZmqSubscriber(PROXY_BACKEND_ADDR, subscriptions=[res_subject])
-        try:
-            self._pub.publish(
-                ToolCall(tool=name, args=args, correlation_id=correlation_id),
-                sender_id=self.id,
-                correlation_id=correlation_id,
-            )
-            deadline = time.monotonic() + self._tool_timeout
-            while time.monotonic() < deadline:
-                remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
-                msg = result_sub.receive_with_timeout(remaining_ms)
-                if msg is None:
-                    break
-                if msg.correlation_id == correlation_id:
-                    return msg.payload.get("result", ""), False
-        finally:
-            result_sub.close()
+        self._pub.publish(
+            ToolCall(tool=name, args=args, correlation_id=correlation_id),
+            sender_id=self.id,
+            correlation_id=correlation_id,
+        )
+        deadline = time.monotonic() + self._tool_timeout
+        while time.monotonic() < deadline:
+            remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
+            msg = self._result_sub.receive_with_timeout(remaining_ms)
+            if msg is None:
+                break
+            if msg.correlation_id == correlation_id:
+                return msg.payload.get("result", ""), False
 
         logger.warning("ToolDispatcher: tool %r timed out after %ss", name, self._tool_timeout)
         return f"[tool timeout: {name!r} did not respond within {self._tool_timeout}s]", True

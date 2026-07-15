@@ -30,6 +30,8 @@ temperature: 1.0
 top_p: 0.95
 top_k: 64
 tool_timeout: 120
+critique_inject_min_score: 5   # inject critic feedback when score < this; set to 6 to always inject
+capsule_feedback_chars: 300    # max chars of critic feedback to include per retrieved engram
 tools: []
 native_system_prompt: |
   You are a helpful assistant. You have access to web search tools.

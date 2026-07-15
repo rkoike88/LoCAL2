@@ -53,10 +53,14 @@ class CriticAgent(BaseAgent):
         cfg = get_config("critic")
         model: str = cfg["model"]
         self._rubrics: dict[str, str] = {
-            "realistic": (cfg.get("rubric") or "").strip(),
-            "style":     (cfg.get("style_rubric") or "").strip(),
-            "clarity":   (cfg.get("clarity_rubric") or "").strip(),
+            "realistic":    (cfg.get("rubric") or "").strip(),
+            "style":        (cfg.get("style_rubric") or "").strip(),
+            "clarity":      (cfg.get("clarity_rubric") or "").strip(),
+            "empathic":     (cfg.get("empathic_rubric") or "").strip(),
+            "interpretive": (cfg.get("interpretive_rubric") or "").strip(),
+            "creative":     (cfg.get("creative_rubric") or "").strip(),
         }
+        self._persona_rubric_map: dict[str, str] = cfg.get("persona_rubric_map") or {}
         self._grade_prompt: str = (cfg.get("grade_prompt") or "").strip()
         self._options: dict = {
             "num_ctx": cfg["num_ctx"],
@@ -99,16 +103,24 @@ class CriticAgent(BaseAgent):
     def _resolve_rubric(self, tool_calls: list) -> tuple[str, str]:
         """Return (rubric_text, rubric_name) for the given tool_calls list.
 
-        Picks the highest-priority tool whose name is in the registry.
-        Falls back to the default 'realistic' rubric when no match is found.
+        Priority: tool-declared rubric (highest priority wins) → persona rubric map → realistic.
         """
         best: dict | None = None
+        persona_mode: str | None = None
         for tc in tool_calls:
             name = tc.get("tool") or ""
+            if name == "persona":
+                args = tc.get("args", {})
+                persona_mode = args.get("name") or args.get("mode")
             entry = self._rubric_registry.get(name)
             if entry and (best is None or entry["priority"] > best["priority"]):
                 best = entry
-        rubric_name = best["rubric_name"] if best else "realistic"
+        if best:
+            rubric_name = best["rubric_name"]
+        elif persona_mode and persona_mode in self._persona_rubric_map:
+            rubric_name = self._persona_rubric_map[persona_mode]
+        else:
+            rubric_name = "realistic"
         rubric_text = self._rubrics.get(rubric_name) or self._rubrics["realistic"]
         return rubric_text, rubric_name
 

@@ -22,12 +22,13 @@ from local.agents.ollama_types import OllamaToolCall, clean_for_history, make_as
 from local.config_loader import get_config
 from local.protocol.envelope import MessageEnvelope
 from local.protocol.messages import (
-    AnswerDialog, GenerationThinking, GenerationToken,
+    AnswerDialog, CritiqueResult, GenerationThinking, GenerationToken,
     GeneratorStatus, MemoryContext, ResponseGeneration, ToolSchemaRequest,
     UserContext, UserContextRequest, UserContextUpdated,
 )
 from local.protocol.subjects import (
-    CONFIG_RELOAD, GENERATION_TOKEN, MEMORY_CONTEXT, TOOL_SCHEMA, USER_CONTEXT, USER_CONTEXT_UPDATED,
+    CONFIG_RELOAD, CRITIQUE, GENERATION_TOKEN, MEMORY_CONTEXT, TOOL_SCHEMA,
+    USER_CONTEXT, USER_CONTEXT_UPDATED,
 )
 from local.protocol.types import Attachment
 from local.services.conversation_service import ConversationService
@@ -84,12 +85,15 @@ class GeneratorAgent(BaseAgent):
         self._tool_schemas: list = cfg.get("tools") or []
         self._instance_id: str = sys_cfg.get("instance_id") or socket.gethostname()
         self._token_count: int = 0
-        self._active_persona: dict[str, str] = {}  # session_id -> active persona mode
-        self._user_context: list[dict] = []        # [{fact, reason}] — bootstrapped from pinned store
+        self._active_persona: dict[str, str] = {}   # session_id -> active persona mode
+        self._user_context: list[dict] = []         # [{fact, reason}] — bootstrapped from pinned store
+        self._last_critique: dict[str, dict] = {}   # session_id -> {score, feedback, rubric_name}
+        self._critique_inject_min_score: int = cfg.get("critique_inject_min_score", 5)
+        self._capsule_feedback_chars: int = cfg.get("capsule_feedback_chars", 300)
         self._conv = conversation_service or ConversationService()
         self._tool_dispatcher = tool_dispatcher or ToolDispatcher(self._tool_timeout)
         self._sm = GeneratorStateMachine()
-        self._pub, self._sub = make_participant_bus([MEMORY_CONTEXT, TOOL_SCHEMA, CONFIG_RELOAD, USER_CONTEXT, USER_CONTEXT_UPDATED])
+        self._pub, self._sub = make_participant_bus([MEMORY_CONTEXT, TOOL_SCHEMA, CONFIG_RELOAD, USER_CONTEXT, USER_CONTEXT_UPDATED, CRITIQUE])
 
     # ------------------------------------------------------------------
     # Main loop
@@ -130,6 +134,8 @@ class GeneratorAgent(BaseAgent):
             logger.info("GeneratorAgent: added pinned fact %r", msg.fact[:60])
         elif envelope.subject == TOOL_SCHEMA:
             self._register_tool_schema(envelope.payload.get("schema", {}))
+        elif envelope.subject == CRITIQUE:
+            self._handle_critique(envelope)
         elif envelope.subject == CONFIG_RELOAD:
             self._handle_config_reload()
 
@@ -259,8 +265,23 @@ class GeneratorAgent(BaseAgent):
                 facts_text = "\n".join(f"- {f['fact']}" for f in self._user_context)
                 system_text += f"\n\n[Things to always remember about the user:]\n{facts_text}"
             if capsules:
-                summaries = "\n".join(f"- {c['content']}" for c in capsules)
-                system_text += f"\n\n[Relevant prior sessions:]\n{summaries}"
+                lines = []
+                for c in capsules:
+                    meta = c.get("metadata", {})
+                    line = f"- {c['content']}"
+                    score = meta.get("critic_score")
+                    feedback = (meta.get("critic_feedback") or "").strip()
+                    if score is not None and feedback:
+                        line += f"\n  [Score {score}/5: {feedback[:self._capsule_feedback_chars]}]"
+                    lines.append(line)
+                system_text += f"\n\n[Relevant prior sessions:]\n" + "\n".join(lines)
+            critique = self._last_critique.get(session_id or "")
+            if critique and critique["score"] < self._critique_inject_min_score:
+                system_text += (
+                    f"\n\n[Feedback on your previous response"
+                    f" ({critique['rubric_name']} rubric, score {critique['score']}/5):]"
+                    f"\n{critique['feedback']}"
+                )
         if system_text:
             messages.append({"role": "system", "content": system_text})
         messages.extend(history)
@@ -413,6 +434,16 @@ class GeneratorAgent(BaseAgent):
         self._system_prompt = cfg.get("system_prompt") or ""
         logger.info("GeneratorAgent: config reloaded — model=%s", self._model)
         self._publish_status()
+
+    def _handle_critique(self, envelope: MessageEnvelope) -> None:
+        msg = CritiqueResult.from_envelope(envelope)
+        if not msg.session_id or msg.score is None:
+            return
+        self._last_critique[msg.session_id] = {
+            "score": msg.score,
+            "feedback": msg.feedback,
+            "rubric_name": msg.rubric_name,
+        }
 
     def _after_transition(self) -> None:
         self._publish_status()

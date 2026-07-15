@@ -15,6 +15,7 @@ from local.agents.memory_agent_transitions import MemoryAgentStateMachine
 
 def _make_agent() -> tuple[MemoryAgent, MagicMock, MagicMock]:
     mock_memory = MagicMock()
+    mock_memory.search_episodic.return_value = []
     mock_llm = MagicMock()
     with patch("local.agents.memory_agent.make_participant_bus", return_value=(MagicMock(), MagicMock())):
         agent = MemoryAgent(memory_service=mock_memory, llm=mock_llm)

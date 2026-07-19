@@ -4,6 +4,24 @@ Privacy-first local AI assistant. Gemma 4 runs entirely on-device via [Ollama](h
 
 Gemma is the orchestrator. It receives the raw user query and the full conversation history, then decides natively whether to search the web, recall episodic memory, fetch a URL, consult the document library, or answer directly. LoCAL2 provides the tools, memory infrastructure, quality-scoring loop, and observability layer — not the orchestration.
 
+## Research status
+
+LoCAL2 is an open-source experimental platform for investigating memory,
+evaluation, tool use, and behavioral context in locally hosted generative-AI
+systems.
+
+The repository is a research prototype, not a production-supported enterprise
+platform. Its architecture and behavior may change between public releases,
+and individual experimental results should not be treated as independently
+validated unless accompanied by a published methodology and dataset.
+
+The public pre-thesis baseline was recorded on July 18, 2026, at commit
+[`e8a5054`](https://github.com/rkoike88/LoCAL2/commit/e8a505476e5eeade64386c3d0c615b670344e837).
+
+Thesis-related development after that baseline is being conducted privately.
+New experimental mechanisms, datasets, controlled evaluations, statistical
+analyses, and results are not included in this public repository.
+
 **→ [Getting Started](GETTING_STARTED.md) · [Architecture Reference](docs/architecture/local2-design.md) · [Docs Index](docs/)**
 
 ---

@@ -15,7 +15,9 @@ platform. Its architecture and behavior may change between public releases,
 and individual experimental results should not be treated as independently
 validated unless accompanied by a published methodology and dataset.
 
-The public pre-thesis baseline was recorded on July 18, 2026, at commit
+The public pre-thesis baseline was recorded on July 18, 2026, as the
+[`local2-public-baseline-2026-07-18`](https://github.com/rkoike88/LoCAL2/releases/tag/local2-public-baseline-2026-07-18)
+release at commit
 [`e8a5054`](https://github.com/rkoike88/LoCAL2/commit/e8a505476e5eeade64386c3d0c615b670344e837).
 
 Thesis-related development after that baseline is being conducted privately.

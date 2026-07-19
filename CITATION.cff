@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use LoCAL2 in research, please cite this software."
+title: "LoCAL2: Loosely Coupled Agent Language Model"
+type: software
+authors:
+  - family-names: "Koike"
+    given-names: "Richard"
+repository-code: "https://github.com/rkoike88/LoCAL2"
+url: "https://github.com/rkoike88/LoCAL2/releases/tag/local2-public-baseline-2026-07-18"
+license: MIT
+version: "public-baseline-2026-07-18"
+date-released: 2026-07-18

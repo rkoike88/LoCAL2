@@ -195,7 +195,9 @@ class GeneratorAgent(BaseAgent):
 
         for tc in tool_call_log:
             if tc.get("tool") == "persona":
-                mode = (tc.get("args") or {}).get("mode", "")
+                # The persona tool schema names its selector parameter "name"
+                # (see config/persona.yaml); "mode" is what PersonaTool logs it as.
+                mode = (tc.get("args") or {}).get("name", "")
                 if mode and session_id:
                     self._active_persona[session_id] = mode
 

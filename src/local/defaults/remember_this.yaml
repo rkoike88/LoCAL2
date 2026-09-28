@@ -1,4 +1,6 @@
 id: remember_this_tool
+critique_rubric_name: "clarity"
+critique_priority: 1
 
 schema:
   type: function

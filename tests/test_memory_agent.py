@@ -224,3 +224,36 @@ class TestClassify:
         mock_llm.chat.return_value = ("I cannot classify this.", "")
         result = agent._classify("Q", "A")
         assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# _handle_critique — kind="faithfulness" routes to update_engram_faithfulness
+# ---------------------------------------------------------------------------
+
+def _make_faithfulness_envelope(query_id="qid-7", score=1, judge="qwen3.5:27b"):
+    env = MagicMock()
+    env.subject = "critique.result"
+    env.payload = {"query_id": query_id, "score": score, "feedback": "claims macOS", "query": "q", "answer": "a",
+                   "session_id": "s", "kind": "faithfulness", "judge_model": judge}
+    return env
+
+
+class TestHandleCritiqueFaithfulness:
+    def test_faithfulness_kind_updates_faithfulness_not_critic_score(self):
+        agent, mock_memory, _ = _make_agent()
+        agent._handle_critique(_make_faithfulness_envelope())
+        mock_memory.update_engram_faithfulness.assert_called_once_with("qid-7", 1, "claims macOS", judge_model="qwen3.5:27b")
+        mock_memory.update_engram_score.assert_not_called()
+
+    def test_quality_kind_still_updates_critic_score(self):
+        agent, mock_memory, _ = _make_agent()
+        env = _make_faithfulness_envelope()
+        env.payload["kind"] = "quality"
+        agent._handle_critique(env)
+        mock_memory.update_engram_score.assert_called_once()
+        mock_memory.update_engram_faithfulness.assert_not_called()
+
+    def test_faithfulness_none_score_is_ignored(self):
+        agent, mock_memory, _ = _make_agent()
+        agent._handle_critique(_make_faithfulness_envelope(score=None))
+        mock_memory.update_engram_faithfulness.assert_not_called()

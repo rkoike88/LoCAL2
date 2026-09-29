@@ -438,6 +438,8 @@ class CritiqueResult(BusMessage):
     query_id:    str
     rubric_name: str = ""
     rubric_text: str = ""
+    kind:        str = "quality"   # "quality" (Prometheus rubric pass) | "faithfulness" (answer vs tool results)
+    judge_model: str = ""          # model that produced this critique (faithfulness pass)
 
     @classmethod
     def from_envelope(cls, envelope: MessageEnvelope) -> "CritiqueResult":
@@ -451,6 +453,8 @@ class CritiqueResult(BusMessage):
             query_id=p.get("query_id", ""),
             rubric_name=p.get("rubric_name", ""),
             rubric_text=p.get("rubric_text", ""),
+            kind=p.get("kind", "quality") or "quality",
+            judge_model=p.get("judge_model", ""),
         )
 
 

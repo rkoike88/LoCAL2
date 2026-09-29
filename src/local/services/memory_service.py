@@ -168,7 +168,11 @@ class MemoryService:
 
         - Base: ``1.0 - cosine_distance``
         - Entity overlap: ``+0.1`` if any stored entity appears in the query
-        - Critic offset: ``+(critic_score - 3) × critic_score_weight``
+        - Critic offset: ``+(rank_score - 3) × critic_score_weight``, where
+          ``rank_score`` is chosen by ``search_memory.rank_by``:
+          ``critic_score`` (default), ``faithfulness_score``, or ``min``
+          (the lower of the two that are present). Engrams lacking the
+          selected score are not adjusted.
 
         Args:
             query: Natural-language search text; embedded with the
@@ -204,6 +208,7 @@ class MemoryService:
 
         sm_cfg = get_config("search_memory")
         critic_weight: float = sm_cfg.get("critic_score_weight", 0.05)
+        rank_by: str = sm_cfg.get("rank_by", "critic_score")
 
         candidates = []
         query_lower = query.lower()
@@ -217,13 +222,29 @@ class MemoryService:
                         score += 0.1
                 except Exception:
                     pass
-            critic_score = meta.get("critic_score")
-            if critic_score is not None:
-                score += (int(critic_score) - 3) * critic_weight
+            rank_score = self._rank_score(meta, rank_by)
+            if rank_score is not None:
+                score += (rank_score - 3) * critic_weight
             candidates.append({"id": id_, "content": doc, "metadata": meta, "score": score})
 
         candidates.sort(key=lambda c: c["score"], reverse=True)
         return candidates[:n]
+
+    @staticmethod
+    def _rank_score(meta: dict, rank_by: str) -> Optional[int]:
+        """Pick the 1–5 score used for recall re-ranking, per ``rank_by``."""
+        def _get(key: str) -> Optional[int]:
+            v = meta.get(key)
+            try:
+                return int(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+        if rank_by == "faithfulness_score":
+            return _get("faithfulness_score")
+        if rank_by == "min":
+            present = [s for s in (_get("critic_score"), _get("faithfulness_score")) if s is not None]
+            return min(present) if present else None
+        return _get("critic_score")
 
     def list_episodic(self, n: int = 100) -> list[dict[str, Any]]:
         """Return the n most recent episodic engrams, newest first."""
@@ -296,6 +317,25 @@ class MemoryService:
             merged["critic_rubric_text"] = rubric_text
         self._collection.update(ids=[query_id], metadatas=[merged])
         logger.debug("MemoryService: updated critic_score=%d rubric=%s on engram %s", score, rubric_name, query_id)
+
+    def update_engram_faithfulness(self, query_id: str, score: int, feedback: str = "", judge_model: str = "") -> None:
+        """Merge a faithfulness score (answer vs. its tool results) into an engram.
+
+        Kept separate from ``critic_score`` so the two signals can be compared
+        and ``search_memory.rank_by`` can choose which one drives recall.
+        """
+        result = self._collection.get(ids=[query_id])
+        if not result.get("ids"):
+            logger.warning("MemoryService: engram %s not found — skipping faithfulness update", query_id)
+            return
+        existing_meta = (result.get("metadatas") or [{}])[0]
+        merged = {**existing_meta, "faithfulness_score": score}
+        if feedback:
+            merged["faithfulness_feedback"] = feedback
+        if judge_model:
+            merged["faithfulness_judge"] = judge_model
+        self._collection.update(ids=[query_id], metadatas=[merged])
+        logger.debug("MemoryService: updated faithfulness_score=%d on engram %s", score, query_id)
 
     def annotate_pairwise(self, query_id_a: str, query_id_b: str, winner: str) -> None:
         """Write ``pairwise_winner`` (bool) to both engrams.

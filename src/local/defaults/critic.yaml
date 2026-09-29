@@ -83,3 +83,61 @@ grade_prompt: |
   {rubric}
 
   ###Feedback:
+
+# ---------------------------------------------------------------------------
+# Optional second pass: faithfulness of the answer to the tool results it drew on.
+#
+# Prometheus's style/realistic rubrics can't check facts (the style rubric says so
+# explicitly), yet critic_score is what ranks memory recall. A faithfulness grade
+# asks a narrower, checkable question: does the answer claim anything the retrieved
+# data does not support? The result is published as a separate critique.result
+# (kind: faithfulness) and stored on the engram as faithfulness_score; see
+# search_memory.yaml rank_by to make it drive recall.
+#
+# Judge choice matters. In an A/B on a Gemma answer with one injected false claim
+# (Cuttlefish "runs on macOS/Windows without KVM"), prometheus-7b scored the
+# grounded and the falsified answer identically (4/4); qwen3.5:27b scored them
+# 5 vs 1 and quoted the false claim with the contradicting source. The 27B judge
+# took ~5 min per grade on an M1 Max, so this pass runs after the primary critique
+# has already been published and is off by default.
+faithfulness:
+  enabled: false
+  model: ""                    # judge model; empty → the critic model above (weak — see note)
+  think: false                 # request extended thinking from the judge (slower, more reliable on 27B+)
+  timeout: 600                 # seconds
+  num_ctx: 16384
+  temperature: 0.0
+  max_reference_chars: 12000   # tool results are truncated to this before grading
+  exclude_tools:               # tool results that are not reference material
+    - persona
+    - set_the_stage
+    - remember_this
+  rubric: |
+    [Is every factual claim in the response supported by the reference material?]
+    Do not reward formatting, length, or structure. Judge only whether the response's claims are grounded in the reference material.
+    Score 1: The response contains one or more claims that directly contradict the reference material, or invents significant facts not present in it.
+    Score 2: The response contains claims that go well beyond the reference material without support, even if not directly contradicted.
+    Score 3: Mostly grounded, but includes minor unsupported details or generalizations not found in the reference.
+    Score 4: All substantive claims are supported by the reference material; at most trivial paraphrase drift.
+    Score 5: Every factual claim is directly traceable to the reference material, and nothing unsupported was added.
+  grade_prompt: |
+    You are grading an assistant's response for faithfulness to the reference material it was given.
+
+    Question:
+    {query}
+
+    Response to evaluate:
+    <response>
+    {answer}
+    </response>
+
+    Reference material (the only sources the response was allowed to use):
+    <reference>
+    {reference}
+    </reference>
+
+    Rubric:
+    {rubric}
+
+    First list every factual claim in the response that is NOT supported by the reference material, or that CONTRADICTS it (quote the claim and name the source that contradicts it). If there are none, say "None". Then give the score.
+    Output format: "Feedback: (feedback) [RESULT] (integer 1-5)". No other text.

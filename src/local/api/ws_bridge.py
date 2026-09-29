@@ -151,12 +151,15 @@ def translate(envelope: MessageEnvelope) -> dict | None:
         }
 
     if subject == CRITIQUE:
+        kind = payload.get("kind") or "quality"
         return {
-            "type": "critique",
+            # faithfulness passes are a distinct event so the primary critique bar is not overwritten
+            "type": "critique" if kind == "quality" else "faithfulness",
             "score": payload.get("score"),
             "feedback": payload.get("feedback", ""),
             "rubric_name": payload.get("rubric_name", ""),
             "rubric_text": payload.get("rubric_text", ""),
+            "judge_model": payload.get("judge_model", ""),
             "query_id": payload.get("query_id") or query_id,
         }
 

@@ -6,13 +6,64 @@ top_k: 64
 num_ctx: 32000
 grade_timeout: 30          # seconds; Prometheus can be slow on first call
 
+# Default rubric (used when no tool called, no tool has a declared rubric, and no persona match)
 rubric: |
-  [Is the response accurate, helpful, and well-reasoned?]
-  Score 1: The response is incorrect, harmful, or completely unhelpful.
-  Score 2: The response is mostly wrong or missing important information.
-  Score 3: The response is partially correct but incomplete or unclear.
-  Score 4: The response is mostly correct with minor gaps.
-  Score 5: The response is accurate, complete, and clearly explained.
+  [Is the response realistic, accurate, and genuinely helpful?]
+  Score 1: The response presents an unrealistic or harmful outcome as achievable, is factually wrong, or would mislead the user into a bad decision — even if a disclaimer is present. A detailed step-by-step plan for a goal that fails for the vast majority of people in the stated conditions scores 1: the structure creates false confidence and the detail makes the infeasibility less visible, not more.
+  Score 2: The response significantly overstates what is realistically achievable for a typical person in the stated conditions, or is overly optimistic without adequately conveying how difficult or unlikely success actually is.
+  Score 3: The response is partially realistic but unclear, incomplete, or fails to adequately convey how difficult or unlikely the goal actually is.
+  Score 4: The response is largely realistic and accurate, with only minor optimism or gaps a careful reader would notice.
+  Score 5: The response is accurate, grounded in what is realistically achievable, complete, and clearly explained with no important omissions.
+
+style_rubric: |
+  [Is the response well-formatted, comprehensive, and maximally useful given the retrieved data?]
+  Do not evaluate factual accuracy — the response drew on live retrieved data that Prometheus cannot verify.
+  Score 1: Poorly formatted, incomplete, or fails to address the question using the retrieved information.
+  Score 2: Addresses the question but poorly structured or missing key aspects of the retrieved data.
+  Score 3: Acceptable — uses the retrieved data but with minor formatting issues or gaps in coverage.
+  Score 4: Well-formatted and comprehensive, with only minor gaps a careful reader would notice.
+  Score 5: Exceptionally well-formatted, covers the retrieved data thoroughly, and is maximally useful.
+
+clarity_rubric: |
+  [Did the assistant clearly confirm the action taken?]
+  Score 1: No confirmation provided, or response is misleading about what happened.
+  Score 2: Vague confirmation — it is unclear what was saved, stored, or done.
+  Score 3: Confirms the action but without enough detail to give the user confidence.
+  Score 4: Clear confirmation with most relevant details about what was done.
+  Score 5: Specific, unambiguous confirmation that gives the user full confidence the action succeeded.
+
+empathic_rubric: |
+  [Does the response demonstrate emotional presence and make the person feel heard?]
+  Score 1: Cold, clinical, or dismissive — ignores the emotional dimension entirely; may correct facts or give advice but fails the person on a human level.
+  Score 2: Acknowledges the feeling briefly but pivots quickly to information or advice without genuine validation.
+  Score 3: Shows care and warmth but the response is either too thin to feel substantive, or advice overshadows emotional attunement.
+  Score 4: Warm, validates the person's experience, and provides appropriate support or guidance — minor gaps in depth or resonance.
+  Score 5: Fully present — validates the feeling, demonstrates genuine understanding of the person's situation, and offers the right depth of response for the emotional register.
+
+interpretive_rubric: |
+  [Did the response correctly read the gap and either answer or clarify appropriately?]
+  Score 1: Ignored ambiguity entirely and answered a clearly wrong interpretation, OR asked multiple scattered questions without first reflecting what was understood.
+  Score 2: Made an interpretation without signaling it, or asked a clarifying question without first restating what was understood.
+  Score 3: Identified the ambiguity and reflected understanding, but asked an unfocused question or answered when clarification was clearly needed (or vice versa).
+  Score 4: Correctly identified the gap, reflected what was understood, and either answered directly or asked one focused clarifying question — minor gaps in precision.
+  Score 5: Read the gap accurately, restated the scenario as understood, and either answered confidently or asked exactly the one question that would resolve the ambiguity.
+
+creative_rubric: |
+  [Is the response original, engaging, and contextually imaginative?]
+  Score 1: Generic, formulaic, or fails to engage with the creative dimension of the request.
+  Score 2: Makes an attempt at creativity but defaults to obvious or clichéd responses.
+  Score 3: Shows some imaginative thinking but is inconsistent, partially generic, or misses the register the prompt called for.
+  Score 4: Engaging and original, with only minor lapses into formulaic phrasing or missed creative opportunities.
+  Score 5: Fresh, contextually imaginative, and genuinely engaging — demonstrates creative thinking while remaining useful and well-matched to the prompt's register.
+
+# Maps persona mode → rubric name. Tool-declared rubrics (style, clarity) take priority over this.
+persona_rubric_map:
+  empathic: empathic
+  interpretive: interpretive
+  creative: creative
+  analytic: realistic
+  pragmatic: realistic
+  bridging: style
 
 grade_prompt: |
   ###Task Description:
@@ -33,3 +84,60 @@ grade_prompt: |
 
   ###Feedback:
 
+# ---------------------------------------------------------------------------
+# Optional second pass: faithfulness of the answer to the tool results it drew on.
+#
+# Prometheus's style/realistic rubrics can't check facts (the style rubric says so
+# explicitly), yet critic_score is what ranks memory recall. A faithfulness grade
+# asks a narrower, checkable question: does the answer claim anything the retrieved
+# data does not support? The result is published as a separate critique.result
+# (kind: faithfulness) and stored on the engram as faithfulness_score; see
+# search_memory.yaml rank_by to make it drive recall.
+#
+# Judge choice matters. In an A/B on a Gemma answer with one injected false claim
+# (Cuttlefish "runs on macOS/Windows without KVM"), prometheus-7b scored the
+# grounded and the falsified answer identically (4/4); qwen3.5:27b scored them
+# 5 vs 1 and quoted the false claim with the contradicting source. The 27B judge
+# took ~5 min per grade on an M1 Max, so this pass runs after the primary critique
+# has already been published and is off by default.
+faithfulness:
+  enabled: false
+  model: ""                    # judge model; empty → the critic model above (weak — see note)
+  think: false                 # request extended thinking from the judge (slower, more reliable on 27B+)
+  timeout: 600                 # seconds
+  num_ctx: 16384
+  temperature: 0.0
+  max_reference_chars: 12000   # tool results are truncated to this before grading
+  exclude_tools:               # tool results that are not reference material
+    - persona
+    - set_the_stage
+    - remember_this
+  rubric: |
+    [Is every factual claim in the response supported by the reference material?]
+    Do not reward formatting, length, or structure. Judge only whether the response's claims are grounded in the reference material.
+    Score 1: The response contains one or more claims that directly contradict the reference material, or invents significant facts not present in it.
+    Score 2: The response contains claims that go well beyond the reference material without support, even if not directly contradicted.
+    Score 3: Mostly grounded, but includes minor unsupported details or generalizations not found in the reference.
+    Score 4: All substantive claims are supported by the reference material; at most trivial paraphrase drift.
+    Score 5: Every factual claim is directly traceable to the reference material, and nothing unsupported was added.
+  grade_prompt: |
+    You are grading an assistant's response for faithfulness to the reference material it was given.
+
+    Question:
+    {query}
+
+    Response to evaluate:
+    <response>
+    {answer}
+    </response>
+
+    Reference material (the only sources the response was allowed to use):
+    <reference>
+    {reference}
+    </reference>
+
+    Rubric:
+    {rubric}
+
+    First list every factual claim in the response that is NOT supported by the reference material, or that CONTRADICTS it (quote the claim and name the source that contradicts it). If there are none, say "None". Then give the score.
+    Output format: "Feedback: (feedback) [RESULT] (integer 1-5)". No other text.

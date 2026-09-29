@@ -1,1 +1,17 @@
 id: datetime_tool
+critique_rubric_name: "style"
+critique_priority: 8
+
+schema:
+  type: function
+  function:
+    name: get_datetime
+    description: |
+      Returns the current local date, time, day of week, and timezone.
+      Call this tool for any question about the current time, date, day, year,
+      or timezone. Do not answer from training data — your training cutoff is
+      not the current date.
+    parameters:
+      type: object
+      properties: {}
+      required: []

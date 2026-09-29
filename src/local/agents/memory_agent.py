@@ -202,8 +202,12 @@ class MemoryAgent(BaseAgent):
 
         self._do_transition(MemoryAgentAction.UPDATE_SCORE)
         try:
-            self._memory.update_engram_score(query_id, score, feedback, rubric_name=msg.rubric_name, rubric_text=msg.rubric_text)
-            logger.info("MemoryAgent: scored engram %s → %d (%s)", query_id, score, msg.rubric_name or "realistic")
+            if msg.kind == "faithfulness":
+                self._memory.update_engram_faithfulness(query_id, score, feedback, judge_model=msg.judge_model)
+                logger.info("MemoryAgent: faithfulness of engram %s → %d (judge=%s)", query_id, score, msg.judge_model or "?")
+            else:
+                self._memory.update_engram_score(query_id, score, feedback, rubric_name=msg.rubric_name, rubric_text=msg.rubric_text)
+                logger.info("MemoryAgent: scored engram %s → %d (%s)", query_id, score, msg.rubric_name or "realistic")
         except Exception as exc:
             logger.error("MemoryAgent: update_engram_score failed: %s", exc)
         finally:

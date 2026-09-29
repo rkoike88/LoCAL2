@@ -1,0 +1,35 @@
+id: set_the_stage
+enabled: false
+
+schema:
+  type: function
+  function:
+    name: set_the_stage
+    description: >
+      Call this tool before answering every message. Fill in how you are reading
+      the current situation — who you are, who you are speaking to, what they
+      actually need, what success looks like, and any conscious constraints.
+      The tool returns your stage setting as confirmation.
+    parameters:
+      type: object
+      properties:
+        role:
+          type: string
+          description: "Who you are in this exchange (default: helpful assistant)"
+        audience:
+          type: string
+          description: "Who you are speaking to (default: general user)"
+        intent:
+          type: string
+          description: "What they actually need — not just what they literally asked"
+        success:
+          type: string
+          description: "What a good response looks like for this specific query"
+        bounds:
+          type: string
+          description: "What you are consciously not doing, and why (omit if none)"
+      required:
+        - role
+        - audience
+        - intent
+        - success
